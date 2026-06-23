@@ -1,0 +1,613 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import styles from "./page.module.css";
+import { api } from "@/lib/api";
+import { UnitKerja } from "@/lib/types";
+
+type TreeNode = {
+  id: string;
+  type: 'OPD' | 'JABATAN';
+  label: string;
+  eselon?: string;
+  kelas?: number;
+  parentId?: string;
+  unitKerjaId?: string;
+  urutan?: number;
+  children: TreeNode[];
+};
+
+type ModalMode = 'add' | 'edit' | null;
+type ModalTarget = 'opd' | 'jabatan';
+
+interface ModalData {
+  id?: string;
+  nama: string;
+  kode: string;
+  parentId: string;
+  unitKerjaId: string;
+  urutan: number;
+  jenisJabatan: string;
+  kelasJabatan: number;
+  targetType: ModalTarget;
+}
+
+const EMPTY_MODAL: ModalData = {
+  nama: '', kode: '', parentId: '', unitKerjaId: '', urutan: 0,
+  jenisJabatan: '', kelasJabatan: 1, targetType: 'jabatan'
+};
+
+export default function OrganisasiPage() {
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [treeData, setTreeData] = useState<TreeNode[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isEmpty, setIsEmpty] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Modal state
+  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [modalData, setModalData] = useState<ModalData>(EMPTY_MODAL);
+  const [modalSaving, setModalSaving] = useState(false);
+
+  // Raw data refs for modal dropdowns
+  const [rawOpds, setRawOpds] = useState<UnitKerja[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [rawJabatans, setRawJabatans] = useState<any[]>([]);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const loadData = useCallback(async (silent = false) => {
+    if (silent) {
+      setIsBackgroundRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    try {
+      const [opdsRaw, jabatansRaw] = await Promise.all([
+        api.getUnitKerja(),
+        api.readAllEntity('jabatan', '')
+      ]);
+
+      const opds = (opdsRaw || []) as UnitKerja[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const jabatans = (jabatansRaw || []) as any[];
+
+      setRawOpds(opds);
+      setRawJabatans(jabatans);
+
+      if (opds.length === 0 && jabatans.length === 0) {
+        setIsEmpty(true);
+        setTreeData([]);
+        setIsLoading(false);
+        setIsBackgroundRefreshing(false);
+        return;
+      }
+
+      setIsEmpty(false);
+
+      const map: Record<string, TreeNode> = {};
+      const roots: TreeNode[] = [];
+
+      opds.forEach(opd => {
+        map[opd.id] = {
+          id: opd.id, type: 'OPD', label: opd.nama || opd.id,
+          parentId: opd.parentId, urutan: opd.urutan || 0, children: []
+        };
+      });
+
+      jabatans.forEach(jbt => {
+        map[jbt.id] = {
+          id: jbt.id, type: 'JABATAN', label: jbt.namaJabatan || jbt.id,
+          eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
+          parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
+          urutan: jbt.urutan || 0,
+          children: []
+        };
+      });
+
+      // --- TIPUAN VISUAL UNTUK SUB-UNIT (BAGIAN/UPTD) ---
+      // Jika ada Jabatan di Sub-Unit yang atasannya ada di Unit Kerja lain (misal: Kabag di bawah Asisten),
+      // maka secara visual kita pindahkan Node OPD Sub-Unit tersebut ke bawah Jabatan Asisten.
+      const opdToExternalParentJbt: Record<string, string> = {};
+      const jbtToReroute: Record<string, boolean> = {};
+
+      jabatans.forEach(jbt => {
+        if (jbt.parentId && jbt.unitKerjaId) {
+          const parentJbt = jabatans.find((p: any) => p.id === jbt.parentId);
+          if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
+            // Ditemukan cross-unit reporting!
+            opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
+            jbtToReroute[jbt.id] = true; // Jabatan ini dimunculkan di bawah OPD-nya, bukan menduplikasi di bawah parent aslinya
+          }
+        }
+      });
+
+      opds.forEach(opd => {
+        if (opdToExternalParentJbt[opd.id] && map[opdToExternalParentJbt[opd.id]]) {
+          // Visual Trick: OPD Sub-Unit nempel di bawah Jabatan Atasannya
+          map[opdToExternalParentJbt[opd.id]].children.push(map[opd.id]);
+        } else if (opd.parentId && map[opd.parentId]) {
+          map[opd.parentId].children.push(map[opd.id]);
+        } else {
+          roots.push(map[opd.id]);
+        }
+      });
+
+      jabatans.forEach(jbt => {
+        if (jbt.parentId && map[jbt.parentId] && !jbtToReroute[jbt.id]) {
+          map[jbt.parentId].children.push(map[jbt.id]);
+        } else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) {
+          map[jbt.unitKerjaId].children.push(map[jbt.id]);
+        } else {
+          roots.push(map[jbt.id]);
+        }
+      });
+
+      const getEselonWeight = (eselon?: string) => {
+        const val = (eselon || '').toLowerCase().trim();
+        if (val.includes('pimpinan tinggi')) return 5;
+        if (val === 'administrator') return 4;
+        if (val === 'pengawas') return 3;
+        if (val === 'fungsional') return 2;
+        if (val === 'pelaksana') return 1;
+        return 0;
+      };
+
+      const sortNodes = (nodes: TreeNode[]) => {
+        nodes.sort((a, b) => {
+          const urutA = a.urutan || 999;
+          const urutB = b.urutan || 999;
+          if (urutA !== urutB) return urutA - urutB;
+          
+          const kelasA = Number(a.kelas) || 0;
+          const kelasB = Number(b.kelas) || 0;
+          if (kelasA !== kelasB) return kelasB - kelasA;
+          const wA = getEselonWeight(a.eselon);
+          const wB = getEselonWeight(b.eselon);
+          if (wA !== wB) return wB - wA;
+          return a.label.localeCompare(b.label);
+        });
+        nodes.forEach(n => { if (n.children.length > 0) sortNodes(n.children); });
+      };
+
+      sortNodes(roots);
+      setTreeData(roots);
+
+      setExpandedNodes(prev => {
+        const next = { ...prev };
+        opds.forEach(opd => {
+          if (next[opd.id] === undefined) {
+            next[opd.id] = true;
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      console.error("Gagal memuat data tree", error);
+    }
+    setIsLoading(false);
+    setIsBackgroundRefreshing(false);
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+
+
+  const handleSyncToSheet = async () => {
+    if (!confirm("Sinkronkan seluruh data ke Google Sheet?")) return;
+    setIsSyncing(true);
+    try {
+      await api.syncToSheet();
+      showToast("✅ Data berhasil disinkronkan ke Google Sheet!");
+    } catch (error) {
+      alert("Gagal sync ke Sheet: " + error);
+    }
+    setIsSyncing(false);
+  };
+
+  const handleSyncFromSheet = async () => {
+    if (!confirm("Tarik data dari Google Sheet? Baris tanpa ID akan dibuatkan ID baru di Sheet.")) return;
+    setIsSyncing(true);
+    try {
+      await api.syncFromSheet();
+      showToast("✅ Data berhasil ditarik dari Google Sheet!");
+      await loadData();
+    } catch (error) {
+      alert("Gagal tarik dari Sheet: " + error);
+    }
+    setIsSyncing(false);
+  };
+
+  const handlePublishSitpp = async () => {
+    if (!confirm("Publish seluruh struktur organisasi ini ke SiTPP sekarang? SiTPP akan langsung membaca data terbaru ini.")) return;
+    setIsSyncing(true);
+    try {
+      await api.exportForSitpp();
+      showToast("🚀 Data struktur berhasil dipublish! SiTPP sekarang menggunakan versi terbaru ini.");
+    } catch (error) {
+      alert("Gagal mempublish: " + error);
+    }
+    setIsSyncing(false);
+  };
+
+
+
+  const toggleNode = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // --- MODAL HANDLERS ---
+  const openAddOpdModal = () => {
+    setModalData({
+      ...EMPTY_MODAL,
+      targetType: 'opd'
+    });
+    setModalMode('add');
+  };
+
+  const openAddModal = (parentNode: TreeNode, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log("openAddModal called for", parentNode);
+    setModalData({
+      ...EMPTY_MODAL,
+      parentId: parentNode.type === 'JABATAN' ? parentNode.id : '',
+      unitKerjaId: parentNode.type === 'OPD' ? parentNode.id : (parentNode.unitKerjaId || ''),
+      targetType: 'jabatan'
+    });
+    setModalMode('add');
+  };
+
+  const openEditModal = (node: TreeNode, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log("openEditModal called for", node);
+    if (node.type === 'OPD') {
+      const opd = rawOpds.find(o => o.id === node.id);
+      setModalData({
+        id: node.id, nama: opd?.nama || node.label, kode: opd?.kode || '',
+        parentId: opd?.parentId || '', unitKerjaId: '', jenisJabatan: '',
+        kelasJabatan: 0, urutan: opd?.urutan || 0, targetType: 'opd'
+      });
+    } else {
+      setModalData({
+        id: node.id, nama: node.label, kode: '',
+        parentId: node.parentId || '', unitKerjaId: node.unitKerjaId || '',
+        jenisJabatan: node.eselon || '', kelasJabatan: node.kelas || 1,
+        urutan: node.urutan || 0, targetType: 'jabatan'
+      });
+    }
+    setModalMode('edit');
+  };
+
+  const handleDelete = async (node: TreeNode, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const type = node.type === 'OPD' ? 'Unit Kerja' : 'Jabatan';
+    if (!confirm(`Yakin ingin menghapus ${type}: "${node.label}"? Ini tidak bisa dibatalkan.`)) return;
+    try {
+      if (node.type === 'OPD') {
+        await api.deleteEntity('unitKerja', node.id);
+      } else {
+        await api.deleteJabatan(node.id);
+      }
+      showToast(`✅ ${type} "${node.label}" berhasil dihapus.`);
+      await loadData(true);
+    } catch (error) {
+      alert("Gagal menghapus: " + error);
+    }
+  };
+
+  const handleModalSave = async () => {
+    setModalSaving(true);
+    try {
+      if (modalData.targetType === 'opd') {
+        const opdPayload = {
+          nama: modalData.nama,
+          kode: modalData.kode,
+          parentId: modalData.parentId || null,
+          urutan: modalData.urutan || 0,
+          tahun: "2026"
+        };
+        if (modalMode === 'edit' && modalData.id) {
+          await api.updateEntity('unitKerja', modalData.id, opdPayload);
+          showToast("✅ Unit Kerja berhasil diperbarui.");
+        } else {
+          await api.createEntity('unitKerja', opdPayload);
+          showToast("✅ Unit Kerja baru berhasil ditambahkan.");
+        }
+      } else {
+        const jabatanPayload = {
+          namaJabatan: modalData.nama,
+          kodeJabatan: modalData.kode || '',
+          jenisJabatan: modalData.jenisJabatan,
+          kelasJabatan: modalData.kelasJabatan,
+          parentId: modalData.parentId || null,
+          unitKerjaId: modalData.unitKerjaId || null,
+          urutan: modalData.urutan || 0,
+          ikhtisarJabatan: '',
+          level: 1,
+          tahun: "2026"
+        };
+        if (modalMode === 'edit' && modalData.id) {
+          await api.updateJabatan(modalData.id, jabatanPayload);
+          showToast("✅ Jabatan berhasil diperbarui.");
+        } else {
+          await api.createJabatan(jabatanPayload);
+          showToast("✅ Jabatan baru berhasil ditambahkan.");
+        }
+      }
+
+      // Auto-expand direct parent if a child is added
+      const parentToExpand = modalMode === 'add' ? (modalData.parentId || modalData.unitKerjaId || null) : null;
+      if (parentToExpand) {
+        setExpandedNodes(prev => ({ ...prev, [parentToExpand]: true }));
+      }
+
+      setModalMode(null);
+      await loadData(true);
+    } catch (error) {
+      alert("Gagal menyimpan: " + error);
+    }
+    setModalSaving(false);
+  };
+
+  // --- SEARCH FILTER ---
+  const filterTree = (nodes: TreeNode[], query: string): TreeNode[] => {
+    if (!query) return nodes;
+    const q = query.toLowerCase();
+    return nodes.reduce<TreeNode[]>((acc, node) => {
+      const match = node.label.toLowerCase().includes(q);
+      const filteredChildren = filterTree(node.children, query);
+      if (match || filteredChildren.length > 0) {
+        acc.push({ ...node, children: match ? node.children : filteredChildren });
+      }
+      return acc;
+    }, []);
+  };
+
+  const displayTree = filterTree(treeData, searchQuery);
+
+  // Fungsi Renderer Rekursif
+  const renderTreeNodes = (nodes: TreeNode[]) => (
+    <ul>
+      {nodes.map(node => {
+        const isExpanded = !!expandedNodes[node.id];
+        const hasChildren = node.children.length > 0;
+        
+        let highlightClass = '';
+        let icon = '📌';
+        let eselonClass = styles.eselonLainnya;
+        const eselonVal = (node.eselon || '').toLowerCase().trim();
+        
+        if (eselonVal.includes('pimpinan tinggi')) { highlightClass = styles.nodeHighlightJpt; icon = '⭐'; eselonClass = styles.eselonJpt; }
+        else if (eselonVal === 'administrator') { icon = '🛡️'; eselonClass = styles.eselonAdministrator; }
+        else if (eselonVal === 'pengawas') { icon = '👁️'; eselonClass = styles.eselonPengawas; }
+        else if (eselonVal === 'fungsional') { icon = '💼'; eselonClass = styles.eselonFungsional; }
+        else if (eselonVal === 'pelaksana') { icon = '👤'; eselonClass = styles.eselonPelaksana; }
+        if (node.type === 'OPD') icon = '🏢';
+
+        return (
+          <li key={node.id} className={styles.treeNode}>
+            <div onClick={(e) => toggleNode(node.id, e)} className={`${styles.treeNodeContent} ${highlightClass}`}>
+               <div className={styles.treeToggle}>
+                 {hasChildren ? (
+                   <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                 ) : <span></span>}
+               </div>
+               <div className={styles.treeIcon}>{icon}</div>
+               <div className={styles.treeTitleRow}>
+                 <span className={styles.titleLabel}>{node.label}</span>
+               </div>
+               <div className={styles.rightSection}>
+                 {node.type === 'JABATAN' && node.eselon && (
+                   <span className={`${styles.badgeEselon} ${eselonClass}`}>{node.eselon}</span>
+                 )}
+                 {node.type === 'JABATAN' && node.kelas && (
+                   <span className={styles.badgeKelas}>Kls {node.kelas}</span>
+                 )}
+                 <div className={styles.treeActions}>
+                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} title="Tambah Bawahan" onClickCapture={(e) => openAddModal(node, e)}>
+                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    </button>
+                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnWarning}`} title="Edit" onClickCapture={(e) => openEditModal(node, e)}>
+                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                    </button>
+                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnDanger}`} title="Hapus" onClickCapture={(e) => handleDelete(node, e)}>
+                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                 </div>
+               </div>
+            </div>
+            {isExpanded && hasChildren && renderTreeNodes(node.children)}
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  return (
+    <div className={styles.container}>
+      {/* Toast */}
+      {toast && <div className={styles.toast}>{toast}</div>}
+
+      {/* Header */}
+      <div className={styles.header}>
+        <div>
+          <h1 className={styles.title}>
+            Struktur Organisasi
+            {isBackgroundRefreshing && (
+              <span className={styles.refreshSpinner} title="Sinkronisasi data...">🔄</span>
+            )}
+          </h1>
+          <p className={styles.subtitle}>Peta Jabatan — Master Data Sianjab</p>
+        </div>
+        <div className={styles.actions}>
+          <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">
+            📥 Impor dari Sheet
+          </button>
+          <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Tulis data dari Website ke Google Sheet">
+            📤 Ekspor ke Sheet
+          </button>
+          <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
+            {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
+          </button>
+        </div>
+      </div>
+
+      <div className={`${styles.card} glass-panel`}>
+        <div className={styles.toolbar}>
+          <input
+            type="text" placeholder="Cari nama unit kerja atau jabatan..."
+            className={styles.searchInput}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ flex: 1, padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+          />
+          <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
+            ➕ Tambah OPD Baru
+          </button>
+        </div>
+
+        <div className={styles.treeContainer} style={{ padding: '20px', overflowX: 'auto' }}>
+          {isLoading ? (
+            <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>
+               <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🌳</div>
+               Memuat silsilah pohon organisasi...
+            </div>
+          ) : isEmpty ? (
+            <div style={{ padding: '4rem 2rem', textAlign: 'center', opacity: 0.7 }}>
+              <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🏢</div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Tabel Organisasi Kosong</h3>
+              <p style={{ opacity: 0.7 }}>Silakan tambah OPD baru untuk memulai.</p>
+            </div>
+          ) : (
+            <div className={styles.treeContainerWrapper} style={{ minWidth: '800px' }}>
+              {renderTreeNodes(displayTree)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* MODAL */}
+      {modalMode && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{modalMode === 'add' ? '➕ Tambah' : '✏️ Edit'} {modalData.targetType === 'opd' ? 'Unit Kerja' : 'Jabatan'}</h2>
+              <button className={styles.modalClose} onClick={() => setModalMode(null)}>✕</button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.formGroup}>
+                <label>{modalData.targetType === 'opd' ? 'Nama Unit Kerja' : 'Nama Jabatan'}</label>
+                <input type="text" className={styles.formInput} value={modalData.nama}
+                  onChange={(e) => setModalData({...modalData, nama: e.target.value})}
+                  placeholder={modalData.targetType === 'opd' ? 'Contoh: Dinas Kesehatan' : 'Contoh: Kepala Seksi'}
+                />
+              </div>
+
+              {modalData.targetType === 'opd' && (
+                <>
+                  <div className={styles.formGroup}>
+                    <label>Induk Unit Kerja (Opsional)</label>
+                    <select className={styles.formInput} value={modalData.parentId || ''}
+                      onChange={(e) => setModalData({...modalData, parentId: e.target.value})}>
+                      <option value="">-- Tidak ada (Ini adalah OPD Induk Utama) --</option>
+                      {rawOpds
+                        .filter(o => o.id !== modalData.id && !o.parentId) // only allow picking top-level OPDs as parent
+                        .sort((a,b) => (a.nama||'').localeCompare(b.nama||''))
+                        .map(o => (
+                          <option key={o.id} value={o.id}>{o.nama}</option>
+                        ))}
+                    </select>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>Pilih jika ini adalah sub-unit seperti Puskesmas, UPTD, atau Bagian.</span>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Kode</label>
+                    <input type="text" className={styles.formInput} value={modalData.kode}
+                      onChange={(e) => setModalData({...modalData, kode: e.target.value})}
+                      placeholder="Contoh: 1.02"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={styles.formGroup}>
+                <label>Urutan (Opsional)</label>
+                <input type="number" className={styles.formInput} value={modalData.urutan}
+                  onChange={(e) => setModalData({...modalData, urutan: parseInt(e.target.value) || 0})}
+                  placeholder="Contoh: 1"
+                />
+              </div>
+
+              {modalData.targetType === 'jabatan' && (
+                <>
+                  <div className={styles.formGroup}>
+                    <label>Jenis Jabatan</label>
+                    <select className={styles.formInput} value={modalData.jenisJabatan}
+                      onChange={(e) => setModalData({...modalData, jenisJabatan: e.target.value})}>
+                      <option value="">-- Pilih --</option>
+                      <option value="Jabatan Pimpinan Tinggi">Jabatan Pimpinan Tinggi</option>
+                      <option value="Administrator">Administrator</option>
+                      <option value="Pengawas">Pengawas</option>
+                      <option value="Pelaksana">Pelaksana</option>
+                      <option value="Fungsional">Fungsional</option>
+                    </select>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Kelas Jabatan</label>
+                    <input type="number" className={styles.formInput} min={1} max={17}
+                      value={modalData.kelasJabatan}
+                      onChange={(e) => setModalData({...modalData, kelasJabatan: parseInt(e.target.value) || 1})}
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Induk Jabatan (Atasan Langsung)</label>
+                    <select className={styles.formInput} value={modalData.parentId || ''}
+                      onChange={(e) => setModalData({...modalData, parentId: e.target.value})}>
+                      <option value="">-- Tidak Ada / Pimpinan Tertinggi --</option>
+                      {rawJabatans
+                        .filter(j => j.id !== modalData.id) // cegah set diri sendiri
+                        .sort((a,b) => (a.namaJabatan||'').localeCompare(b.namaJabatan||''))
+                        .map(j => (
+                          <option key={j.id} value={j.id}>
+                            {j.namaJabatan} {j.unitKerjaId ? `(${rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId})` : ''}
+                          </option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>
+                      Pilih Atasan agar jabatan ini muncul di bawah atasan tersebut di struktur pohon.
+                    </span>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Unit Kerja</label>
+                    <select className={styles.formInput} value={modalData.unitKerjaId}
+                      onChange={(e) => setModalData({...modalData, unitKerjaId: e.target.value})}>
+                      <option value="">-- Pilih Unit --</option>
+                      {rawOpds.map(opd => (
+                        <option key={opd.id} value={opd.id}>{opd.nama}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.btnCancel} onClick={() => setModalMode(null)}>Batal</button>
+              <button className={styles.btnSave} onClick={handleModalSave} disabled={modalSaving || !modalData.nama.trim()}>
+                {modalSaving ? 'Menyimpan...' : '💾 Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

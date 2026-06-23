@@ -1,0 +1,12 @@
+services:
+  sianjab-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sianjab-web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - GAS_DEPLOYMENT_URL=${GAS_DEPLOYMENT_URL}
