@@ -3,6 +3,14 @@
 // Berdasarkan Formulir Permenpan RB No. 1/2020
 // =============================================
 
+export interface ValidationHistory {
+  id: string;
+  status: 'Draft' | 'Diajukan' | 'Revisi' | 'Disetujui';
+  timestamp: string;
+  actor: string;
+  catatan?: string;
+}
+
 export interface UnitKerja {
   id: string;
   nama: string;
@@ -12,6 +20,7 @@ export interface UnitKerja {
   tahun?: string; // Menyimpan periode tahun (misal: "2026")
   statusValidasi?: 'Draft' | 'Diajukan' | 'Revisi' | 'Disetujui';
   catatanRevisi?: string;
+  historyValidasi?: ValidationHistory[];
 }
 
 export interface Jabatan {

@@ -228,7 +228,7 @@ export default function OperatorAnalisisPage() {
   // SAVE HANDLERS
   const handleSaveIdentitas = async (data: Partial<JabatanFull>) => {
     if (!jabatanData) return;
-    setJabatanData({ ...jabatanData, ...data });
+    setJabatanData(prev => prev ? { ...prev, ...data } : null);
     showToast("⏳ Menyimpan identitas di latar belakang...");
     
     api.updateJabatan(jabatanData.id, {
@@ -242,7 +242,7 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveTugas = async (tugas: Partial<TugasPokok>[]) => {
     if (!jabatanData) return;
-    setJabatanData({ ...jabatanData, tugasPokok: tugas as any });
+    setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as any } : null);
     showToast("⏳ Menyimpan tugas...");
     
     try {
@@ -255,6 +255,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveKualifikasi = async (data: Partial<Kualifikasi>) => {
     if (!jabatanData) return;
+    setJabatanData(prev => prev ? {
+      ...prev,
+      kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } as any : { jabatanId: prev.id, ...data } as any
+    } : null);
     try {
       await api.saveSingleEntity('kualifikasi', jabatanData.id, data);
       showToast("✅ Kualifikasi berhasil disimpan");
@@ -265,6 +269,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveHasilKerja = async (uraian: string) => {
     if (!jabatanData) return;
+    setJabatanData(prev => prev ? {
+      ...prev,
+      hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as any
+    } : null);
     try {
       await api.saveSingleEntity('hasilKerja', jabatanData.id, { uraian });
       showToast("✅ Hasil kerja berhasil disimpan");
@@ -275,6 +283,7 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveMultiRows = async (entity: string, rows: any[]) => {
     if (!jabatanData) return;
+    setJabatanData(prev => prev ? { ...prev, [entity]: rows } : null);
     showToast(`⏳ Menyimpan ${entity}...`);
     
     try {
@@ -287,6 +296,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveSyarat = async (data: Partial<SyaratJabatan>) => {
     if (!jabatanData) return;
+    setJabatanData(prev => prev ? {
+      ...prev,
+      syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } as any : { jabatanId: prev.id, ...data } as any
+    } : null);
     try {
       await api.saveSingleEntity('syaratJabatan', jabatanData.id, data);
       showToast("✅ Syarat jabatan berhasil disimpan");
@@ -297,6 +310,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSavePrestasi = async (uraian: string) => {
     if (!jabatanData) return;
+    setJabatanData(prev => prev ? {
+      ...prev,
+      prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as any
+    } : null);
     try {
       await api.saveSingleEntity('prestasiKerja', jabatanData.id, { uraian });
       showToast("✅ Prestasi kerja berhasil disimpan");
@@ -567,7 +584,7 @@ export default function OperatorAnalisisPage() {
             ) : jabatanData ? (
               <>
                 {activeTab === "identitas" && (
-                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} />
+                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} readOnlyNama={true} />
                 )}
                 {activeTab === "tugas" && (
                   <TabTugasPokok key={`tugas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSaveTugas={handleSaveTugas}

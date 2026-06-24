@@ -1,6 +1,4 @@
-"use client";
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { JabatanFull, TugasPokok, Kualifikasi } from "@/lib/types";
 import EditableTable, { ColumnDef } from "./EditableTable";
 import styles from "../page.module.css";
@@ -48,6 +46,8 @@ export default function TabTugasPokok({
   });
   const [hasilKerjaRows, setHasilKerjaRows] = useState<Record<string, unknown>[]>([]);
 
+  const isInitialMount = useRef(true);
+
   useEffect(() => {
     if (jabatan) {
       const draftKey = `anjab_draft_tugas_${jabatan.id}`;
@@ -61,9 +61,12 @@ export default function TabTugasPokok({
             pendidikanFormal: "", pendidikanPelatihan: "", pengalamanKerja: "",
           });
           setHasilKerjaRows(parsed.hasilKerjaRows || []);
+          isInitialMount.current = false;
           return;
         } catch (e) {}
       }
+
+      isInitialMount.current = true;
 
       const rows = (jabatan.tugasPokok || []).map((t) => ({
         ...t,
@@ -76,6 +79,12 @@ export default function TabTugasPokok({
           pendidikanFormal: (jabatan.kualifikasi.pendidikanFormal || []).join(", "),
           pendidikanPelatihan: (jabatan.kualifikasi.pendidikanPelatihan || []).join(", "),
           pengalamanKerja: (jabatan.kualifikasi.pengalamanKerja || []).join(", "),
+        });
+      } else {
+        setKualifikasi({
+          pendidikanFormal: "",
+          pendidikanPelatihan: "",
+          pengalamanKerja: "",
         });
       }
 
@@ -97,6 +106,10 @@ export default function TabTugasPokok({
   }, [jabatan]);
 
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (jabatan && (tugasRows.length > 0 || hasilKerjaRows.length > 0 || kualifikasi.pendidikanFormal)) {
       localStorage.setItem(`anjab_draft_tugas_${jabatan.id}`, JSON.stringify({
         tugasRows,

@@ -242,13 +242,16 @@ export default function OPDManagementPage() {
 
     setModalSaving(true);
     try {
+      const originalOpd = modalMode === 'edit' ? rawOpds.find(o => o.id === modalData.id) : null;
       const opdPayload = {
         nama: modalData.nama.trim(),
         kode: modalData.kode.trim(),
         parentId: modalData.parentId || null,
         urutan: modalData.urutan || 0,
-        tahun: "2026",
-        statusValidasi: "Draft"
+        tahun: originalOpd?.tahun || "2026",
+        statusValidasi: originalOpd?.statusValidasi || "Draft",
+        catatanRevisi: originalOpd?.catatanRevisi || "",
+        historyValidasi: originalOpd?.historyValidasi || []
       };
 
       if (modalMode === 'edit' && modalData.id) {

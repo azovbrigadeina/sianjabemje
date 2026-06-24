@@ -230,7 +230,6 @@ export default function OperatorBebanKerjaPage() {
     setMode('tree');
     setActiveJob('');
     setActiveJobData(null);
-    loadTree();
   };
 
   const handleAddRow = () => {
@@ -276,6 +275,21 @@ export default function OperatorBebanKerjaPage() {
         formasiPembulatan: Math.ceil(totalRequired)
       };
       await api.saveABK(activeJob, payload);
+
+      // Update local tree data state
+      const updateNodeInTree = (nodes: TreeNode[]): TreeNode[] => {
+        return nodes.map(node => {
+          if (node.id === activeJob) {
+            return { ...node, abkTerisi: true };
+          }
+          if (node.children && node.children.length > 0) {
+            return { ...node, children: updateNodeInTree(node.children) };
+          }
+          return node;
+        });
+      };
+      setTreeData(prev => updateNodeInTree(prev));
+
       showToast("✅ Beban Kerja berhasil disimpan!");
     } catch (err) {
       showToast("❌ Gagal menyimpan beban kerja: " + err);

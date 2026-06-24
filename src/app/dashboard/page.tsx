@@ -12,6 +12,10 @@ export default function DashboardHome() {
     totalJabatan: 0,
     anjabSelesai: 0,
     abkSelesai: 0,
+    opdDisetujui: 0,
+    opdDiajukan: 0,
+    opdRevisi: 0,
+    opdDraft: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -34,12 +38,21 @@ export default function DashboardHome() {
         const mainOpds = opds.filter(o => !o.parentId);
         const subOpds = opds.filter(o => o.parentId);
 
+        const opdDisetujui = opds.filter(o => o.statusValidasi === 'Disetujui').length;
+        const opdDiajukan = opds.filter(o => o.statusValidasi === 'Diajukan').length;
+        const opdRevisi = opds.filter(o => o.statusValidasi === 'Revisi').length;
+        const opdDraft = opds.filter(o => !o.statusValidasi || o.statusValidasi === 'Draft').length;
+
         setStats({
           totalOpdMain: mainOpds.length,
           totalOpdSub: subOpds.length,
           totalJabatan: jabatans.length,
           anjabSelesai: 0, // Akan dikembangkan: menghitung jabatan yang tab anjab-nya terisi penuh
           abkSelesai: abks.length,
+          opdDisetujui,
+          opdDiajukan,
+          opdRevisi,
+          opdDraft
         });
       } catch (err) {
         console.error("Gagal memuat statistik", err);
@@ -95,6 +108,66 @@ export default function DashboardHome() {
             <span className={styles.statLabel}>ABK Menunggu</span>
             <span className={styles.statValue}>
               {loading ? "..." : Math.max(0, stats.totalJabatan - stats.abkSelesai)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: '1.25rem', marginTop: '2.5rem' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span>📋</span> Progres Validasi Unit Kerja (OPD)
+        </h2>
+      </div>
+
+      <div className={styles.statsGrid}>
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(142, 71%, 45%, 0.1)', color: 'hsl(142, 71%, 45%)' }}>✅</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Sudah Divalidasi</span>
+            <span className={styles.statValue}>
+              {loading ? "..." : stats.opdDisetujui}
+            </span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '4px' }}>
+              Unit Kerja Disetujui
+            </span>
+          </div>
+        </div>
+
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(39, 100%, 50%, 0.1)', color: 'hsl(39, 100%, 50%)' }}>⏳</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Menunggu Validasi</span>
+            <span className={styles.statValue}>
+              {loading ? "..." : stats.opdDiajukan}
+            </span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '4px' }}>
+              Unit Kerja Diajukan
+            </span>
+          </div>
+        </div>
+
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(350, 89%, 60%, 0.1)', color: 'hsl(350, 89%, 60%)' }}>⚠️</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Dalam Revisi</span>
+            <span className={styles.statValue}>
+              {loading ? "..." : stats.opdRevisi}
+            </span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '4px' }}>
+              Perlu Perbaikan
+            </span>
+          </div>
+        </div>
+
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(210, 50%, 50%, 0.1)', color: 'hsl(210, 50%, 50%)' }}>📁</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Belum Mengajukan</span>
+            <span className={styles.statValue}>
+              {loading ? "..." : stats.opdDraft}
+            </span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '4px' }}>
+              Masih Tahap Draft
             </span>
           </div>
         </div>

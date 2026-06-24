@@ -1,6 +1,4 @@
-"use client";
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { JabatanFull } from "@/lib/types";
 import type { TreeNode } from "../page";
 import styles from "../page.module.css";
@@ -10,9 +8,10 @@ interface Props {
   treeData: TreeNode[];
   onSave: (data: Partial<JabatanFull>) => void;
   loading?: boolean;
+  readOnlyNama?: boolean;
 }
 
-export default function TabIdentitas({ jabatan, treeData, onSave, loading }: Props) {
+export default function TabIdentitas({ jabatan, treeData, onSave, loading, readOnlyNama }: Props) {
   const [form, setForm] = useState({
     namaJabatan: "",
     kodeJabatan: "",
@@ -20,6 +19,8 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading }: Pro
     ikhtisarJabatan: "",
     kelasJabatan: 0,
   });
+
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     if (jabatan) {
@@ -30,9 +31,12 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading }: Pro
         try {
           const parsed = JSON.parse(savedDraft);
           setForm(parsed);
+          isInitialMount.current = false;
           return;
         } catch (e) {}
       }
+
+      isInitialMount.current = true;
 
       const normalizeJenisJabatan = (jenis: string) => {
         const j = (jenis || "").toLowerCase();
@@ -58,6 +62,10 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading }: Pro
 
   // Save to draft whenever form changes
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (jabatan && form.namaJabatan) {
       localStorage.setItem(`anjab_draft_identitas_${jabatan.id}`, JSON.stringify(form));
     }
@@ -194,6 +202,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading }: Pro
             className={styles.formInput}
             value={form.namaJabatan}
             onChange={(e) => setForm({ ...form, namaJabatan: e.target.value })}
+            disabled={readOnlyNama}
             placeholder="Masukkan nama jabatan"
           />
         </div>

@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import styles from "../../dashboard/beban-kerja/page.module.css";
 import { useUser } from "@/lib/UserContext";
 import { api } from "@/lib/api";
-import { UnitKerja } from "@/lib/types";
+import { UnitKerja, ValidationHistory } from "@/lib/types";
+import { getWibTimestamp } from "@/lib/utils";
 
 export default function OperatorValidasiPage() {
   const { user } = useUser();
@@ -43,10 +44,23 @@ export default function OperatorValidasiPage() {
     
     setIsSubmitting(true);
     try {
+      const wibTime = getWibTimestamp();
+      const newHistoryItem: ValidationHistory = {
+        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+        status: 'Diajukan',
+        timestamp: wibTime,
+        actor: `Operator (${unitKerja.nama})`,
+        catatan: ''
+      };
+      
+      const existingHistory = Array.isArray(unitKerja.historyValidasi) ? unitKerja.historyValidasi : [];
+      const updatedHistory = [...existingHistory, newHistoryItem];
+
       await api.updateEntity('unitKerja', unitKerja.id, { 
-        statusValidasi: 'Diajukan' 
+        statusValidasi: 'Diajukan',
+        historyValidasi: updatedHistory
       });
-      setUnitKerja({ ...unitKerja, statusValidasi: 'Diajukan' });
+      setUnitKerja({ ...unitKerja, statusValidasi: 'Diajukan', historyValidasi: updatedHistory });
       showToast("✅ Data berhasil dikirim ke Admin Kabupaten untuk divalidasi!");
     } catch (err: any) {
       showToast("❌ Gagal mengirim validasi: " + err.message);
@@ -109,6 +123,47 @@ export default function OperatorValidasiPage() {
             <li>Nama OPD: <strong>{unitKerja?.nama || '-'}</strong></li>
           </ul>
         </div>
+
+        {unitKerja?.historyValidasi && Array.isArray(unitKerja.historyValidasi) && unitKerja.historyValidasi.length > 0 && (
+          <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '12px', textAlign: 'left', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>📜</span> Riwayat Usulan Validasi:
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {unitKerja.historyValidasi.map((hist, idx) => (
+                <div key={hist.id || idx} style={{ borderBottom: idx < unitKerja.historyValidasi!.length - 1 ? '1px dashed rgba(255, 255, 255, 0.1)' : 'none', paddingBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{hist.actor}</span>
+                    <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>{hist.timestamp}</span>
+                  </div>
+                  <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <span style={{ 
+                      fontSize: '0.8rem',
+                      padding: '0.1rem 0.5rem', 
+                      borderRadius: '4px',
+                      backgroundColor: 
+                        hist.status === 'Diajukan' ? 'rgba(59, 130, 246, 0.15)' :
+                        hist.status === 'Disetujui' ? 'rgba(16, 185, 129, 0.15)' :
+                        hist.status === 'Revisi' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(107, 114, 128, 0.15)',
+                      color:
+                        hist.status === 'Diajukan' ? '#3b82f6' :
+                        hist.status === 'Disetujui' ? '#10b981' :
+                        hist.status === 'Revisi' ? '#ef4444' : '#6b7280',
+                      fontWeight: 600
+                    }}>
+                      {hist.status}
+                    </span>
+                    {hist.catatan ? (
+                      <span style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                        - <span style={{ fontStyle: 'italic' }}>"{hist.catatan}"</span>
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
