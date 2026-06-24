@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import styles from "./layout.module.css";
 import { useUser } from "@/lib/UserContext";
+import Footer from "@/components/Footer";
+
 
 export default function DashboardLayout({
   children,
@@ -122,7 +124,12 @@ export default function DashboardLayout({
         </header>
 
         <main className={styles.contentScroll}>
-          {children}
+          <div style={{ flex: 1 }}>
+            {children}
+          </div>
+          <div style={{ marginTop: '2rem' }}>
+            <Footer />
+          </div>
         </main>
       </div>
     </div>

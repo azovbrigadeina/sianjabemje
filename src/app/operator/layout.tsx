@@ -7,6 +7,8 @@ import styles from "../dashboard/layout.module.css";
 import { useUser } from "@/lib/UserContext";
 import { api } from "@/lib/api";
 import type { UnitKerja } from "@/lib/types";
+import Footer from "@/components/Footer";
+
 
 export default function OperatorLayout({
   children,
@@ -106,7 +108,12 @@ export default function OperatorLayout({
         </header>
 
         <main className={styles.contentScroll}>
-          {children}
+          <div style={{ flex: 1 }}>
+            {children}
+          </div>
+          <div style={{ marginTop: '2rem' }}>
+            <Footer />
+          </div>
         </main>
       </div>
     </div>
