@@ -6,7 +6,7 @@ import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
 import { exportJabatanToDocx } from "@/lib/exportDocx";
-import { downloadTemplateXlsx, parseXlsxForAnjab } from "@/lib/importXlsx";
+import { downloadTemplateXlsx, parseXlsxForAnjab, parseAnjabAsli } from "@/lib/importXlsx";
 import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan } from "@/lib/types";
 
 import TabIdentitas from "../../dashboard/analisis/components/TabIdentitas";
@@ -322,6 +322,76 @@ export default function OperatorAnalisisPage() {
     }
   };
 
+  const processImportedData = async (parsedData: any, logs: string[]) => {
+    if (!jabatanData) return;
+    
+    const updatedJabatan = { ...jabatanData };
+
+    localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
+    localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
+    
+    if (parsedData.identitas.ikhtisarJabatan) {
+      updatedJabatan.ikhtisarJabatan = parsedData.identitas.ikhtisarJabatan;
+      await handleSaveIdentitas({ ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan });
+    }
+    if (parsedData.kualifikasi.pendidikanFormal?.length > 0 || parsedData.kualifikasi.pengalamanKerja?.length > 0) {
+      updatedJabatan.kualifikasi = parsedData.kualifikasi;
+      await handleSaveKualifikasi(parsedData.kualifikasi);
+    }
+    if (parsedData.tugasPokok.length > 0) {
+      updatedJabatan.tugasPokok = parsedData.tugasPokok;
+      await handleSaveTugas(parsedData.tugasPokok);
+    }
+    if (parsedData.syaratJabatan) {
+      updatedJabatan.syaratJabatan = parsedData.syaratJabatan;
+      await handleSaveSyarat(parsedData.syaratJabatan);
+    }
+    if (parsedData.prestasiKerja?.uraian) {
+      updatedJabatan.prestasiKerja = parsedData.prestasiKerja;
+      await handleSavePrestasi(parsedData.prestasiKerja.uraian);
+    }
+    if (parsedData.hasilKerja?.uraian) {
+      updatedJabatan.hasilKerja = parsedData.hasilKerja;
+      await handleSaveHasilKerja(parsedData.hasilKerja.uraian);
+    }
+    if (parsedData.bahanKerja.length > 0) {
+      updatedJabatan.bahanKerja = parsedData.bahanKerja;
+      await handleSaveMultiRows('bahanKerja', parsedData.bahanKerja);
+    }
+    if (parsedData.perangkatKerja.length > 0) {
+      updatedJabatan.perangkatKerja = parsedData.perangkatKerja;
+      await handleSaveMultiRows('perangkatKerja', parsedData.perangkatKerja);
+    }
+    if (parsedData.tanggungJawab.length > 0) {
+      updatedJabatan.tanggungJawab = parsedData.tanggungJawab;
+      await handleSaveMultiRows('tanggungJawab', parsedData.tanggungJawab);
+    }
+    if (parsedData.wewenang.length > 0) {
+      updatedJabatan.wewenang = parsedData.wewenang;
+      await handleSaveMultiRows('wewenang', parsedData.wewenang);
+    }
+    if (parsedData.korelasiJabatan.length > 0) {
+      updatedJabatan.korelasiJabatan = parsedData.korelasiJabatan;
+      await handleSaveMultiRows('korelasiJabatan', parsedData.korelasiJabatan);
+    }
+    if (parsedData.kondisiLingkungan.length > 0) {
+      updatedJabatan.kondisiLingkungan = parsedData.kondisiLingkungan;
+      await handleSaveMultiRows('kondisiLingkungan', parsedData.kondisiLingkungan);
+    }
+    if (parsedData.risikoBahaya.length > 0) {
+      updatedJabatan.risikoBahaya = parsedData.risikoBahaya;
+      await handleSaveMultiRows('risikoBahaya', parsedData.risikoBahaya);
+    }
+
+    setJabatanData(updatedJabatan);
+    setVersionKey(prev => prev + 1);
+    showToast("✅ Berhasil mengimpor data dari Excel!");
+    
+    if (logs && logs.length > 0) {
+      alert("Laporan Hasil Impor:\n\n" + logs.join("\n"));
+    }
+  };
+
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !jabatanData) return;
@@ -329,77 +399,23 @@ export default function OperatorAnalisisPage() {
     showToast("⏳ Membaca file Excel...");
     try {
       const { data: parsedData, logs } = await parseXlsxForAnjab(file);
-      
-      // Update data locally first for UI responsiveness
-      const updatedJabatan = { ...jabatanData };
-
-      // CLEAR DRAFTS SO THEY DONT OVERRIDE IMPORTED DATA
-      localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
-      localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
-      
-      if (parsedData.identitas.ikhtisarJabatan) {
-        updatedJabatan.ikhtisarJabatan = parsedData.identitas.ikhtisarJabatan;
-        await handleSaveIdentitas({ ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan });
-      }
-      if (parsedData.kualifikasi.pendidikanFormal?.length > 0 || parsedData.kualifikasi.pengalamanKerja?.length > 0) {
-        updatedJabatan.kualifikasi = parsedData.kualifikasi;
-        await handleSaveKualifikasi(parsedData.kualifikasi);
-      }
-      if (parsedData.tugasPokok.length > 0) {
-        updatedJabatan.tugasPokok = parsedData.tugasPokok;
-        await handleSaveTugas(parsedData.tugasPokok);
-      }
-      if (parsedData.syaratJabatan) {
-        updatedJabatan.syaratJabatan = parsedData.syaratJabatan;
-        await handleSaveSyarat(parsedData.syaratJabatan);
-      }
-      if (parsedData.prestasiKerja?.uraian) {
-        updatedJabatan.prestasiKerja = parsedData.prestasiKerja;
-        await handleSavePrestasi(parsedData.prestasiKerja.uraian);
-      }
-      if (parsedData.hasilKerja?.uraian) {
-        updatedJabatan.hasilKerja = parsedData.hasilKerja;
-        await handleSaveHasilKerja(parsedData.hasilKerja.uraian);
-      }
-      if (parsedData.bahanKerja.length > 0) {
-        updatedJabatan.bahanKerja = parsedData.bahanKerja;
-        await handleSaveMultiRows('bahanKerja', parsedData.bahanKerja);
-      }
-      if (parsedData.perangkatKerja.length > 0) {
-        updatedJabatan.perangkatKerja = parsedData.perangkatKerja;
-        await handleSaveMultiRows('perangkatKerja', parsedData.perangkatKerja);
-      }
-      if (parsedData.tanggungJawab.length > 0) {
-        updatedJabatan.tanggungJawab = parsedData.tanggungJawab;
-        await handleSaveMultiRows('tanggungJawab', parsedData.tanggungJawab);
-      }
-      if (parsedData.wewenang.length > 0) {
-        updatedJabatan.wewenang = parsedData.wewenang;
-        await handleSaveMultiRows('wewenang', parsedData.wewenang);
-      }
-      if (parsedData.korelasiJabatan.length > 0) {
-        updatedJabatan.korelasiJabatan = parsedData.korelasiJabatan;
-        await handleSaveMultiRows('korelasiJabatan', parsedData.korelasiJabatan);
-      }
-      if (parsedData.kondisiLingkungan.length > 0) {
-        updatedJabatan.kondisiLingkungan = parsedData.kondisiLingkungan;
-        await handleSaveMultiRows('kondisiLingkungan', parsedData.kondisiLingkungan);
-      }
-      if (parsedData.risikoBahaya.length > 0) {
-        updatedJabatan.risikoBahaya = parsedData.risikoBahaya;
-        await handleSaveMultiRows('risikoBahaya', parsedData.risikoBahaya);
-      }
-
-      setJabatanData(updatedJabatan);
-      setVersionKey(prev => prev + 1);
-      showToast("✅ Berhasil mengimpor data dari Excel!");
-      
-      // Show Logs
-      if (logs && logs.length > 0) {
-        alert("Laporan Hasil Impor:\n\n" + logs.join("\n"));
-      }
+      await processImportedData(parsedData, logs);
     } catch (err) {
       showToast("❌ Gagal mengimpor Excel: Format tidak sesuai atau file rusak.");
+      console.error(err);
+    }
+  };
+
+  const handleImportAnjabAsli = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !jabatanData) return;
+
+    showToast("⏳ Membaca file Excel Anjab Asli...");
+    try {
+      const { data: parsedData, logs } = await parseAnjabAsli(file);
+      await processImportedData(parsedData, logs);
+    } catch (err) {
+      showToast("❌ Gagal mengimpor Anjab Asli: Format tidak sesuai atau file rusak.");
       console.error(err);
     }
   };
@@ -552,6 +568,12 @@ export default function OperatorAnalisisPage() {
                   >
                     <span>📤</span> Impor Excel
                     <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportExcel} />
+                  </label>
+                  <label 
+                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                  >
+                    <span>📤</span> Import Anjab Asli
+                    <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportAnjabAsli} />
                   </label>
                   <button 
                     onClick={() => exportJabatanToDocx(jabatanData)}

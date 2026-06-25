@@ -1,4 +1,16 @@
 import * as XLSX from 'xlsx';
+import {
+  analyzeSheets,
+  extractSingleValue,
+  extractMultiValueExact,
+  extractTugasPokokSmart,
+  extractBahanKerja,
+  extractPerangkatKerja,
+  extractKorelasiJabatan,
+  extractKondisiLingkungan,
+  extractRisikoBahaya,
+  extractSyaratJabatan
+} from './smartExtraction';
 import type { JabatanFull, TugasPokok, BahanKerja, PerangkatKerja, TanggungJawab, Wewenang, KorelasiJabatan, KondisiLingkungan, RisikoBahaya, SyaratJabatan, Kualifikasi } from './types';
 
 // ==========================================
@@ -277,6 +289,23 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
   });
 }
 
+export async function parseAnjabAsli(file: File): Promise<ParseResult> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const arrayBuffer = e.target?.result;
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        resolve(parsePermenpanFormat(wb));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function getGeneralFallbackFactor(aspek: string): string {
   const cleanAspek = aspek.toLowerCase().trim();
   if (cleanAspek.includes('tempat kerja')) return 'Di dalam ruangan';
@@ -292,7 +321,129 @@ function getGeneralFallbackFactor(aspek: string): string {
 }
 
 
-function parseBakatKerja(val: string): string[] {
+export function parsePermenpanFormat(wb: XLSX.WorkBook): ParseResult {
+  const logs: string[] = ["INFO: Menggunakan format Permenpan-RB 1/2020 (Smart Extraction)."];
+  
+  const sheetAnalysis = analyzeSheets(wb);
+  if (sheetAnalysis.length === 0) {
+    throw new Error("Tidak ada sheet yang ditemukan di workbook.");
+  }
+  
+  const bestSheet = sheetAnalysis[0];
+  const ws = wb.Sheets[bestSheet.name];
+  const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' });
+  
+  logs.push(`✅ Menggunakan sheet: ${bestSheet.name} (confidence: ${Math.round(bestSheet.score / 50 * 100)}%)`);
+  if (bestSheet.info.is_template) {
+    logs.push(`⚠️ Peringatan: Sheet terdeteksi sebagai template/panduan kosong.`);
+  }
+  
+  const result: any = {
+    identitas: {},
+    kualifikasi: { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] },
+    syaratJabatan: null,
+    prestasiKerja: null,
+    tugasPokok: [],
+    bahanKerja: [],
+    perangkatKerja: [],
+    tanggungJawab: [],
+    wewenang: [],
+    korelasiJabatan: [],
+    kondisiLingkungan: [],
+    risikoBahaya: []
+  };
+  
+  const iktisar = extractSingleValue(rows, ["IKTISAR JABATAN", "IKHTISAR JABATAN"], logs);
+  if (iktisar) {
+    result.identitas.ikhtisarJabatan = iktisar;
+  }
+  
+  const pend = extractSingleValue(rows, ["Pendidikan", "Pendidikan Formal"], logs);
+  if (pend) {
+    result.kualifikasi.pendidikanFormal = pend.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
+  }
+  const peng = extractSingleValue(rows, ["Pengalaman Kerja", "Pengalaman"], logs);
+  if (peng) {
+    result.kualifikasi.pengalamanKerja = peng.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
+  }
+  
+  const tj = extractMultiValueExact(rows, "Tanggung Jawab", 3, 2, logs);
+  result.tanggungJawab = tj.map(val => ({ uraian: val }));
+  
+  const ww = extractMultiValueExact(rows, "Wewenang", 3, 2, logs);
+  result.wewenang = ww.map(val => ({ uraian: val }));
+  
+  const hk = extractMultiValueExact(rows, "Hasil Kerja", 3, 2, logs);
+  if (hk.length > 0) {
+    result.hasilKerja = { uraian: hk.join("\n\n") };
+  }
+  
+  const { uraian, satuan, beban, waktuEfektif, waktuSelesai } = extractTugasPokokSmart(rows, logs);
+  for (let i = 0; i < uraian.length; i++) {
+    result.tugasPokok.push({
+      nomorUrut: i + 1,
+      uraianTugas: uraian[i],
+      hasilKerja: satuan[i] || '',
+      jumlahHasil: parseFloat(beban[i]) || 0,
+      waktuPenyelesaian: parseFloat(waktuSelesai[i]) || 0,
+      waktuEfektif: parseFloat(waktuEfektif[i]) || 0,
+      kebutuhanPegawai: 0
+    });
+  }
+  
+  const bk = extractBahanKerja(rows, logs);
+  result.bahanKerja = bk.map((val, idx) => ({
+    nomorUrut: idx + 1,
+    namaBahan: val.name,
+    penggunaanDalamTugas: val.use
+  }));
+  
+  const pk = extractPerangkatKerja(rows, logs);
+  result.perangkatKerja = pk.map((val, idx) => ({
+    nomorUrut: idx + 1,
+    namaPerangkat: val.name,
+    penggunaanUntukTugas: val.use
+  }));
+  
+  const kj = extractKorelasiJabatan(rows, logs);
+  result.korelasiJabatan = kj.map((val, idx) => ({
+    nomorUrut: idx + 1,
+    namaJabatanTerkait: val.jabatanTerkait,
+    unitKerjaInstansi: val.unitKerja,
+    dalamHal: val.dalamHal
+  }));
+  
+  const kl = extractKondisiLingkungan(rows, logs);
+  result.kondisiLingkungan = kl.map((val, idx) => ({
+    nomorUrut: idx + 1,
+    aspek: val.aspek,
+    faktor: val.faktor
+  }));
+  
+  const rb = extractRisikoBahaya(rows, logs);
+  result.risikoBahaya = rb.map((val, idx) => ({
+    nomorUrut: idx + 1,
+    namaRisiko: val.resiko,
+    penyebab: val.penyebab
+  }));
+  
+  const sj = extractSyaratJabatan(rows, logs);
+  if (sj) {
+    result.syaratJabatan = sj;
+  }
+  
+  const pres = extractSingleValue(rows, ["Prestasi Kerja yang diharapkan", "Prestasi Kerja"], logs);
+  if (pres) {
+    result.prestasiKerja = { uraian: pres };
+  } else {
+    result.prestasiKerja = { uraian: "Dapat memberikan kinerja yang baik." };
+  }
+  
+  logs.push("🎯 Parsing selesai.");
+  return { data: result, logs };
+}
+
+export function parseBakatKerja(val: string): string[] {
   const list = val.split(/[,;\n]/).map(s => s.trim().toLowerCase());
   const codes: string[] = [];
   if (list.includes('g') || list.includes('intelegensia')) codes.push('G');
@@ -317,7 +468,7 @@ function parseBakatKerja(val: string): string[] {
   return codes;
 }
 
-function parseTemperamenKerja(val: string): string[] {
+export function parseTemperamenKerja(val: string): string[] {
   const list = val.split(/[,;\n]/).map(s => s.trim().toLowerCase());
   const codes: string[] = [];
   if (list.some(s => s.includes('dcp') || s.includes('directing') || s === 'd')) codes.push('D');
@@ -333,7 +484,7 @@ function parseTemperamenKerja(val: string): string[] {
   return codes;
 }
 
-function parseMinatKerja(val: string): string[] {
+export function parseMinatKerja(val: string): string[] {
   const list = val.split(/[,;\n]/).map(s => s.trim().toLowerCase());
   const codes: string[] = [];
   const valid = ['1a', '1b', '2a', '2b', '3a', '3b', '4a', '4b', '5a', '5b'];
@@ -369,7 +520,7 @@ function parseMinatKerja(val: string): string[] {
 }
 
 
-function parseUpayaFisik(val: string): string[] {
+export function parseUpayaFisik(val: string): string[] {
   const list = val.split(/[,;\n]/).map(s => s.trim().toLowerCase());
   const matched: string[] = [];
   const valid = [
@@ -388,7 +539,7 @@ function parseUpayaFisik(val: string): string[] {
   return matched;
 }
 
-function mapFungsiPekerjaan(dataVal: string, orangVal: string, bendaVal: string): string[] {
+export function mapFungsiPekerjaan(dataVal: string, orangVal: string, bendaVal: string): string[] {
   const codes: string[] = [];
   
   const d = dataVal.toLowerCase();
