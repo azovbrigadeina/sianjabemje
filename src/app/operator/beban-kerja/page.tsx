@@ -145,7 +145,7 @@ export default function OperatorBebanKerjaPage() {
         if (val.includes('pimpinan tinggi')) return 5;
         if (val === 'administrator') return 4;
         if (val === 'pengawas') return 3;
-        if (val === 'fungsional') return 2;
+        if (val.includes('fungsional')) return 2;
         if (val === 'pelaksana') return 1;
         return 0;
       };
@@ -312,7 +312,7 @@ export default function OperatorBebanKerjaPage() {
         if (eselonVal.includes('pimpinan tinggi')) { highlightClass = treeStyles.nodeHighlightJpt; icon = '⭐'; eselonClass = treeStyles.eselonJpt; }
         else if (eselonVal === 'administrator') { icon = '🛡️'; eselonClass = treeStyles.eselonAdministrator; }
         else if (eselonVal === 'pengawas') { icon = '👁️'; eselonClass = treeStyles.eselonPengawas; }
-        else if (eselonVal === 'fungsional') { icon = '💼'; eselonClass = treeStyles.eselonFungsional; }
+        else if (eselonVal.includes('fungsional')) { icon = '💼'; eselonClass = treeStyles.eselonFungsional; }
         else if (eselonVal === 'pelaksana') { icon = '🧑‍💻'; eselonClass = treeStyles.eselonPelaksana; }
 
         if (node.type === 'OPD') {

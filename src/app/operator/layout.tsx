@@ -19,6 +19,22 @@ export default function OperatorLayout({
   const router = useRouter();
   const { user, logout, isLoading } = useUser();
   const [opdName, setOpdName] = useState<string>("OPD");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // Load saved theme or default to light mode
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
+    const initialTheme = savedTheme || "light";
+    setTheme(initialTheme);
+    document.documentElement.setAttribute("data-theme", initialTheme);
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("theme", nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+  };
 
   // Guard: jika tidak login → /login, jika bukan operator → /dashboard
   useEffect(() => {
@@ -55,7 +71,8 @@ export default function OperatorLayout({
     <div className={styles.dashboardLayout}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarLogo}>
-          <span className="text-gradient">Sianjab ABK</span>
+          <span className={styles.logoFull}>Sianjab ABK</span>
+          <span className={styles.logoShort}>S</span>
         </div>
 
         <div style={{ padding: '0 0.5rem 1rem', fontSize: '0.8rem', opacity: 0.7, fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--secondary))' }}>
@@ -95,6 +112,14 @@ export default function OperatorLayout({
             {opdName}
           </div>
           <div className={styles.headerActions}>
+            <button
+              onClick={toggleTheme}
+              className={styles.themeToggleBtn}
+              title={theme === 'light' ? 'Mode Gelap' : 'Mode Terang'}
+              aria-label="Toggle Theme"
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
             <div className={styles.userProfile}>
               <div className={styles.avatar} style={{ background: 'linear-gradient(135deg, #10b981, #3b82f6)' }}>
                 {avatarChar}

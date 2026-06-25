@@ -184,7 +184,7 @@ export default function OrganisasiPage() {
         if (val.includes('pimpinan tinggi')) return 5;
         if (val === 'administrator') return 4;
         if (val === 'pengawas') return 3;
-        if (val === 'fungsional') return 2;
+        if (val.includes('fungsional')) return 2;
         if (val === 'pelaksana') return 1;
         return 0;
       };
@@ -317,7 +317,7 @@ export default function OrganisasiPage() {
         jenisJabatan: node.eselon || '', kelasJabatan: node.kelas || 1,
         urutan: node.urutan || 0, targetType: 'jabatan'
       });
-      if (node.eselon === 'Pelaksana' || node.eselon === 'Fungsional') {
+      if (node.eselon === 'Pelaksana' || (node.eselon || '').startsWith('Fungsional')) {
         setReferensiSearch(node.label);
       } else {
         setReferensiSearch("");
@@ -345,11 +345,23 @@ export default function OrganisasiPage() {
   };
 
   const handleModalSave = async () => {
-    if (modalData.targetType === 'jabatan' && (modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan === 'Fungsional')) {
-      const isMatch = rawReferensi.some(
-        ref => (ref.namaBase || '').toLowerCase() === modalData.nama.toLowerCase() &&
-               (ref.jenisJabatan || '').toLowerCase() === modalData.jenisJabatan.toLowerCase()
-      );
+    if (modalData.targetType === 'jabatan' && (modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan.startsWith('Fungsional'))) {
+      const isMatch = rawReferensi.some(ref => {
+        const refJenis = (ref.jenisJabatan || '').toLowerCase();
+        const modalJenis = modalData.jenisJabatan;
+        const baseName = (ref.namaBase || '').toLowerCase();
+        const inputName = modalData.nama.toLowerCase();
+        if (modalJenis === 'Fungsional Keahlian') {
+          return refJenis === 'fungsional' && ref.kategori === 'Keahlian' && (inputName === baseName || inputName.startsWith(baseName));
+        }
+        if (modalJenis === 'Fungsional Keterampilan') {
+          return refJenis === 'fungsional' && ref.kategori === 'Keterampilan' && (inputName === baseName || inputName.startsWith(baseName));
+        }
+        if (modalJenis === 'Fungsional') {
+          return refJenis === 'fungsional' && (inputName === baseName || inputName.startsWith(baseName));
+        }
+        return refJenis === modalJenis.toLowerCase() && inputName === baseName;
+      });
       if (!isMatch) {
         alert(`Nama jabatan harus dipilih dari referensi Jabatan ${modalData.jenisJabatan} yang terdaftar.`);
         return;
@@ -386,11 +398,74 @@ export default function OrganisasiPage() {
           tahun: "2026"
         };
         if (modalMode === 'edit' && modalData.id) {
-          await api.updateJabatan(modalData.id, jabatanPayload);
+          await api.updateJabatan(modalData.id, {
+            namaJabatan: modalData.nama,
+            kodeJabatan: modalData.kode || '',
+            jenisJabatan: modalData.jenisJabatan,
+            kelasJabatan: modalData.kelasJabatan,
+            parentId: modalData.parentId || null,
+            unitKerjaId: modalData.unitKerjaId || null,
+            urutan: modalData.urutan || 0,
+            ikhtisarJabatan: '',
+            level: 1,
+            tahun: "2026"
+          });
           showToast("✅ Jabatan berhasil diperbarui.");
         } else {
-          await api.createJabatan(jabatanPayload);
-          showToast("✅ Jabatan baru berhasil ditambahkan.");
+          if (modalData.jenisJabatan === 'Fungsional Keahlian') {
+            const levels = [
+              { suffix: 'Ahli Utama', kelas: 13 },
+              { suffix: 'Ahli Madya', kelas: 11 },
+              { suffix: 'Ahli Muda', kelas: 9 },
+              { suffix: 'Ahli Pertama', kelas: 8 }
+            ];
+            const pId = modalData.parentId || null;
+            for (let i = 0; i < levels.length; i++) {
+              const lvl = levels[i];
+              const payload = {
+                namaJabatan: `${modalData.nama} ${lvl.suffix}`,
+                kodeJabatan: modalData.kode || '',
+                jenisJabatan: modalData.jenisJabatan,
+                kelasJabatan: lvl.kelas,
+                parentId: pId,
+                unitKerjaId: modalData.unitKerjaId || null,
+                urutan: modalData.urutan || 0,
+                ikhtisarJabatan: '',
+                level: 1,
+                tahun: "2026"
+              };
+              await api.createJabatan(payload);
+            }
+            showToast("✅ Jabatan Fungsional Keahlian baru berhasil ditambahkan.");
+          } else if (modalData.jenisJabatan === 'Fungsional Keterampilan') {
+            const levels = [
+              { suffix: 'Penyelia', kelas: 8 },
+              { suffix: 'Mahir', kelas: 7 },
+              { suffix: 'Terampil', kelas: 6 },
+              { suffix: 'Pemula', kelas: 5 }
+            ];
+            const pId = modalData.parentId || null;
+            for (let i = 0; i < levels.length; i++) {
+              const lvl = levels[i];
+              const payload = {
+                namaJabatan: `${modalData.nama} ${lvl.suffix}`,
+                kodeJabatan: modalData.kode || '',
+                jenisJabatan: modalData.jenisJabatan,
+                kelasJabatan: lvl.kelas,
+                parentId: pId,
+                unitKerjaId: modalData.unitKerjaId || null,
+                urutan: modalData.urutan || 0,
+                ikhtisarJabatan: '',
+                level: 1,
+                tahun: "2026"
+              };
+              await api.createJabatan(payload);
+            }
+            showToast("✅ Jabatan Fungsional Keterampilan baru berhasil ditambahkan.");
+          } else {
+            await api.createJabatan(jabatanPayload);
+            showToast("✅ Jabatan baru berhasil ditambahkan.");
+          }
         }
       }
 
@@ -439,7 +514,7 @@ export default function OrganisasiPage() {
         if (eselonVal.includes('pimpinan tinggi')) { highlightClass = styles.nodeHighlightJpt; icon = '⭐'; eselonClass = styles.eselonJpt; }
         else if (eselonVal === 'administrator') { icon = '🛡️'; eselonClass = styles.eselonAdministrator; }
         else if (eselonVal === 'pengawas') { icon = '👁️'; eselonClass = styles.eselonPengawas; }
-        else if (eselonVal === 'fungsional') { icon = '💼'; eselonClass = styles.eselonFungsional; }
+        else if (eselonVal.includes('fungsional')) { icon = '💼'; eselonClass = styles.eselonFungsional; }
         else if (eselonVal === 'pelaksana') { icon = '👤'; eselonClass = styles.eselonPelaksana; }
         if (node.type === 'OPD') icon = '🏢';
 
@@ -611,11 +686,12 @@ export default function OrganisasiPage() {
                       <option value="Administrator">Administrator</option>
                       <option value="Pengawas">Pengawas</option>
                       <option value="Pelaksana">Pelaksana</option>
-                      <option value="Fungsional">Fungsional</option>
+                      <option value="Fungsional Keahlian">Fungsional Keahlian</option>
+                      <option value="Fungsional Keterampilan">Fungsional Keterampilan</option>
                     </select>
                   </div>
 
-                  {(modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan === 'Fungsional') ? (
+                  {(modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan.startsWith('Fungsional')) ? (
                     <div className={styles.formGroup} style={{ position: 'relative' }}>
                       <label>Nama Jabatan (Sesuai Referensi)</label>
                       <div style={{ position: 'relative' }}>
@@ -685,7 +761,19 @@ export default function OrganisasiPage() {
                             boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                           }}>
                             {rawReferensi
-                              .filter(ref => (ref.jenisJabatan || '').toLowerCase() === modalData.jenisJabatan.toLowerCase())
+                              .filter(ref => {
+                                const modalJenis = modalData.jenisJabatan;
+                                if (modalJenis === 'Fungsional Keahlian') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keahlian';
+                                }
+                                if (modalJenis === 'Fungsional Keterampilan') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keterampilan';
+                                }
+                                if (modalJenis === 'Fungsional') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional';
+                                }
+                                return (ref.jenisJabatan || '').toLowerCase() === modalJenis.toLowerCase();
+                              })
                               .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase()))
                               .sort((a, b) => (a.namaBase || '').localeCompare(b.namaBase || ''))
                               .map(ref => {
@@ -712,12 +800,24 @@ export default function OrganisasiPage() {
                                       setShowReferensiDropdown(false);
                                     }}
                                   >
-                                    {ref.namaBase}
+                                    {ref.namaBase} {ref.jenisJabatan === 'Fungsional' && ref.kategori ? `(${ref.kategori})` : ''}
                                   </div>
                                 );
                               })}
                             {rawReferensi
-                              .filter(ref => (ref.jenisJabatan || '').toLowerCase() === modalData.jenisJabatan.toLowerCase())
+                              .filter(ref => {
+                                const modalJenis = modalData.jenisJabatan;
+                                if (modalJenis === 'Fungsional Keahlian') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keahlian';
+                                }
+                                if (modalJenis === 'Fungsional Keterampilan') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keterampilan';
+                                }
+                                if (modalJenis === 'Fungsional') {
+                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional';
+                                }
+                                return (ref.jenisJabatan || '').toLowerCase() === modalJenis.toLowerCase();
+                              })
                               .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase())).length === 0 && (
                               <div style={{ padding: '0.5rem 1rem', opacity: 0.5, fontStyle: 'italic' }}>
                                 Tidak ada referensi yang cocok

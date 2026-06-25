@@ -17,6 +17,22 @@ export default function DashboardLayout({
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user, logout, isLoading } = useUser();
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // Load saved theme or default to light mode
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
+    const initialTheme = savedTheme || "light";
+    setTheme(initialTheme);
+    document.documentElement.setAttribute("data-theme", initialTheme);
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("theme", nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+  };
 
   // Guard: if not authenticated or not admin, redirect
   useEffect(() => {
@@ -49,11 +65,8 @@ export default function DashboardLayout({
           ◀
         </button>
         <div className={styles.sidebarLogo}>
-          {isCollapsed ? (
-            <span className="text-gradient">S</span>
-          ) : (
-            <span className="text-gradient">Sianjab ABK</span>
-          )}
+          <span className={styles.logoFull}>Sianjab ABK</span>
+          <span className={styles.logoShort}>S</span>
         </div>
 
         <nav className={styles.sidebarNav}>
@@ -116,6 +129,14 @@ export default function DashboardLayout({
             Ringkasan Sistem
           </div>
           <div className={styles.headerActions}>
+            <button
+              onClick={toggleTheme}
+              className={styles.themeToggleBtn}
+              title={theme === 'light' ? 'Mode Gelap' : 'Mode Terang'}
+              aria-label="Toggle Theme"
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
             <div className={styles.userProfile}>
               <div className={styles.avatar}>{avatarChar}</div>
               <div>

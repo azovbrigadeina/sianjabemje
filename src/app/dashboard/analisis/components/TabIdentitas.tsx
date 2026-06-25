@@ -132,7 +132,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
           else if (type === 'administrator') subs.administrator.push(child.label);
           else if (type === 'pengawas') subs.pengawas.push(child.label);
           else if (type === 'pelaksana') subs.pelaksana.push(child.label);
-          else if (type === 'fungsional') subs.jabatanFungsional.push(child.label);
+          else if (type.includes('fungsional')) subs.jabatanFungsional.push(child.label);
         }
         traverse(child);
       }

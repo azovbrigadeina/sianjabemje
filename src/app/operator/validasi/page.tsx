@@ -14,6 +14,9 @@ export default function OperatorValidasiPage() {
 
   const [unitKerja, setUnitKerja] = useState<UnitKerja | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showNipModal, setShowNipModal] = useState(false);
+  const [nipKepala, setNipKepala] = useState("");
+  const [nipError, setNipError] = useState("");
 
   useEffect(() => {
     const fetchOpd = async () => {
@@ -36,11 +39,17 @@ export default function OperatorValidasiPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleKirimValidasi = async () => {
-    if (!unitKerja?.id) return;
-    if (!confirm("Apakah Anda yakin ingin mengirim data Anjab dan ABK OPD Anda ke Admin Kabupaten untuk divalidasi? Pastikan semua data telah diisi dengan benar.")) {
+  const handleConfirmKirim = async () => {
+    if (nipKepala.length !== 18) {
+      setNipError("NIP harus terdiri dari tepat 18 digit angka.");
       return;
     }
+    setNipError("");
+    await handleKirimValidasi(nipKepala);
+  };
+
+  const handleKirimValidasi = async (nip: string) => {
+    if (!unitKerja?.id) return;
     
     setIsSubmitting(true);
     try {
@@ -50,7 +59,7 @@ export default function OperatorValidasiPage() {
         status: 'Diajukan',
         timestamp: wibTime,
         actor: `Operator (${unitKerja.nama})`,
-        catatan: ''
+        catatan: `Disetujui oleh Pimpinan (NIP: ${nip})`
       };
       
       const existingHistory = Array.isArray(unitKerja.historyValidasi) ? unitKerja.historyValidasi : [];
@@ -61,6 +70,8 @@ export default function OperatorValidasiPage() {
         historyValidasi: updatedHistory
       });
       setUnitKerja({ ...unitKerja, statusValidasi: 'Diajukan', historyValidasi: updatedHistory });
+      setShowNipModal(false);
+      setNipKepala("");
       showToast("✅ Data berhasil dikirim ke Admin Kabupaten untuk divalidasi!");
     } catch (err: any) {
       showToast("❌ Gagal mengirim validasi: " + err.message);
@@ -100,7 +111,7 @@ export default function OperatorValidasiPage() {
 
         <button 
           className="btn-primary" 
-          onClick={handleKirimValidasi}
+          onClick={() => setShowNipModal(true)}
           disabled={isSubmitting || isLoading || unitKerja?.statusValidasi === 'Diajukan' || unitKerja?.statusValidasi === 'Disetujui'}
           style={{ 
             padding: '1rem 2rem', 
@@ -165,6 +176,118 @@ export default function OperatorValidasiPage() {
           </div>
         )}
       </div>
+
+      {showNipModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div className="glass-panel" style={{
+            width: '90%',
+            maxWidth: '500px',
+            background: 'var(--background, #0f172a)',
+            border: '1px solid var(--glass-border, rgba(255,255,255,0.1))',
+            borderRadius: '16px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            overflow: 'hidden',
+            padding: '2rem',
+            textAlign: 'left'
+          }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>✍️</span> Verifikasi & Kirim Usulan
+            </h2>
+            
+            <p style={{ fontSize: '0.9rem', opacity: 0.8, marginBottom: '1.5rem', lineHeight: '1.5' }}>
+              Sebelum mengirimkan usulan dokumen Anjab dan ABK OPD Anda ke Admin Kabupaten, mohon masukkan <strong>NIP Kepala Dinas/Badan atau Pimpinan</strong> Anda selaku penanggung jawab.
+            </p>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', opacity: 0.9 }}>
+                NIP PIMPINAN (18 DIGIT)
+              </label>
+              <input
+                type="text"
+                placeholder="Contoh: 198203112009041002"
+                value={nipKepala}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 18);
+                  setNipKepala(val);
+                  if (val.length === 18) {
+                    setNipError("");
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--glass-border, rgba(255,255,255,0.1))',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'inherit',
+                  fontSize: '1rem',
+                  outline: 'none',
+                  letterSpacing: '0.05em'
+                }}
+                autoFocus
+              />
+              {nipError && (
+                <span style={{ display: 'block', color: '#ef4444', fontSize: '0.85rem', marginTop: '0.5rem', fontWeight: 500 }}>
+                  ⚠️ {nipError}
+                </span>
+              )}
+              <span style={{ display: 'block', fontSize: '0.75rem', opacity: 0.5, marginTop: '0.25rem' }}>
+                Jumlah digit: {nipKepala.length}/18
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
+              <button
+                onClick={() => {
+                  setShowNipModal(false);
+                  setNipKepala("");
+                  setNipError("");
+                }}
+                style={{
+                  padding: '0.6rem 1.2rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--glass-border, rgba(255,255,255,0.1))',
+                  background: 'transparent',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmKirim}
+                disabled={isSubmitting}
+                className="btn-primary"
+                style={{
+                  padding: '0.6rem 1.2rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: 'hsl(142, 71%, 45%)',
+                  color: 'white',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: 600
+                }}
+              >
+                {isSubmitting ? "Mengirim..." : "Konfirmasi & Kirim"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
