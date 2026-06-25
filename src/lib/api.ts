@@ -139,4 +139,17 @@ export const api = {
 
   getABK: (jabatanId: string) =>
     apiCall('getABK', '', { params: { parentId: jabatanId } }),
+
+  // -- Word Template & Tag Manager --
+  saveTemplate: (data: { base64: string; filename: string }) =>
+    apiCall('saveTemplate', 'settings', { data }),
+
+  getTemplate: () =>
+    apiCall<{ base64: string; filename: string } | null>('getTemplate', 'settings'),
+
+  saveTagMappings: (data: Record<string, any>) =>
+    apiCall('saveTagMappings', 'settings', { data }),
+
+  getTagMappings: () =>
+    apiCall<Record<string, any> | null>('getTagMappings', 'settings'),
 };

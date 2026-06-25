@@ -72,6 +72,9 @@ export default function DashboardLayout({
           <Link href="/dashboard/beban-kerja" className={`${styles.navItem} ${pathname.includes('/beban-kerja') ? styles.active : ''}`}>
             <span className={styles.navIcon}>⚖️</span> <span className={styles.navText}>Beban Kerja</span>
           </Link>
+          <Link href="/dashboard/verifikasi" className={`${styles.navItem} ${pathname.includes('/verifikasi') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🔍</span> <span className={styles.navText}>Verifikasi Pengisian</span>
+          </Link>
           <Link href="/dashboard/validasi" className={`${styles.navItem} ${pathname.includes('/validasi') ? styles.active : ''}`}>
             <span className={styles.navIcon}>✅</span> <span className={styles.navText}>Validasi Usulan</span>
           </Link>

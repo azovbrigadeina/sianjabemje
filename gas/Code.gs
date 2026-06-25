@@ -111,6 +111,18 @@ function handleRequest_(e) {
       case 'getABK':
         result = getABK_(parentId);
         break;
+      case 'saveTemplate':
+        result = fbPut_('settings/templateDocx', data);
+        break;
+      case 'getTemplate':
+        result = fbGet_('settings/templateDocx');
+        break;
+      case 'saveTagMappings':
+        result = fbPut_('settings/tagMappings', data);
+        break;
+      case 'getTagMappings':
+        result = fbGet_('settings/tagMappings');
+        break;
       default:
         result = { error: 'Aksi tidak dikenal: ' + action };
     }

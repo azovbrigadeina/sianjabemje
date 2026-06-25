@@ -1,479 +1,164 @@
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, BorderStyle, WidthType, AlignmentType, HeadingLevel } from 'docx';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
 import { saveAs } from 'file-saver';
+import { api } from './api';
 import { JabatanFull } from './types';
 
-// Helper for cells
-const createCell = (text: string, bold: boolean = false, width?: number, colSpan: number = 1) => {
-  return new TableCell({
-    columnSpan: colSpan,
-    width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
-    margins: { top: 100, bottom: 100, left: 100, right: 100 },
-    children: [
-      new Paragraph({
-        children: [new TextRun({ text, bold, font: "Arial", size: 22 })],
-      }),
-    ],
-  });
+// Helper to convert base64 string to ArrayBuffer
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
 };
 
-const createListCell = (items: string[], width?: number) => {
-  if (!items || items.length === 0) return createCell("-", false, width);
-  return new TableCell({
-    width: width ? { size: width, type: WidthType.PERCENTAGE } : undefined,
-    margins: { top: 100, bottom: 100, left: 100, right: 100 },
-    children: items.map(item => new Paragraph({
-      children: [new TextRun({ text: item, font: "Arial", size: 22 })],
-      bullet: { level: 0 }
-    }))
-  });
+// Map Sianjab data to template placeholder keys based on custom user mappings
+const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}) => {
+  const result: Record<string, any> = {};
+
+  const getValue = (fieldKey: string, defaultValue: any) => {
+    return mappings[fieldKey] || defaultValue;
+  };
+
+  // Base fields
+  result[getValue('namaJabatan', 'namaJabatan')] = jabatan.namaJabatan || "-";
+  result[getValue('kodeJabatan', 'kodeJabatan')] = jabatan.kodeJabatan || "-";
+  result[getValue('jenisJabatan', 'jenisJabatan')] = jabatan.jenisJabatan || "-";
+  result[getValue('ikhtisarJabatan', 'ikhtisarJabatan')] = jabatan.ikhtisarJabatan || "-";
+  result[getValue('kelasJabatan', 'kelasJabatan')] = jabatan.kelasJabatan || 0;
+  result[getValue('tahun', 'tahun')] = jabatan.tahun || "-";
+
+  // Hierarchy fields
+  const hierarchyKeys = mappings.hierarchy || {};
+  const hierarchyResult: Record<string, any> = {};
+  hierarchyResult[hierarchyKeys.jptUtama || 'jptUtama'] = jabatan.hierarchy?.jptUtama || "-";
+  hierarchyResult[hierarchyKeys.jptMadya || 'jptMadya'] = jabatan.hierarchy?.jptMadya || "-";
+  hierarchyResult[hierarchyKeys.jptPratama || 'jptPratama'] = jabatan.hierarchy?.jptPratama || "-";
+  hierarchyResult[hierarchyKeys.administrator || 'administrator'] = jabatan.hierarchy?.administrator || "-";
+  hierarchyResult[hierarchyKeys.pengawas || 'pengawas'] = jabatan.hierarchy?.pengawas || "-";
+  hierarchyResult[hierarchyKeys.pelaksana || 'pelaksana'] = jabatan.hierarchy?.pelaksana || "-";
+  hierarchyResult[hierarchyKeys.jabatanFungsional || 'jabatanFungsional'] = jabatan.hierarchy?.jabatanFungsional || "-";
+  result[mappings.hierarchyName || 'hierarchy'] = hierarchyResult;
+
+  // Kualifikasi lists
+  const qualKeys = mappings.kualifikasi || {};
+  result[qualKeys.pendidikanFormal || 'kualifikasi_pendidikanFormal'] = jabatan.kualifikasi?.pendidikanFormal || [];
+  result[qualKeys.pendidikanPelatihan || 'kualifikasi_pendidikanPelatihan'] = jabatan.kualifikasi?.pendidikanPelatihan || [];
+  result[qualKeys.pengalamanKerja || 'kualifikasi_pengalamanKerja'] = jabatan.kualifikasi?.pengalamanKerja || [];
+
+  // Syarat Jabatan lists
+  const sjKeys = mappings.syaratJabatan || {};
+  result[sjKeys.keterampilanKerja || 'syarat_keterampilanKerja'] = jabatan.syaratJabatan?.keterampilanKerja || [];
+  result[sjKeys.bakatKerja || 'syarat_bakatKerja'] = jabatan.syaratJabatan?.bakatKerja || [];
+  result[sjKeys.temperamenKerja || 'syarat_temperamenKerja'] = jabatan.syaratJabatan?.temperamenKerja || [];
+  result[sjKeys.minatKerja || 'syarat_minatKerja'] = jabatan.syaratJabatan?.minatKerja || [];
+  result[sjKeys.upayaFisik || 'syarat_upayaFisik'] = jabatan.syaratJabatan?.upayaFisik || [];
+
+  // Syarat Jabatan -> Kondisi Fisik
+  const physicalKeys = sjKeys.kondisiFisik || {};
+  const physResult: Record<string, any> = {};
+  physResult[physicalKeys.jenisKelamin || 'jenisKelamin'] = jabatan.syaratJabatan?.kondisiFisik?.jenisKelamin || "-";
+  physResult[physicalKeys.umur || 'umur'] = jabatan.syaratJabatan?.kondisiFisik?.umur || "-";
+  physResult[physicalKeys.tinggiBadan || 'tinggiBadan'] = jabatan.syaratJabatan?.kondisiFisik?.tinggiBadan || "-";
+  physResult[physicalKeys.beratBadan || 'beratBadan'] = jabatan.syaratJabatan?.kondisiFisik?.beratBadan || "-";
+  physResult[physicalKeys.posturBadan || 'posturBadan'] = jabatan.syaratJabatan?.kondisiFisik?.posturBadan || "-";
+  physResult[physicalKeys.penampilan || 'penampilan'] = jabatan.syaratJabatan?.kondisiFisik?.penampilan || "-";
+  result[sjKeys.kondisiFisikName || 'syarat_kondisiFisik'] = physResult;
+
+  // Single-value fields
+  result[getValue('hasilKerja', 'hasilKerja')] = { uraian: jabatan.hasilKerja?.uraian || "-" };
+  result[getValue('prestasiKerja', 'prestasiKerja')] = { uraian: jabatan.prestasiKerja?.uraian || "-" };
+
+  // Loop Arrays mapping
+  const mapLoopArray = (arrayData: any[], loopMapping: any, defaultKey: string) => {
+    const loopKey = loopMapping?.loop || defaultKey;
+    result[loopKey] = arrayData.map((item, idx) => {
+      const row: Record<string, any> = {};
+      row[loopMapping?.no || 'no'] = idx + 1;
+      Object.keys(item).forEach((key) => {
+        if (key !== 'id' && key !== 'jabatanId' && key !== 'nomorUrut') {
+          const targetKey = loopMapping?.[key] || key;
+          row[targetKey] = item[key] !== undefined && item[key] !== null ? item[key] : "-";
+        }
+      });
+      return row;
+    });
+  };
+
+  mapLoopArray(jabatan.tugasPokok || [], mappings.tugasPokok, 'tugasPokok');
+  mapLoopArray(jabatan.bahanKerja || [], mappings.bahanKerja, 'bahanKerja');
+  mapLoopArray(jabatan.perangkatKerja || [], mappings.perangkatKerja, 'perangkatKerja');
+  mapLoopArray(jabatan.tanggungJawab || [], mappings.tanggungJawab, 'tanggungJawab');
+  mapLoopArray(jabatan.wewenang || [], mappings.wewenang, 'wewenang');
+  mapLoopArray(jabatan.korelasiJabatan || [], mappings.korelasiJabatan, 'korelasiJabatan');
+  mapLoopArray(jabatan.kondisiLingkungan || [], mappings.kondisiLingkungan, 'kondisiLingkungan');
+  mapLoopArray(jabatan.risikoBahaya || [], mappings.risikoBahaya, 'risikoBahaya');
+
+  return result;
 };
 
+// Main Export Logic
 export const exportJabatanToDocx = async (jabatan: JabatanFull) => {
-  const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }, // 1 inch
-          },
-        },
-        children: [
-          new Paragraph({
-            text: "INFORMASI JABATAN",
-            heading: HeadingLevel.HEADING_1,
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 400 },
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  createCell("1.", false, 5),
-                  createCell("Nama Jabatan", false, 25),
-                  createCell(":", false, 2),
-                  createCell(jabatan.namaJabatan || "-", true, 68),
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("2.", false, 5),
-                  createCell("Kode Jabatan", false, 25),
-                  createCell(":", false, 2),
-                  createCell(jabatan.kodeJabatan || "-", false, 68),
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("3.", false, 5),
-                  createCell("Unit Kerja", false, 25),
-                  createCell(":", false, 2),
-                  createCell("JPT Utama", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.jptUtama || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("JPT Madya", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.jptMadya || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("JPT Pratama", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.jptPratama || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Administrator", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.administrator || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Pengawas", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.pengawas || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Pelaksana", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.pelaksana || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Jabatan Fungsional", false, 15),
-                  createCell(": " + (jabatan.hierarchy?.jabatanFungsional || "-"), false, 53)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("4.", false, 5),
-                  createCell("Ikhtisar Jabatan", false, 25),
-                  createCell(":", false, 2),
-                  createCell(jabatan.ikhtisarJabatan || "-", false, 68),
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("5.", false, 5),
-                  createCell("Kualifikasi Jabatan", false, 25),
-                  createCell(":", false, 2),
-                  createCell("Pendidikan Formal", false, 20),
-                  createListCell(jabatan.kualifikasi?.pendidikanFormal || [], 48)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Pendidikan/Pelatihan", false, 20),
-                  createListCell(jabatan.kualifikasi?.pendidikanPelatihan || [], 48)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("", false, 5),
-                  createCell("", false, 25),
-                  createCell("", false, 2),
-                  createCell("Pengalaman Kerja", false, 20),
-                  createListCell(jabatan.kualifikasi?.pengalamanKerja || [], 48)
-                ]
-              }),
-            ]
-          }),
-          
-          new Paragraph({ text: "", spacing: { after: 200 } }),
-          
-          new Paragraph({
-            children: [new TextRun({ text: "6. Tugas Pokok", bold: true, font: "Arial", size: 22 })],
-            spacing: { after: 100 }
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  createCell("No", true, 5),
-                  createCell("Uraian Tugas", true, 45),
-                  createCell("Hasil Kerja", true, 15),
-                  createCell("Jumlah Hasil", true, 10),
-                  createCell("Waktu Pyls", true, 10),
-                  createCell("Waktu Efektif", true, 15),
-                ]
-              }),
-              ...(jabatan.tugasPokok && jabatan.tugasPokok.length > 0 ? jabatan.tugasPokok.map((t, i) => new TableRow({
-                children: [
-                  createCell((i + 1).toString()),
-                  createCell(t.uraianTugas || "-"),
-                  createCell(t.hasilKerja || "-"),
-                  createCell(t.jumlahHasil?.toString() || "0"),
-                  createCell(t.waktuPenyelesaian?.toString() || "0"),
-                  createCell(t.waktuEfektif?.toString() || "0"),
-                ]
-              })) : [new TableRow({ children: [createCell("Tidak ada data", false, 100, 6)] })])
-            ]
-          }),
+  try {
+    let arrayBuffer: ArrayBuffer;
+    
+    // 1. Fetch template from database settings
+    const customTemplate = await api.getTemplate().catch(() => null);
+    
+    if (customTemplate && customTemplate.base64) {
+      arrayBuffer = base64ToArrayBuffer(customTemplate.base64);
+    } else {
+      // Fallback to default template in public/templates folder
+      const response = await fetch('/templates/template_anjab.docx');
+      if (!response.ok) {
+        throw new Error("Gagal mengambil file template default.");
+      }
+      arrayBuffer = await response.arrayBuffer();
+    }
 
-          // We can add Bahan Kerja, Perangkat Kerja similarly...
-          new Paragraph({ text: "", spacing: { after: 200 } }),
+    // 2. Fetch custom mappings from database settings
+    const mappings = await api.getTagMappings().catch(() => null) || {};
 
-          new Paragraph({
-            children: [new TextRun({ text: "7. Syarat Jabatan", bold: true, font: "Arial", size: 22 })],
-            spacing: { after: 100 }
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  createCell("a.", false, 5),
-                  createCell("Keterampilan Kerja", false, 30),
-                  createListCell(jabatan.syaratJabatan?.keterampilanKerja || [], 65)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("b.", false, 5),
-                  createCell("Bakat Kerja", false, 30),
-                  createListCell(jabatan.syaratJabatan?.bakatKerja || [], 65)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("c.", false, 5),
-                  createCell("Temperamen Kerja", false, 30),
-                  createListCell(jabatan.syaratJabatan?.temperamenKerja || [], 65)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("d.", false, 5),
-                  createCell("Minat Kerja", false, 30),
-                  createListCell(jabatan.syaratJabatan?.minatKerja || [], 65)
-                ]
-              }),
-              new TableRow({
-                children: [
-                  createCell("e.", false, 5),
-                  createCell("Upaya Fisik", false, 30),
-                  createListCell(jabatan.syaratJabatan?.upayaFisik || [], 65)
-                ]
-              })
-            ]
-          }),
-        ],
-      },
-    ],
-  });
+    // 3. Transform data using mappings
+    const renderData = transformData(jabatan, mappings);
 
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `Anjab_${jabatan.namaJabatan || 'Jabatan'}.docx`);
+    // 4. Initialize pizzip and docxtemplater
+    const zip = new PizZip(arrayBuffer);
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+    });
+
+    // 5. Render
+    doc.setData(renderData);
+    doc.render();
+
+    // 6. Generate output zip/docx blob
+    const outBlob = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+
+    // 7. Save file to client device
+    saveAs(outBlob, `Anjab_${jabatan.namaJabatan || 'Jabatan'}.docx`);
+  } catch (err: any) {
+    console.error("Gagal melakukan export Word:", err);
+    throw new Error("Gagal mengekspor laporan: " + err.message);
+  }
 };
 
+// Bulk Export (Generates a combined document with multiple sections or individual downloads depending on browser performance)
 export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[]) => {
-  const sections = jabatans.map((jabatan) => {
-    return {
-      properties: {
-        page: {
-          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
-        },
-      },
-      children: [
-        new Paragraph({
-          text: "INFORMASI JABATAN",
-          heading: HeadingLevel.HEADING_1,
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
-        }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createCell("1.", false, 5),
-                createCell("Nama Jabatan", false, 25),
-                createCell(":", false, 2),
-                createCell(jabatan.namaJabatan || "-", true, 68),
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("2.", false, 5),
-                createCell("Kode Jabatan", false, 25),
-                createCell(":", false, 2),
-                createCell(jabatan.kodeJabatan || "-", false, 68),
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("3.", false, 5),
-                createCell("Unit Kerja", false, 25),
-                createCell(":", false, 2),
-                createCell("JPT Utama", false, 15),
-                createCell(": " + (jabatan.hierarchy?.jptUtama || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("JPT Madya", false, 15),
-                createCell(": " + (jabatan.hierarchy?.jptMadya || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("JPT Pratama", false, 15),
-                createCell(": " + (jabatan.hierarchy?.jptPratama || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Administrator", false, 15),
-                createCell(": " + (jabatan.hierarchy?.administrator || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Pengawas", false, 15),
-                createCell(": " + (jabatan.hierarchy?.pengawas || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Pelaksana", false, 15),
-                createCell(": " + (jabatan.hierarchy?.pelaksana || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Jabatan Fungsional", false, 15),
-                createCell(": " + (jabatan.hierarchy?.jabatanFungsional || "-"), false, 53)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("4.", false, 5),
-                createCell("Ikhtisar Jabatan", false, 25),
-                createCell(":", false, 2),
-                createCell(jabatan.ikhtisarJabatan || "-", false, 68),
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("5.", false, 5),
-                createCell("Kualifikasi Jabatan", false, 25),
-                createCell(":", false, 2),
-                createCell("Pendidikan Formal", false, 20),
-                createListCell(jabatan.kualifikasi?.pendidikanFormal || [], 48)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Pendidikan/Pelatihan", false, 20),
-                createListCell(jabatan.kualifikasi?.pendidikanPelatihan || [], 48)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("", false, 5),
-                createCell("", false, 25),
-                createCell("", false, 2),
-                createCell("Pengalaman Kerja", false, 20),
-                createListCell(jabatan.kualifikasi?.pengalamanKerja || [], 48)
-              ]
-            }),
-          ]
-        }),
-        
-        new Paragraph({ text: "", spacing: { after: 200 } }),
-        
-        new Paragraph({
-          children: [new TextRun({ text: "6. Tugas Pokok", bold: true, font: "Arial", size: 22 })],
-          spacing: { after: 100 }
-        }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createCell("No", true, 5),
-                createCell("Uraian Tugas", true, 45),
-                createCell("Hasil Kerja", true, 15),
-                createCell("Jumlah Hasil", true, 10),
-                createCell("Waktu Pyls", true, 10),
-                createCell("Waktu Efektif", true, 15),
-              ]
-            }),
-            ...(jabatan.tugasPokok && jabatan.tugasPokok.length > 0 ? jabatan.tugasPokok.map((t, i) => new TableRow({
-              children: [
-                createCell((i + 1).toString()),
-                createCell(t.uraianTugas || "-"),
-                createCell(t.hasilKerja || "-"),
-                createCell(t.jumlahHasil?.toString() || "0"),
-                createCell(t.waktuPenyelesaian?.toString() || "0"),
-                createCell(t.waktuEfektif?.toString() || ((t.waktuPenyelesaian || 0) * (t.jumlahHasil || 0)).toString()),
-              ]
-            })) : [new TableRow({ children: [createCell("Tidak ada data", false, 100, 6)] })])
-          ]
-        }),
-
-        new Paragraph({ text: "", spacing: { after: 200 } }),
-
-        new Paragraph({
-          children: [new TextRun({ text: "7. Syarat Jabatan", bold: true, font: "Arial", size: 22 })],
-          spacing: { after: 100 }
-        }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createCell("a.", false, 5),
-                createCell("Keterampilan Kerja", false, 30),
-                createListCell(jabatan.syaratJabatan?.keterampilanKerja || [], 65)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("b.", false, 5),
-                createCell("Bakat Kerja", false, 30),
-                createListCell(jabatan.syaratJabatan?.bakatKerja || [], 65)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("c.", false, 5),
-                createCell("Temperamen Kerja", false, 30),
-                createListCell(jabatan.syaratJabatan?.temperamenKerja || [], 65)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("d.", false, 5),
-                createCell("Minat Kerja", false, 30),
-                createListCell(jabatan.syaratJabatan?.minatKerja || [], 65)
-              ]
-            }),
-            new TableRow({
-              children: [
-                createCell("e.", false, 5),
-                createCell("Upaya Fisik", false, 30),
-                createListCell(jabatan.syaratJabatan?.upayaFisik || [], 65)
-              ]
-            })
-          ]
-        }),
-      ]
-    };
-  });
-
-  const doc = new Document({
-    sections: sections
-  });
-
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `${title}.docx`);
+  // If exporting bulk, we run individual downloads sequentially or combined. 
+  // Standard docxtemplater does not merge documents out-of-the-box. 
+  // The best way in standard frontend JS without commercial add-ons is downloading individual files,
+  // or downloading them sequentially so they download as separate files.
+  for (const jabatan of jabatans) {
+    await exportJabatanToDocx(jabatan);
+    // Simple delay to prevent simultaneous download prompt blocking
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
 };
-

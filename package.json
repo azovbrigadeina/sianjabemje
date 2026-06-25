@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "docx": "^9.7.1",
+    "docxtemplater": "^3.69.0",
     "file-saver": "^2.0.5",
     "next": "16.2.9",
+    "pizzip": "^3.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "xlsx": "^0.18.5"
