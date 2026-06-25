@@ -5,10 +5,13 @@ import styles from "../dashboard/page.module.css";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja } from "@/lib/types";
+import Link from "next/link";
 
 export default function OperatorHome() {
   const { user } = useUser();
   const [opdName, setOpdName] = useState<string>("OPD Anda");
+  const [statusValidasi, setStatusValidasi] = useState<string>("Draft");
+  const [catatanRevisi, setCatatanRevisi] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalJabatan: 0,
     abkSelesai: 0,
@@ -29,7 +32,11 @@ export default function OperatorHome() {
 
         // Also collect sub-unit IDs under this OPD
         const thisOpd = opds.find((o) => o.id === user.unitKerjaId);
-        if (thisOpd) setOpdName(thisOpd.nama);
+        if (thisOpd) {
+          setOpdName(thisOpd.nama);
+          setStatusValidasi(thisOpd.statusValidasi || "Draft");
+          setCatatanRevisi(thisOpd.catatanRevisi || null);
+        }
 
         const allSubIds = opds
           .filter((o) => o.parentId === user.unitKerjaId)
@@ -73,6 +80,101 @@ export default function OperatorHome() {
           Selamat datang di panel pengisian dokumen Analisis Jabatan dan Beban Kerja — <strong>{opdName}</strong>.
         </p>
       </div>
+
+      {/* Banner Status Validasi */}
+      {!loading && (
+        <div style={{
+          margin: '0.5rem 0 2rem 0',
+          padding: '1.25rem 1.5rem',
+          borderRadius: '16px',
+          background: 
+            statusValidasi === 'Disetujui' ? 'rgba(16, 185, 129, 0.1)' :
+            statusValidasi === 'Diajukan' ? 'rgba(59, 130, 246, 0.1)' :
+            statusValidasi === 'Revisi' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+          border: `1px solid ${
+            statusValidasi === 'Disetujui' ? '#10b981' :
+            statusValidasi === 'Diajukan' ? '#3b82f6' :
+            statusValidasi === 'Revisi' ? '#ef4444' : '#f59e0b'
+          }`,
+          boxShadow: `0 8px 20px -8px ${
+            statusValidasi === 'Disetujui' ? 'rgba(16, 185, 129, 0.2)' :
+            statusValidasi === 'Diajukan' ? 'rgba(59, 130, 246, 0.2)' :
+            statusValidasi === 'Revisi' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)'
+          }`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.25rem',
+          flexWrap: 'wrap',
+        }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.5rem',
+            background: 
+              statusValidasi === 'Disetujui' ? 'rgba(16, 185, 129, 0.2)' :
+              statusValidasi === 'Diajukan' ? 'rgba(59, 130, 246, 0.2)' :
+              statusValidasi === 'Revisi' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+            color: 
+              statusValidasi === 'Disetujui' ? '#10b981' :
+              statusValidasi === 'Diajukan' ? '#3b82f6' :
+              statusValidasi === 'Revisi' ? '#ef4444' : '#f59e0b',
+          }}>
+            {statusValidasi === 'Disetujui' ? '✅' :
+             statusValidasi === 'Diajukan' ? '⏳' :
+             statusValidasi === 'Revisi' ? '⚠️' : '📝'}
+          </div>
+          <div style={{ flex: 1, minWidth: '250px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8 }}>
+                Status Validasi OPD
+              </span>
+              <span style={{
+                fontSize: '0.8rem',
+                padding: '0.15rem 0.6rem',
+                borderRadius: '6px',
+                fontWeight: 700,
+                background: 
+                  statusValidasi === 'Disetujui' ? '#10b981' :
+                  statusValidasi === 'Diajukan' ? '#3b82f6' :
+                  statusValidasi === 'Revisi' ? '#ef4444' : '#f59e0b',
+                color: 'white'
+              }}>
+                {statusValidasi === 'Revisi' ? 'BUTUH REVISI' : statusValidasi}
+              </span>
+            </div>
+            
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.95rem', lineHeight: '1.4' }}>
+              {statusValidasi === 'Disetujui' && "Selamat! Usulan Anjab & ABK OPD Anda telah disetujui dan disahkan oleh Admin Kabupaten."}
+              {statusValidasi === 'Diajukan' && "Dokumen Anda sedang dalam antrean pemeriksaan oleh tim Bagian Organisasi / Admin Kabupaten."}
+              {statusValidasi === 'Revisi' && (
+                <>
+                  Beberapa data Anjab / ABK Anda perlu disesuaikan kembali sesuai dengan catatan admin.
+                  {catatanRevisi && (
+                    <span style={{ display: 'block', marginTop: '0.4rem', padding: '0.6rem 0.8rem', background: 'rgba(239, 68, 68, 0.05)', borderLeft: '3px solid #ef4444', borderRadius: '4px', fontStyle: 'italic', fontSize: '0.88rem' }}>
+                      <strong>Catatan Revisi:</strong> "{catatanRevisi}"
+                    </span>
+                  )}
+                </>
+              )}
+              {statusValidasi === 'Draft' && "Semua data masih berstatus Draft. Jika pengisian data Anjab & ABK telah selesai, harap kirim untuk divalidasi."}
+            </p>
+          </div>
+          {statusValidasi === 'Draft' && (
+            <Link href="/operator/validasi" className="btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem', textDecoration: 'none', backgroundColor: '#f59e0b', border: 'none', color: 'white', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+              Kirim Validasi 📤
+            </Link>
+          )}
+          {statusValidasi === 'Revisi' && (
+            <Link href="/operator/validasi" className="btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem', textDecoration: 'none', backgroundColor: '#ef4444', border: 'none', color: 'white', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+              Lihat Detail 📤
+            </Link>
+          )}
+        </div>
+      )}
 
       <div className={styles.statsGrid}>
         <div className={`${styles.statCard} glass-panel`}>
