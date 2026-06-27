@@ -67,30 +67,46 @@ export default function OperatorLayout({
   const displayName = user?.namaLengkap || user?.username || "Operator";
   const avatarChar = displayName.charAt(0).toUpperCase();
 
+  // Dynamic header title based on route
+  const getPageTitle = () => {
+    if (pathname === '/operator') return opdName;
+    if (pathname.includes('/peta-jabatan')) return 'Peta Jabatan';
+    if (pathname.includes('/analisis')) return 'Pengisian Anjab';
+    if (pathname.includes('/beban-kerja')) return 'Hitung ABK';
+    if (pathname.includes('/validasi')) return 'Kirim Validasi';
+    return opdName;
+  };
+
   return (
     <div className={styles.dashboardLayout}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarLogo}>
-          <span className={styles.logoFull}>Sianjab ABK</span>
-          <span className={styles.logoShort}>S</span>
+        <div className={styles.sidebarHeader}>
+          <div className={styles.sidebarLogo}>
+            <div className={styles.logoMark}>S</div>
+            <span className={styles.logoText}>Sianjab ABK</span>
+          </div>
         </div>
 
-        <div style={{ padding: '0 0.5rem 1rem', fontSize: '0.8rem', opacity: 0.7, fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--secondary))' }}>
-          Panel Operator OPD
+        {/* OPD Panel Label - only visible when sidebar is not collapsed on desktop */}
+        <div style={{ padding: '0 1rem 0.75rem', fontSize: '0.72rem', opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--secondary))' }}>
+          Panel Operator
         </div>
 
         <nav className={styles.sidebarNav}>
           <Link href="/operator" className={`${styles.navItem} ${pathname === '/operator' ? styles.active : ''}`}>
-            <span>📊</span> Beranda OPD
+            <span className={styles.navIcon}>📊</span> <span className={styles.navText}>Beranda OPD</span>
+          </Link>
+          <Link href="/operator/peta-jabatan" className={`${styles.navItem} ${pathname.includes('/peta-jabatan') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🗺️</span> <span className={styles.navText}>Peta Jabatan</span>
           </Link>
           <Link href="/operator/analisis" className={`${styles.navItem} ${pathname.includes('/analisis') ? styles.active : ''}`}>
-            <span>📝</span> Pengisian Anjab
+            <span className={styles.navIcon}>📝</span> <span className={styles.navText}>Pengisian Anjab</span>
           </Link>
           <Link href="/operator/beban-kerja" className={`${styles.navItem} ${pathname.includes('/beban-kerja') ? styles.active : ''}`}>
-            <span>⚖️</span> Hitung ABK
+            <span className={styles.navIcon}>⚖️</span> <span className={styles.navText}>Hitung ABK</span>
           </Link>
           <Link href="/operator/validasi" className={`${styles.navItem} ${pathname.includes('/validasi') ? styles.active : ''}`}>
-            <span>✅</span> Kirim Validasi
+            <span className={styles.navIcon}>✅</span> <span className={styles.navText}>Kirim Validasi</span>
           </Link>
         </nav>
 
@@ -101,7 +117,7 @@ export default function OperatorLayout({
             style={{ color: '#ff5f56', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}
             onClick={handleLogout}
           >
-            <span>🚪</span> Keluar
+            <span className={styles.navIcon}>🚪</span> <span className={styles.navText}>Keluar</span>
           </button>
         </div>
       </aside>
@@ -109,7 +125,7 @@ export default function OperatorLayout({
       <div className={styles.mainContent}>
         <header className={styles.header}>
           <div className={styles.headerTitle}>
-            {opdName}
+            {getPageTitle()}
           </div>
           <div className={styles.headerActions}>
             <button

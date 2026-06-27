@@ -88,7 +88,7 @@
 
 .dashboardCard {
   width: 100%;
-  max-width: 400px;
+  max-width: 440px;
   padding: 1.5rem;
 }
 
@@ -149,6 +149,87 @@
   border-radius: 4px;
 }
 
+/* Compact Stats Styling */
+.progressContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.miniProgressItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid var(--glass-border);
+  margin: 0.5rem 0;
+}
+
+.compactStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+
+.compactStatItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  padding: 0.6rem;
+  border-radius: 10px;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.compactStatItem:hover {
+  transform: translateY(-2px);
+  border-color: hsla(var(--primary), 0.5);
+}
+
+.compactIcon {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.compactInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.compactVal {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: hsl(var(--primary));
+  line-height: 1;
+}
+
+.compactLabel {
+  font-size: 0.68rem;
+  opacity: 0.7;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fullWidth {
+  grid-column: span 2;
+}
+
+.lastUpdateRow {
+  font-size: 0.72rem;
+  opacity: 0.6;
+  text-align: center;
+  margin-top: 0.25rem;
+  font-weight: 500;
+}
+
 @media (max-width: 768px) {
   .hero {
     flex-direction: column;
@@ -168,5 +249,75 @@
     width: 100%;
     justify-content: center;
     margin-top: 2rem;
+  }
+}
+
+.skeletonPulse {
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.5; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0.5; }
+}
+
+.progressRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.progressCard {
+  padding: 1.75rem;
+}
+
+.progressCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.progressIcon {
+  font-size: 1.75rem;
+}
+
+.progressCardTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.progressCardDesc {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.progressCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.progressMeta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.progressPercent {
+  font-weight: 800;
+  color: hsl(var(--primary));
+}
+
+@media (max-width: 768px) {
+  .progressRow {
+    grid-template-columns: 1fr;
   }
 }

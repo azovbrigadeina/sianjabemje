@@ -9,6 +9,7 @@ interface Props {
   onSaveKualifikasi: (data: Partial<Kualifikasi>) => void;
   onSaveHasilKerja: (uraian: string) => void;
   loading?: boolean;
+  readOnly?: boolean;
 }
 
 const TUGAS_COLUMNS: ColumnDef[] = [
@@ -37,6 +38,7 @@ export default function TabTugasPokok({
   onSaveKualifikasi,
   onSaveHasilKerja,
   loading,
+  readOnly,
 }: Props) {
   const [tugasRows, setTugasRows] = useState<Record<string, unknown>[]>([]);
   const [kualifikasi, setKualifikasi] = useState({
@@ -165,6 +167,7 @@ export default function TabTugasPokok({
             type="text"
             className={styles.formInput}
             value={kualifikasi.pendidikanFormal}
+            disabled={readOnly}
             onChange={(e) => setKualifikasi({ ...kualifikasi, pendidikanFormal: e.target.value })}
             placeholder="S1 Administrasi Negara, S1 Hukum..."
           />
@@ -174,6 +177,7 @@ export default function TabTugasPokok({
                 key={pend}
                 type="button"
                 className={styles.tagBtn}
+                disabled={readOnly}
                 onClick={() => {
                   const current = kualifikasi.pendidikanFormal;
                   const arr = current.split(",").map((s) => s.trim()).filter(Boolean);
@@ -196,6 +200,7 @@ export default function TabTugasPokok({
             type="text"
             className={styles.formInput}
             value={kualifikasi.pendidikanPelatihan}
+            disabled={readOnly}
             onChange={(e) => setKualifikasi({ ...kualifikasi, pendidikanPelatihan: e.target.value })}
             placeholder="Diklat PIM III, Diklat Manajemen Kepegawaian"
           />
@@ -206,6 +211,7 @@ export default function TabTugasPokok({
             type="text"
             className={styles.formInput}
             value={kualifikasi.pengalamanKerja}
+            disabled={readOnly}
             onChange={(e) => setKualifikasi({ ...kualifikasi, pengalamanKerja: e.target.value })}
             placeholder="Pengalaman di bidang administrasi minimal 5 tahun"
           />
@@ -223,6 +229,7 @@ export default function TabTugasPokok({
           onDelete={deleteTugasRow}
           loading={loading}
           entityName="Tugas Pokok"
+          readOnly={readOnly}
         />
       </div>
 
@@ -241,12 +248,15 @@ export default function TabTugasPokok({
           onDelete={(idx) => setHasilKerjaRows(hasilKerjaRows.filter((_, i) => i !== idx))}
           loading={loading}
           entityName="Hasil Kerja"
+          readOnly={readOnly}
         />
       </div>
 
-      <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
-        {loading ? "Menyimpan..." : "💾 Simpan Tugas & Kualifikasi"}
-      </button>
+      {!readOnly && (
+        <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
+          {loading ? "Menyimpan..." : "💾 Simpan Tugas & Kualifikasi"}
+        </button>
+      )}
     </div>
   );
 }

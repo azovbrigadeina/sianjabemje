@@ -53,6 +53,10 @@ export default function OperatorAnalisisPage() {
   const [jabatanData, setJabatanData] = useState<JabatanFull | null>(null);
   const [loadingEditor, setLoadingEditor] = useState(false);
   const [versionKey, setVersionKey] = useState(0);
+
+  // Read-Only lock state
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
+  const [lockReason, setLockReason] = useState<string>("");
   
   const [toast, setToast] = useState<string | null>(null);
 
@@ -66,11 +70,37 @@ export default function OperatorAnalisisPage() {
     if (!user?.unitKerjaId) return;
     setIsLoadingTree(true);
     try {
-      const [opdsRaw, jabatansRaw, tugasPokoks] = await Promise.all([
+      const [opdsRaw, jabatansRaw, tugasPokoks, deadlineData] = await Promise.all([
         api.getUnitKerja() as Promise<UnitKerja[]>,
         api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
-        api.readAllEntity('tugasPokok', '') as Promise<any[]>
+        api.readAllEntity('tugasPokok', '') as Promise<any[]>,
+        api.getDeadline().catch(() => null)
       ]);
+
+      const thisOpd = opdsRaw ? opdsRaw.find(u => u.id === user.unitKerjaId) : null;
+      let readOnlyActive = false;
+      let reason = "";
+
+      if (thisOpd) {
+        if (thisOpd.statusValidasi === 'Diajukan' || thisOpd.statusValidasi === 'Disetujui') {
+          readOnlyActive = true;
+          reason = `Dokumen usulan OPD Anda telah dikirim (Status: ${thisOpd.statusValidasi}). Pengeditan dinonaktifkan.`;
+        } else if (deadlineData && deadlineData.enabled) {
+          const customDeadline = deadlineData.customDeadlines?.[user.unitKerjaId];
+          const activeDeadlineStr = customDeadline || deadlineData.deadline;
+          if (activeDeadlineStr) {
+            const deadline = new Date(activeDeadlineStr);
+            const now = new Date();
+            if (now > deadline) {
+              readOnlyActive = true;
+              reason = deadlineData.message || `Masa pengisian telah berakhir pada ${deadline.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+            }
+          }
+        }
+      }
+
+      setIsReadOnly(readOnlyActive);
+      setLockReason(reason);
 
       const tpMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
@@ -228,6 +258,10 @@ export default function OperatorAnalisisPage() {
   // SAVE HANDLERS
   const handleSaveIdentitas = async (data: Partial<JabatanFull>) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? { ...prev, ...data } : null);
     showToast("⏳ Menyimpan identitas di latar belakang...");
     
@@ -242,6 +276,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveTugas = async (tugas: Partial<TugasPokok>[]) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as any } : null);
     showToast("⏳ Menyimpan tugas...");
     
@@ -255,6 +293,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveKualifikasi = async (data: Partial<Kualifikasi>) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? {
       ...prev,
       kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } as any : { jabatanId: prev.id, ...data } as any
@@ -269,6 +311,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveHasilKerja = async (uraian: string) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? {
       ...prev,
       hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as any
@@ -283,6 +329,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveMultiRows = async (entity: string, rows: any[]) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? { ...prev, [entity]: rows } : null);
     showToast(`⏳ Menyimpan ${entity}...`);
     
@@ -296,6 +346,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSaveSyarat = async (data: Partial<SyaratJabatan>) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? {
       ...prev,
       syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } as any : { jabatanId: prev.id, ...data } as any
@@ -310,6 +364,10 @@ export default function OperatorAnalisisPage() {
 
   const handleSavePrestasi = async (uraian: string) => {
     if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setJabatanData(prev => prev ? {
       ...prev,
       prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as any
@@ -520,6 +578,28 @@ export default function OperatorAnalisisPage() {
         </div>
       </div>
 
+      {isReadOnly && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+          border: '1px solid #f59e0b',
+          color: '#b45309',
+          padding: '1rem 1.5rem',
+          borderRadius: '12px',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+          fontWeight: 500
+        }}>
+          <span style={{ fontSize: '1.5rem' }}>🔒</span>
+          <div>
+            <strong style={{ fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>Mode Lihat-Saja (Read-Only) Aktif</strong>
+            <span style={{ fontSize: '0.9rem', opacity: 0.9 }}>{lockReason}</span>
+          </div>
+        </div>
+      )}
+
       <div className={`${treeStyles.card} glass-panel`}>
         <div className={treeStyles.toolbar}>
           <input
@@ -563,18 +643,22 @@ export default function OperatorAnalisisPage() {
                   >
                     <span>📥</span> Unduh Template
                   </button>
-                  <label 
-                    style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <span>📤</span> Impor Excel
-                    <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportExcel} />
-                  </label>
-                  <label 
-                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <span>📤</span> Import Anjab Asli
-                    <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportAnjabAsli} />
-                  </label>
+                  {!isReadOnly && (
+                    <>
+                      <label 
+                        style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        <span>📤</span> Impor Excel
+                        <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportExcel} />
+                      </label>
+                      <label 
+                        style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        <span>📤</span> Import Anjab Asli
+                        <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportAnjabAsli} />
+                      </label>
+                    </>
+                  )}
                   <button 
                     onClick={() => exportJabatanToDocx(jabatanData)}
                     style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
@@ -606,21 +690,21 @@ export default function OperatorAnalisisPage() {
             ) : jabatanData ? (
               <>
                 {activeTab === "identitas" && (
-                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} readOnlyNama={true} />
+                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} readOnlyNama={true} readOnly={isReadOnly} />
                 )}
                 {activeTab === "tugas" && (
                   <TabTugasPokok key={`tugas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSaveTugas={handleSaveTugas}
-                    onSaveKualifikasi={handleSaveKualifikasi} onSaveHasilKerja={handleSaveHasilKerja} loading={loadingEditor} />
+                    onSaveKualifikasi={handleSaveKualifikasi} onSaveHasilKerja={handleSaveHasilKerja} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "bahan" && (
-                  <TabBahanPerangkat jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} />
+                  <TabBahanPerangkat jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "korelasi" && (
-                  <TabKorelasiLingkungan jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} />
+                  <TabKorelasiLingkungan jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "syarat" && (
                   <TabSyaratJabatan key={`syarat-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSaveSyarat={handleSaveSyarat}
-                    onSavePrestasi={handleSavePrestasi} loading={loadingEditor} />
+                    onSavePrestasi={handleSavePrestasi} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
               </>
             ) : null}

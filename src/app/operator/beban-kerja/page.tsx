@@ -58,6 +58,10 @@ export default function OperatorBebanKerjaPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Read-Only lock state
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
+  const [lockReason, setLockReason] = useState<string>("");
+
   // ABK data
   const [abkRows, setAbkRows] = useState<ABKRow[]>([]);
   const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('jam');
@@ -74,12 +78,38 @@ export default function OperatorBebanKerjaPage() {
     if (!user?.unitKerjaId) return;
     setIsLoadingTree(true);
     try {
-      const [opdsRaw, jabatansRaw, abks, tugasPokoks] = await Promise.all([
+      const [opdsRaw, jabatansRaw, abks, tugasPokoks, deadlineData] = await Promise.all([
         api.getUnitKerja() as Promise<UnitKerja[]>,
         api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
         api.readAllEntity('abk', '') as Promise<any[]>,
-        api.readAllEntity('tugasPokok', '') as Promise<any[]>
+        api.readAllEntity('tugasPokok', '') as Promise<any[]>,
+        api.getDeadline().catch(() => null)
       ]);
+
+      const thisOpd = opdsRaw ? opdsRaw.find(u => u.id === user.unitKerjaId) : null;
+      let readOnlyActive = false;
+      let reason = "";
+
+      if (thisOpd) {
+        if (thisOpd.statusValidasi === 'Diajukan' || thisOpd.statusValidasi === 'Disetujui') {
+          readOnlyActive = true;
+          reason = `Dokumen usulan OPD Anda telah dikirim (Status: ${thisOpd.statusValidasi}). Pengeditan dinonaktifkan.`;
+        } else if (deadlineData && deadlineData.enabled) {
+          const customDeadline = deadlineData.customDeadlines?.[user.unitKerjaId];
+          const activeDeadlineStr = customDeadline || deadlineData.deadline;
+          if (activeDeadlineStr) {
+            const deadline = new Date(activeDeadlineStr);
+            const now = new Date();
+            if (now > deadline) {
+              readOnlyActive = true;
+              reason = deadlineData.message || `Masa pengisian telah berakhir pada ${deadline.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+            }
+          }
+        }
+      }
+
+      setIsReadOnly(readOnlyActive);
+      setLockReason(reason);
 
       const abkMap: Record<string, boolean> = {};
       if (abks && Array.isArray(abks)) {
@@ -263,6 +293,10 @@ export default function OperatorBebanKerjaPage() {
 
   const handleSave = async () => {
     if (!activeJob) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
+      return;
+    }
     setSaving(true);
     try {
       const payload: ABKData = {
@@ -398,6 +432,28 @@ export default function OperatorBebanKerjaPage() {
         </div>
       </div>
 
+      {isReadOnly && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+          border: '1px solid #f59e0b',
+          color: '#b45309',
+          padding: '1rem 1.5rem',
+          borderRadius: '12px',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+          fontWeight: 500
+        }}>
+          <span style={{ fontSize: '1.5rem' }}>🔒</span>
+          <div>
+            <strong style={{ fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>Mode Lihat-Saja (Read-Only) Aktif</strong>
+            <span style={{ fontSize: '0.9rem', opacity: 0.9 }}>{lockReason}</span>
+          </div>
+        </div>
+      )}
+
       <div className={`${treeStyles.card} glass-panel`}>
         <div className={treeStyles.toolbar}>
           <input
@@ -451,9 +507,11 @@ export default function OperatorBebanKerjaPage() {
                   <div style={{ fontSize: '0.9rem', opacity: 0.8, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span><strong>WKE:</strong></span>
                     <input type="number" className={styles.editableInput} value={wke}
+                      disabled={isReadOnly}
                       onChange={(e) => setWke(parseInt(e.target.value) || (waktuSatuan === 'jam' ? 1250 : 72000))}
                       style={{ width: '100px' }} />
                     <select className={styles.editableInput} style={{ width: '130px', cursor: 'pointer' }}
+                      disabled={isReadOnly}
                       value={waktuSatuan} onChange={(e) => {
                         const val = e.target.value as 'jam' | 'menit';
                         setWaktuSatuan(val);
@@ -464,29 +522,33 @@ export default function OperatorBebanKerjaPage() {
                     </select>
                   </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <button className="btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer' }}
-                      onClick={async () => {
-                        if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
-                          const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
-                          const tp = fullData?.tugasPokok || [];
-                          if (tp.length === 0) return showToast("⚠️ Anjab masih kosong!");
-                          setAbkRows(tp.map(t => ({
-                            tugas: t.uraianTugas || '',
-                            satuan: t.hasilKerja || '',
-                            waktu: t.waktuPenyelesaian || 0,
-                            volume: t.jumlahHasil || 0
-                          })));
-                          setWaktuSatuan('jam');
-                          setWke(1250);
-                          showToast("✅ Berhasil menarik data dari Anjab");
-                        }
-                      }}>🔄 Tarik dari Anjab</button>
-                    <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                      onClick={handleAddRow}>+ Tambah Baris</button>
-                    <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                      onClick={handleSave} disabled={saving}>
-                      {saving ? 'Menyimpan...' : '💾 Simpan'}
-                    </button>
+                    {!isReadOnly && (
+                      <>
+                        <button className="btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer' }}
+                          onClick={async () => {
+                            if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
+                              const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
+                              const tp = fullData?.tugasPokok || [];
+                              if (tp.length === 0) return showToast("⚠️ Anjab masih kosong!");
+                              setAbkRows(tp.map(t => ({
+                                tugas: t.uraianTugas || '',
+                                satuan: t.hasilKerja || '',
+                                waktu: t.waktuPenyelesaian || 0,
+                                volume: t.jumlahHasil || 0
+                              })));
+                              setWaktuSatuan('jam');
+                              setWke(1250);
+                              showToast("✅ Berhasil menarik data dari Anjab");
+                            }
+                          }}>🔄 Tarik dari Anjab</button>
+                        <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                          onClick={handleAddRow}>+ Tambah Baris</button>
+                        <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                          onClick={handleSave} disabled={saving}>
+                          {saving ? 'Menyimpan...' : '💾 Simpan'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -520,21 +582,27 @@ export default function OperatorBebanKerjaPage() {
                               <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                               <td>
                                 <input type="text" className={styles.editableInput} value={row.tugas}
+                                  disabled={isReadOnly}
                                   onChange={(e) => handleUpdateRow(idx, 'tugas', e.target.value)}
                                   style={{ textAlign: 'left' }} />
                               </td>
                               <td><input type="text" className={styles.editableInput} value={row.satuan}
+                                disabled={isReadOnly}
                                 onChange={(e) => handleUpdateRow(idx, 'satuan', e.target.value)} /></td>
                               <td><input type="number" className={styles.editableInput} value={row.waktu}
+                                disabled={isReadOnly}
                                 onChange={(e) => handleUpdateRow(idx, 'waktu', parseInt(e.target.value) || 0)} /></td>
                               <td><input type="number" className={styles.editableInput} value={row.volume}
+                                disabled={isReadOnly}
                                 onChange={(e) => handleUpdateRow(idx, 'volume', parseInt(e.target.value) || 0)} /></td>
                               <td style={{ textAlign: 'center', fontWeight: 500 }}>{waktuEfektif.toLocaleString('id-ID')}</td>
                               <td className={styles.resultCell}>{kebutuhan.toFixed(4)}</td>
                               <td style={{ textAlign: 'center' }}>
-                                <button onClick={() => handleDeleteRow(idx)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '1.1rem' }}
-                                  title="Hapus baris">🗑</button>
+                                {!isReadOnly && (
+                                  <button onClick={() => handleDeleteRow(idx)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '1.1rem' }}
+                                    title="Hapus baris">🗑</button>
+                                )}
                               </td>
                             </tr>
                           );

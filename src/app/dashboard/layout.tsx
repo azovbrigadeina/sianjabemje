@@ -54,27 +54,61 @@ export default function DashboardLayout({
   const displayName = user?.namaLengkap || user?.username || "Admin Sianjab";
   const avatarChar = displayName.charAt(0).toUpperCase();
 
+  // Dynamic header title based on route
+  const getPageTitle = () => {
+    if (pathname === '/dashboard') return 'Dasbor Utama';
+    if (pathname.includes('/organisasi/peta-jabatan')) return 'Peta Jabatan';
+    if (pathname.includes('/organisasi')) return 'Struktur Organisasi';
+    if (pathname.includes('/opd')) return 'Kelola OPD';
+    if (pathname.includes('/analisis')) return 'Analisis Jabatan';
+    if (pathname.includes('/beban-kerja')) return 'Beban Kerja';
+    if (pathname.includes('/verifikasi')) return 'Verifikasi Pengisian';
+    if (pathname.includes('/validasi')) return 'Validasi Usulan';
+    if (pathname.includes('/laporan')) return 'Laporan';
+    if (pathname.includes('/referensi')) return 'Referensi Jabatan';
+    if (pathname.includes('/users')) return 'Manajemen User';
+    return 'Ringkasan Sistem';
+  };
+
   return (
     <div className={styles.dashboardLayout}>
       <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''}`}>
-        <button
-          className={styles.toggleBtn}
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          title={isCollapsed ? "Perluas Menu" : "Kecilkan Menu"}
-        >
-          ◀
-        </button>
-        <div className={styles.sidebarLogo}>
-          <span className={styles.logoFull}>Sianjab ABK</span>
-          <span className={styles.logoShort}>S</span>
+        <div className={styles.sidebarHeader}>
+          <div className={styles.sidebarLogo}>
+            <div className={styles.logoMark}>S</div>
+            <span className={styles.logoText}>Sianjab ABK</span>
+          </div>
+          {!isCollapsed && (
+            <button
+              className={styles.toggleBtn}
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              title="Kecilkan Menu"
+              aria-label="Kecilkan Menu"
+            >
+              ◀
+            </button>
+          )}
+          {isCollapsed && (
+            <button
+              className={styles.toggleBtn}
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              title="Perluas Menu"
+              aria-label="Perluas Menu"
+            >
+              ◀
+            </button>
+          )}
         </div>
 
         <nav className={styles.sidebarNav}>
           <Link href="/dashboard" className={`${styles.navItem} ${pathname === '/dashboard' ? styles.active : ''}`}>
             <span className={styles.navIcon}>📊</span> <span className={styles.navText}>Dasbor Utama</span>
           </Link>
-          <Link href="/dashboard/organisasi" className={`${styles.navItem} ${pathname.includes('/organisasi') ? styles.active : ''}`}>
+          <Link href="/dashboard/organisasi" className={`${styles.navItem} ${pathname === '/dashboard/organisasi' ? styles.active : ''}`}>
             <span className={styles.navIcon}>🏢</span> <span className={styles.navText}>Struktur Organisasi</span>
+          </Link>
+          <Link href="/dashboard/organisasi/peta-jabatan" className={`${styles.navItem} ${pathname.includes('/organisasi/peta-jabatan') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🗺️</span> <span className={styles.navText}>Peta Jabatan</span>
           </Link>
           <Link href="/dashboard/opd" className={`${styles.navItem} ${pathname.includes('/opd') ? styles.active : ''}`}>
             <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Kelola OPD</span>
@@ -101,7 +135,7 @@ export default function DashboardLayout({
               <span>Administrasi</span>
             </div>
           )}
-          {isCollapsed && <div style={{ height: "1px", background: "var(--glass-border)", margin: "0.5rem 0" }} />}
+          {isCollapsed && <div className={styles.navDividerLine} />}
 
           <Link href="/dashboard/referensi" className={`${styles.navItem} ${pathname.includes('/referensi') ? styles.active : ''}`}>
             <span className={styles.navIcon}>📚</span> <span className={styles.navText}>Referensi Jabatan</span>
@@ -126,7 +160,7 @@ export default function DashboardLayout({
       <div className={styles.mainContent}>
         <header className={styles.header}>
           <div className={styles.headerTitle}>
-            Ringkasan Sistem
+            {getPageTitle()}
           </div>
           <div className={styles.headerActions}>
             <button

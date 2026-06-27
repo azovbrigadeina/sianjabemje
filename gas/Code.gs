@@ -123,6 +123,12 @@ function handleRequest_(e) {
       case 'getTagMappings':
         result = fbGet_('settings/tagMappings');
         break;
+      case 'saveDeadline':
+        result = fbPut_('settings/deadline', data);
+        break;
+      case 'getDeadline':
+        result = fbGet_('settings/deadline');
+        break;
       default:
         result = { error: 'Aksi tidak dikenal: ' + action };
     }

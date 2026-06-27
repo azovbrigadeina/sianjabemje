@@ -9,6 +9,7 @@ interface Props {
   jabatan: JabatanFull | null;
   onSave: (entity: string, rows: Record<string, unknown>[]) => void;
   loading?: boolean;
+  readOnly?: boolean;
 }
 
 const BAHAN_COLS: ColumnDef[] = [
@@ -29,7 +30,7 @@ const WW_COLS: ColumnDef[] = [
   { key: "uraian", label: "Uraian Wewenang", type: "textarea" },
 ];
 
-export default function TabBahanPerangkat({ jabatan, onSave, loading }: Props) {
+export default function TabBahanPerangkat({ jabatan, onSave, loading, readOnly }: Props) {
   const [bahanRows, setBahanRows] = useState<Record<string, unknown>[]>([]);
   const [perangkatRows, setPerangkatRows] = useState<Record<string, unknown>[]>([]);
   const [tjRows, setTjRows] = useState<Record<string, unknown>[]>([]);
@@ -74,27 +75,29 @@ export default function TabBahanPerangkat({ jabatan, onSave, loading }: Props) {
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <div>
         <div className={styles.sectionTitle}>📦 8. Bahan Kerja</div>
-        <EditableTable columns={BAHAN_COLS} rows={bahanRows} {...bahanH} loading={loading} entityName="Bahan Kerja" />
+        <EditableTable columns={BAHAN_COLS} rows={bahanRows} {...bahanH} loading={loading} entityName="Bahan Kerja" readOnly={readOnly} />
       </div>
 
       <div>
         <div className={styles.sectionTitle}>🔧 9. Perangkat Kerja</div>
-        <EditableTable columns={PERANGKAT_COLS} rows={perangkatRows} {...perangkatH} loading={loading} entityName="Perangkat Kerja" />
+        <EditableTable columns={PERANGKAT_COLS} rows={perangkatRows} {...perangkatH} loading={loading} entityName="Perangkat Kerja" readOnly={readOnly} />
       </div>
 
       <div>
         <div className={styles.sectionTitle}>✅ 10. Tanggung Jawab</div>
-        <EditableTable columns={TJ_COLS} rows={tjRows} {...tjH} loading={loading} entityName="Tanggung Jawab" />
+        <EditableTable columns={TJ_COLS} rows={tjRows} {...tjH} loading={loading} entityName="Tanggung Jawab" readOnly={readOnly} />
       </div>
 
       <div>
         <div className={styles.sectionTitle}>⚡ 11. Wewenang</div>
-        <EditableTable columns={WW_COLS} rows={wwRows} {...wwH} loading={loading} entityName="Wewenang" />
+        <EditableTable columns={WW_COLS} rows={wwRows} {...wwH} loading={loading} entityName="Wewenang" readOnly={readOnly} />
       </div>
 
-      <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
-        {loading ? "Menyimpan..." : "💾 Simpan Bahan, Perangkat, TJ & Wewenang"}
-      </button>
+      {!readOnly && (
+        <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
+          {loading ? "Menyimpan..." : "💾 Simpan Bahan, Perangkat, TJ & Wewenang"}
+        </button>
+      )}
     </div>
   );
 }

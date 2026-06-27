@@ -19,6 +19,7 @@ interface EditableTableProps {
   onDelete: (index: number) => void;
   loading?: boolean;
   entityName?: string;
+  readOnly?: boolean;
 }
 
 export default function EditableTable({
@@ -29,6 +30,7 @@ export default function EditableTable({
   onDelete,
   loading,
   entityName = "Data",
+  readOnly = false,
 }: EditableTableProps) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editRow, setEditRow] = useState<Record<string, unknown>>({});
@@ -61,9 +63,11 @@ export default function EditableTable({
     <div className={styles.tableWrap}>
       <div className={styles.tableHeader}>
         <span className={styles.tableTitle}>{entityName}</span>
-        <button className={styles.btnAdd} onClick={onAdd} disabled={loading}>
-          + Tambah
-        </button>
+        {!readOnly && (
+          <button className={styles.btnAdd} onClick={onAdd} disabled={loading}>
+            + Tambah
+          </button>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -82,7 +86,7 @@ export default function EditableTable({
                     {col.label}
                   </th>
                 ))}
-                <th style={{ width: "100px" }}>Aksi</th>
+                {!readOnly && <th style={{ width: "100px" }}>Aksi</th>}
               </tr>
             </thead>
             <tbody>
@@ -110,7 +114,7 @@ export default function EditableTable({
                               setEditRow({
                                 ...editRow,
                                 [col.key]: parseFloat(e.target.value) || 0,
-                              })
+                               })
                             }
                           />
                         ) : (
@@ -132,26 +136,28 @@ export default function EditableTable({
                       )}
                     </td>
                   ))}
-                  <td>
-                    <div className={styles.actions}>
-                      {editingIdx === idx ? (
-                        <>
-                          <button className={styles.btnSave} onClick={saveEdit}>✓</button>
-                          <button className={styles.btnCancel} onClick={cancelEdit}>✕</button>
-                        </>
-                      ) : deleteConfirm === idx ? (
-                        <>
-                          <button className={styles.btnConfirmDel} onClick={() => confirmDelete(idx)}>Hapus?</button>
-                          <button className={styles.btnCancel} onClick={() => setDeleteConfirm(null)}>Batal</button>
-                        </>
-                      ) : (
-                        <>
-                          <button className={styles.btnEdit} onClick={() => startEdit(idx)} title="Edit">✎</button>
-                          <button className={styles.btnDel} onClick={() => setDeleteConfirm(idx)} title="Hapus">🗑</button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+                  {!readOnly && (
+                    <td>
+                      <div className={styles.actions}>
+                        {editingIdx === idx ? (
+                          <>
+                            <button className={styles.btnSave} onClick={saveEdit}>✓</button>
+                            <button className={styles.btnCancel} onClick={cancelEdit}>✕</button>
+                          </>
+                        ) : deleteConfirm === idx ? (
+                          <>
+                            <button className={styles.btnConfirmDel} onClick={() => confirmDelete(idx)}>Hapus?</button>
+                            <button className={styles.btnCancel} onClick={() => setDeleteConfirm(null)}>Batal</button>
+                          </>
+                        ) : (
+                          <>
+                            <button className={styles.btnEdit} onClick={() => startEdit(idx)} title="Edit">✎</button>
+                            <button className={styles.btnDel} onClick={() => setDeleteConfirm(idx)} title="Hapus">🗑</button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

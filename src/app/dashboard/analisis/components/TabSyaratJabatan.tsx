@@ -10,6 +10,7 @@ interface Props {
   onSaveSyarat: (data: Partial<SyaratJabatan>) => void;
   onSavePrestasi: (uraian: string) => void;
   loading?: boolean;
+  readOnly?: boolean;
 }
 
 function CheckboxGroup({
@@ -17,13 +18,16 @@ function CheckboxGroup({
   options,
   selected,
   onChange,
+  disabled,
 }: {
   label: string;
   options: { kode: string; nama: string }[];
   selected: string[];
   onChange: (val: string[]) => void;
+  disabled?: boolean;
 }) {
   const toggle = (kode: string) => {
+    if (disabled) return;
     if (selected.includes(kode)) {
       onChange(selected.filter((s) => s !== kode));
     } else {
@@ -36,10 +40,11 @@ function CheckboxGroup({
       <label>{label}</label>
       <div className={styles.checkboxGrid}>
         {options.map((opt) => (
-          <label key={opt.kode} className={styles.checkboxItem}>
+          <label key={opt.kode} className={styles.checkboxItem} style={{ opacity: disabled ? 0.75 : 1 }}>
             <input
               type="checkbox"
               checked={selected.includes(opt.kode)}
+              disabled={disabled}
               onChange={() => toggle(opt.kode)}
             />
             <span className={styles.checkboxLabel}>
@@ -57,13 +62,16 @@ function TagCheckboxGroup({
   options,
   selected,
   onChange,
+  disabled,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (val: string[]) => void;
+  disabled?: boolean;
 }) {
   const toggle = (val: string) => {
+    if (disabled) return;
     if (selected.includes(val)) {
       onChange(selected.filter((s) => s !== val));
     } else {
@@ -80,6 +88,7 @@ function TagCheckboxGroup({
             key={opt}
             type="button"
             className={`${styles.tagBtn} ${selected.includes(opt) ? styles.tagActive : ""}`}
+            disabled={disabled}
             onClick={() => toggle(opt)}
           >
             {opt}
@@ -95,6 +104,7 @@ export default function TabSyaratJabatan({
   onSaveSyarat,
   onSavePrestasi,
   loading,
+  readOnly,
 }: Props) {
   const [keterampilanKerja, setKeterampilanKerja] = useState("");
   const [bakatKerja, setBakatKerja] = useState<string[]>([]);
@@ -168,6 +178,7 @@ export default function TabSyaratJabatan({
           type="text"
           className={styles.formInput}
           value={keterampilanKerja}
+          disabled={readOnly}
           onChange={(e) => setKeterampilanKerja(e.target.value)}
           placeholder="Manajemen, Komunikasi, Analisis Data"
         />
@@ -179,6 +190,7 @@ export default function TabSyaratJabatan({
         options={BAKAT_KERJA}
         selected={bakatKerja}
         onChange={setBakatKerja}
+        disabled={readOnly}
       />
 
       {/* 15c - Temperamen Kerja */}
@@ -187,6 +199,7 @@ export default function TabSyaratJabatan({
         options={TEMPERAMEN_KERJA}
         selected={temperamenKerja}
         onChange={setTemperamenKerja}
+        disabled={readOnly}
       />
 
       {/* 15d - Minat Kerja */}
@@ -195,6 +208,7 @@ export default function TabSyaratJabatan({
         options={MINAT_KERJA}
         selected={minatKerja}
         onChange={setMinatKerja}
+        disabled={readOnly}
       />
 
       {/* 15e - Upaya Fisik */}
@@ -203,6 +217,7 @@ export default function TabSyaratJabatan({
         options={UPAYA_FISIK}
         selected={upayaFisik}
         onChange={setUpayaFisik}
+        disabled={readOnly}
       />
 
       {/* 15f - Kondisi Fisik */}
@@ -223,6 +238,7 @@ export default function TabSyaratJabatan({
                 type="text"
                 className={styles.formInput}
                 value={kondisiFisik[key]}
+                disabled={readOnly}
                 onChange={(e) => setKondisiFisik({ ...kondisiFisik, [key]: e.target.value })}
                 placeholder="Tidak dipersyaratkan"
               />
@@ -238,6 +254,7 @@ export default function TabSyaratJabatan({
           type="text"
           className={styles.formInput}
           value={fungsiPekerjaan}
+          disabled={readOnly}
           onChange={(e) => setFungsiPekerjaan(e.target.value)}
           placeholder="D0, D1, D2, O0, O1"
         />
@@ -250,6 +267,7 @@ export default function TabSyaratJabatan({
           <textarea
             className={styles.formInput}
             value={prestasiKerja}
+            disabled={readOnly}
             onChange={(e) => setPrestasiKerja(e.target.value)}
             placeholder="Uraian prestasi kerja yang diharapkan..."
             rows={3}
@@ -257,9 +275,11 @@ export default function TabSyaratJabatan({
         </div>
       </div>
 
-      <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
-        {loading ? "Menyimpan..." : "💾 Simpan Syarat & Prestasi"}
-      </button>
+      {!readOnly && (
+        <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
+          {loading ? "Menyimpan..." : "💾 Simpan Syarat & Prestasi"}
+        </button>
+      )}
     </div>
   );
 }

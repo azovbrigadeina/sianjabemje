@@ -152,4 +152,10 @@ export const api = {
 
   getTagMappings: () =>
     apiCall<Record<string, any> | null>('getTagMappings', 'settings'),
+
+  saveDeadline: (data: { deadline: string; enabled: boolean; message?: string; customDeadlines: Record<string, string> }) =>
+    apiCall('saveDeadline', 'settings', { data }),
+
+  getDeadline: () =>
+    apiCall<{ deadline: string; enabled: boolean; message?: string; customDeadlines?: Record<string, string> } | null>('getDeadline', 'settings'),
 };

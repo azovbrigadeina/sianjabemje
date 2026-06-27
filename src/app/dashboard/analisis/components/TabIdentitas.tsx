@@ -9,9 +9,10 @@ interface Props {
   onSave: (data: Partial<JabatanFull>) => void;
   loading?: boolean;
   readOnlyNama?: boolean;
+  readOnly?: boolean;
 }
 
-export default function TabIdentitas({ jabatan, treeData, onSave, loading, readOnlyNama }: Props) {
+export default function TabIdentitas({ jabatan, treeData, onSave, loading, readOnlyNama, readOnly }: Props) {
   const [form, setForm] = useState({
     namaJabatan: "",
     kodeJabatan: "",
@@ -202,7 +203,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
             className={styles.formInput}
             value={form.namaJabatan}
             onChange={(e) => setForm({ ...form, namaJabatan: e.target.value })}
-            disabled={readOnlyNama}
+            disabled={readOnlyNama || readOnly}
             placeholder="Masukkan nama jabatan"
           />
         </div>
@@ -300,6 +301,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
         <textarea
           className={styles.formInput}
           value={form.ikhtisarJabatan}
+          disabled={readOnly}
           onChange={(e) => setForm({ ...form, ikhtisarJabatan: e.target.value })}
           placeholder="Deskripsi ringkasan jabatan..."
           rows={3}
@@ -312,15 +314,18 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
           type="number"
           className={styles.formInput}
           value={form.kelasJabatan}
+          disabled={readOnly}
           onChange={(e) => setForm({ ...form, kelasJabatan: parseInt(e.target.value) || 0 })}
           min={1}
           max={17}
         />
       </div>
 
-      <button className={styles.btnSave} onClick={handleSubmit} disabled={loading}>
-        {loading ? "Menyimpan..." : "💾 Simpan Identitas"}
-      </button>
+      {!readOnly && (
+        <button className={styles.btnSave} onClick={handleSubmit} disabled={loading}>
+          {loading ? "Menyimpan..." : "💾 Simpan Identitas"}
+        </button>
+      )}
     </div>
   );
 }

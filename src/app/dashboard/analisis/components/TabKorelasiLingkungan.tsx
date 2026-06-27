@@ -10,6 +10,7 @@ interface Props {
   jabatan: JabatanFull | null;
   onSave: (entity: string, rows: Record<string, unknown>[]) => void;
   loading?: boolean;
+  readOnly?: boolean;
 }
 
 const KORELASI_COLS: ColumnDef[] = [
@@ -42,7 +43,7 @@ const getGeneralFallbackFactor = (aspek: string): string => {
   return 'Normal';
 };
 
-export default function TabKorelasiLingkungan({ jabatan, onSave, loading }: Props) {
+export default function TabKorelasiLingkungan({ jabatan, onSave, loading, readOnly }: Props) {
   const [korelasiRows, setKorelasiRows] = useState<Record<string, unknown>[]>([]);
   const [kondisiRows, setKondisiRows] = useState<Record<string, unknown>[]>([]);
   const [risikoRows, setRisikoRows] = useState<Record<string, unknown>[]>([]);
@@ -99,22 +100,24 @@ export default function TabKorelasiLingkungan({ jabatan, onSave, loading }: Prop
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <div>
         <div className={styles.sectionTitle}>🔗 12. Korelasi Jabatan</div>
-        <EditableTable columns={KORELASI_COLS} rows={korelasiRows} {...korelasiH} loading={loading} entityName="Korelasi Jabatan" />
+        <EditableTable columns={KORELASI_COLS} rows={korelasiRows} {...korelasiH} loading={loading} entityName="Korelasi Jabatan" readOnly={readOnly} />
       </div>
 
       <div>
         <div className={styles.sectionTitle}>🌍 13. Kondisi Lingkungan Kerja</div>
-        <EditableTable columns={KONDISI_COLS} rows={kondisiRows} {...kondisiH} loading={loading} entityName="Kondisi Lingkungan" />
+        <EditableTable columns={KONDISI_COLS} rows={kondisiRows} {...kondisiH} loading={loading} entityName="Kondisi Lingkungan" readOnly={readOnly} />
       </div>
 
       <div>
         <div className={styles.sectionTitle}>⚠️ 14. Risiko Bahaya</div>
-        <EditableTable columns={RISIKO_COLS} rows={risikoRows} {...risikoH} loading={loading} entityName="Risiko Bahaya" />
+        <EditableTable columns={RISIKO_COLS} rows={risikoRows} {...risikoH} loading={loading} entityName="Risiko Bahaya" readOnly={readOnly} />
       </div>
 
-      <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
-        {loading ? "Menyimpan..." : "💾 Simpan Korelasi, Lingkungan & Risiko"}
-      </button>
+      {!readOnly && (
+        <button className={styles.btnSave} onClick={handleSaveAll} disabled={loading}>
+          {loading ? "Menyimpan..." : "💾 Simpan Korelasi, Lingkungan & Risiko"}
+        </button>
+      )}
     </div>
   );
 }

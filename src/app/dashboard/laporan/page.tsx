@@ -109,11 +109,20 @@ export default function LaporanPage() {
   const [loading, setLoading] = useState<boolean>(true);
 
   // Template Settings State
-  const [activeTab, setActiveTab] = useState<"file" | "mappings">("file");
+  const [activeTab, setActiveTab] = useState<"file" | "mappings" | "deadline">("file");
   const [customTemplateName, setCustomTemplateName] = useState<string | null>(null);
   const [flatMappings, setFlatMappings] = useState<Record<string, string>>(DEFAULT_FLAT_MAPPINGS);
   const [isUploadingTemplate, setIsUploadingTemplate] = useState<boolean>(false);
   const [isSavingMappings, setIsSavingMappings] = useState<boolean>(false);
+
+  // Deadline Settings State
+  const [deadlineDate, setDeadlineDate] = useState<string>("");
+  const [deadlineEnabled, setDeadlineEnabled] = useState<boolean>(false);
+  const [deadlineMessage, setDeadlineMessage] = useState<string>("Masa pengisian dan pengeditan struktur ANJAB & ABK telah berakhir.");
+  const [customDeadlines, setCustomDeadlines] = useState<Record<string, string>>({});
+  const [isSavingDeadline, setIsSavingDeadline] = useState<boolean>(false);
+  const [dispensasiOpdId, setDispensasiOpdId] = useState<string>("");
+  const [dispensasiDate, setDispensasiDate] = useState<string>("");
 
   // Load Unit Kerja (OPD) & Template Settings on mount
   useEffect(() => {
@@ -141,6 +150,15 @@ export default function LaporanPage() {
             ...prev,
             ...flat
           }));
+        }
+
+        // Fetch deadline settings
+        const deadlineData = await api.getDeadline().catch(() => null);
+        if (deadlineData) {
+          setDeadlineDate(deadlineData.deadline || "");
+          setDeadlineEnabled(!!deadlineData.enabled);
+          if (deadlineData.message) setDeadlineMessage(deadlineData.message);
+          setCustomDeadlines(deadlineData.customDeadlines || {});
         }
       } catch (err) {
         console.error("Gagal memuat data awal:", err);
@@ -334,6 +352,49 @@ export default function LaporanPage() {
     }));
   };
 
+  // Save Deadline settings to Firebase
+  const handleSaveDeadline = async () => {
+    setIsSavingDeadline(true);
+    try {
+      await api.saveDeadline({
+        deadline: deadlineDate,
+        enabled: deadlineEnabled,
+        message: deadlineMessage,
+        customDeadlines
+      });
+      alert("✅ Pengaturan batas waktu berhasil disimpan!");
+    } catch (err: any) {
+      alert("❌ Gagal menyimpan batas waktu: " + err.message);
+    } finally {
+      setIsSavingDeadline(false);
+    }
+  };
+
+  const handleAddDispensasi = () => {
+    if (!dispensasiOpdId) {
+      alert("Silakan pilih OPD terlebih dahulu.");
+      return;
+    }
+    if (!dispensasiDate) {
+      alert("Silakan pilih batas waktu dispensasi.");
+      return;
+    }
+    setCustomDeadlines(prev => ({
+      ...prev,
+      [dispensasiOpdId]: dispensasiDate
+    }));
+    setDispensasiOpdId("");
+    setDispensasiDate("");
+  };
+
+  const handleRemoveDispensasi = (opdId: string) => {
+    setCustomDeadlines(prev => {
+      const copy = { ...prev };
+      delete copy[opdId];
+      return copy;
+    });
+  };
+
   if (loading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
@@ -475,7 +536,7 @@ export default function LaporanPage() {
       {/* Advanced Settings: Template & Tag Manager (Admin Only) */}
       <div className={`${styles.settingsSection} glass-panel`}>
         <div className={styles.settingsHeader}>
-          <div className={styles.settingsTitle}>⚙️ Pengaturan Ekspor Template Word</div>
+          <div className={styles.settingsTitle}>⚙️ Pengaturan Sistem & Template</div>
           <div className={styles.tabs}>
             <button 
               className={`${styles.tab} ${activeTab === "file" ? styles.activeTab : ""}`}
@@ -488,6 +549,12 @@ export default function LaporanPage() {
               onClick={() => setActiveTab("mappings")}
             >
               Tag Manager (Pemetaan Tag)
+            </button>
+            <button 
+              className={`${styles.tab} ${activeTab === "deadline" ? styles.activeTab : ""}`}
+              onClick={() => setActiveTab("deadline")}
+            >
+              🔒 Batas Waktu Pengisian
             </button>
           </div>
         </div>
@@ -791,6 +858,160 @@ export default function LaporanPage() {
                   disabled={isSavingMappings}
                 >
                   {isSavingMappings ? "Menyimpan..." : "Simpan Pemetaan Tag"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "deadline" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+              <p style={{ fontSize: "0.9rem", opacity: 0.85, lineHeight: 1.6 }}>
+                Atur batas waktu (deadline) pengisian data ANJAB & ABK untuk seluruh Operator OPD. Setelah batas waktu terlewati, form pengisian akan terkunci otomatis (mode Lihat-Saja). Anda juga dapat menentukan tenggat kustom (perpanjangan waktu) untuk OPD tertentu.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', background: 'rgba(255, 255, 255, 0.02)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                {/* Status Aktif */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <input 
+                    type="checkbox" 
+                    id="deadlineEnabled"
+                    checked={deadlineEnabled}
+                    onChange={(e) => setDeadlineEnabled(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="deadlineEnabled" style={{ fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}>
+                    Aktifkan Batas Waktu Pengisian Secara Global
+                  </label>
+                </div>
+
+                {/* Batas Waktu Global */}
+                {deadlineEnabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem', alignItems: 'center' }}>
+                    <div>
+                      <label style={{ fontWeight: 600, fontSize: '0.9rem', display: 'block', marginBottom: '0.25rem' }}>Tenggat Waktu Global</label>
+                      <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Tanggal & jam penutupan akses edit.</span>
+                    </div>
+                    <input 
+                      type="datetime-local" 
+                      className={styles.mappingInput}
+                      value={deadlineDate}
+                      onChange={(e) => setDeadlineDate(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--card-bg, #1e293b)', color: 'inherit' }}
+                    />
+                  </div>
+                )}
+
+                {/* Pesan Kustom */}
+                {deadlineEnabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem', alignItems: 'start' }}>
+                    <div>
+                      <label style={{ fontWeight: 600, fontSize: '0.9rem', display: 'block', marginBottom: '0.25rem' }}>Pesan Kunci Akses</label>
+                      <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Akan ditampilkan di dashboard operator.</span>
+                    </div>
+                    <textarea 
+                      className={styles.mappingInput}
+                      value={deadlineMessage}
+                      onChange={(e) => setDeadlineMessage(e.target.value)}
+                      rows={3}
+                      style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--card-bg, #1e293b)', color: 'inherit', resize: 'vertical', fontFamily: 'inherit' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Dispensasi OPD */}
+              {deadlineEnabled && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255, 255, 255, 0.02)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontWeight: 600, fontSize: '1rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '0.5rem' }}>
+                    ⏱️ Dispensasi / Perpanjangan Waktu OPD
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                      <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '0.25rem' }}>Pilih OPD</label>
+                      <select 
+                        value={dispensasiOpdId} 
+                        onChange={(e) => setDispensasiOpdId(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--card-bg, #1e293b)', color: 'inherit' }}
+                      >
+                        <option value="">-- Pilih OPD --</option>
+                        {opds.map(opd => (
+                          <option key={opd.id} value={opd.id}>{opd.nama}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                      <label style={{ fontSize: '0.8rem', opacity: 0.8, display: 'block', marginBottom: '0.25rem' }}>Tenggat Waktu Kustom</label>
+                      <input 
+                        type="datetime-local" 
+                        value={dispensasiDate}
+                        onChange={(e) => setDispensasiDate(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--card-bg, #1e293b)', color: 'inherit' }}
+                      />
+                    </div>
+
+                    <button 
+                      type="button" 
+                      className={styles.btnSave} 
+                      onClick={handleAddDispensasi}
+                      style={{ padding: '9px 20px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      + Dispensasi
+                    </button>
+                  </div>
+
+                  {/* List Dispensasi */}
+                  {Object.keys(customDeadlines).length > 0 ? (
+                    <div style={{ marginTop: '1rem', overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left' }}>
+                            <th style={{ padding: '8px' }}>Nama OPD</th>
+                            <th style={{ padding: '8px' }}>Tenggat Khusus</th>
+                            <th style={{ padding: '8px', width: '80px', textAlign: 'center' }}>Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(customDeadlines).map(([opdId, dateStr]) => {
+                            const opdName = opds.find(o => o.id === opdId)?.nama || opdId;
+                            return (
+                              <tr key={opdId} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '8px', fontWeight: 600 }}>{opdName}</td>
+                                <td style={{ padding: '8px', color: '#f59e0b' }}>
+                                  {new Date(dateStr).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                                </td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => handleRemoveDispensasi(opdId)}
+                                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                                  >
+                                    Hapus
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ fontStyle: 'italic', opacity: 0.6, fontSize: '0.85rem', marginTop: '0.5rem', textAlign: 'center' }}>
+                      Belum ada dispensasi waktu yang ditambahkan.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className={styles.actionRow}>
+                <button 
+                  className={styles.btnSave}
+                  onClick={handleSaveDeadline}
+                  disabled={isSavingDeadline}
+                >
+                  {isSavingDeadline ? "Menyimpan..." : "Simpan Pengaturan Batas Waktu"}
                 </button>
               </div>
             </div>
