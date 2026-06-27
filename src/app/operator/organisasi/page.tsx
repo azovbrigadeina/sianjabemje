@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
+import { useUser } from "@/lib/UserContext";
 import { UnitKerja, ReferensiJabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -37,7 +38,9 @@ const EMPTY_MODAL: ModalData = {
   jenisJabatan: '', kelasJabatan: 1, targetType: 'jabatan'
 };
 
-export default function OrganisasiPage() {
+export default function OperatorOrganisasiPage() {
+  const { user, isLoading: isUserLoading } = useUser();
+  
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,8 +49,9 @@ export default function OrganisasiPage() {
   const [isEmpty, setIsEmpty] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+
+  // Lock status (Admin Controlled)
   const [orgEditEnabled, setOrgEditEnabled] = useState<boolean>(true);
-  const [isSavingOrgSetting, setIsSavingOrgSetting] = useState<boolean>(false);
 
   // Modal state
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -91,22 +95,9 @@ export default function OrganisasiPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const handleToggleOrgEdit = async () => {
-    const newStatus = !orgEditEnabled;
-    setOrgEditEnabled(newStatus);
-    setIsSavingOrgSetting(true);
-    try {
-      await api.saveOrgSetting({ enabled: newStatus });
-      showToast(`✅ Akses edit operator berhasil ${newStatus ? 'diizinkan' : 'dicekal'}.`);
-    } catch (err: any) {
-      alert("Gagal menyimpan pengaturan: " + err.message);
-      setOrgEditEnabled(!newStatus); // rollback
-    } finally {
-      setIsSavingOrgSetting(false);
-    }
-  };
-
   const loadData = useCallback(async (silent = false) => {
+    if (!user?.unitKerjaId) return;
+    
     if (silent) {
       setIsBackgroundRefreshing(true);
     } else {
@@ -134,7 +125,6 @@ export default function OrganisasiPage() {
       } else {
         setOrgEditEnabled(true);
       }
-
 
       if (opds.length === 0 && jabatans.length === 0) {
         setIsEmpty(true);
@@ -167,8 +157,6 @@ export default function OrganisasiPage() {
       });
 
       // --- TIPUAN VISUAL UNTUK SUB-UNIT (BAGIAN/UPTD) ---
-      // Jika ada Jabatan di Sub-Unit yang atasannya ada di Unit Kerja lain (misal: Kabag di bawah Asisten),
-      // maka secara visual kita pindahkan Node OPD Sub-Unit tersebut ke bawah Jabatan Asisten.
       const opdToExternalParentJbt: Record<string, string> = {};
       const jbtToReroute: Record<string, boolean> = {};
 
@@ -176,16 +164,14 @@ export default function OrganisasiPage() {
         if (jbt.parentId && jbt.unitKerjaId) {
           const parentJbt = jabatans.find((p: any) => p.id === jbt.parentId);
           if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
-            // Ditemukan cross-unit reporting!
             opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
-            jbtToReroute[jbt.id] = true; // Jabatan ini dimunculkan di bawah OPD-nya, bukan menduplikasi di bawah parent aslinya
+            jbtToReroute[jbt.id] = true;
           }
         }
       });
 
       opds.forEach(opd => {
         if (opdToExternalParentJbt[opd.id] && map[opdToExternalParentJbt[opd.id]]) {
-          // Visual Trick: OPD Sub-Unit nempel di bawah Jabatan Atasannya
           map[opdToExternalParentJbt[opd.id]].children.push(map[opd.id]);
         } else if (opd.parentId && map[opd.parentId]) {
           map[opd.parentId].children.push(map[opd.id]);
@@ -232,7 +218,23 @@ export default function OrganisasiPage() {
       };
 
       sortNodes(roots);
-      setTreeData(roots);
+
+      // --- FILTER HANYA UNTUK OPD YANG BERSANGKUTAN ---
+      const findSubtree = (nodes: TreeNode[], targetId: string): TreeNode | null => {
+        for (const node of nodes) {
+          if (node.type === 'OPD' && node.id === targetId) {
+            return node;
+          }
+          const found = findSubtree(node.children, targetId);
+          if (found) return found;
+        }
+        return null;
+      };
+
+      const opdNode = findSubtree(roots, user.unitKerjaId);
+      const opdTree = opdNode ? [opdNode] : [];
+      
+      setTreeData(opdTree);
 
       setExpandedNodes(prev => {
         const next = { ...prev };
@@ -248,13 +250,31 @@ export default function OrganisasiPage() {
     }
     setIsLoading(false);
     setIsBackgroundRefreshing(false);
-  }, []);
+  }, [user?.unitKerjaId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { 
+    if (user?.unitKerjaId) {
+      loadData(); 
+    }
+  }, [user?.unitKerjaId, loadData]);
 
+  // Helper recursive to collect sub-OPD IDs inside the allowed subtree
+  const getSubOpdIds = (node: TreeNode): string[] => {
+    const ids = [node.id];
+    node.children.forEach(c => {
+      if (c.type === 'OPD') {
+        ids.push(...getSubOpdIds(c));
+      }
+    });
+    return ids;
+  };
 
+  const allowedOpdIds = user?.unitKerjaId
+    ? treeData.flatMap(node => getSubOpdIds(node))
+    : [];
 
   const handleSyncToSheet = async () => {
+    if (!orgEditEnabled) return;
     if (!confirm("Sinkronkan seluruh data ke Google Sheet?")) return;
     setIsSyncing(true);
     try {
@@ -267,6 +287,7 @@ export default function OrganisasiPage() {
   };
 
   const handleSyncFromSheet = async () => {
+    if (!orgEditEnabled) return;
     if (!confirm("Tarik data dari Google Sheet? Baris tanpa ID akan dibuatkan ID baru di Sheet.")) return;
     setIsSyncing(true);
     try {
@@ -274,34 +295,30 @@ export default function OrganisasiPage() {
       showToast("✅ Data berhasil ditarik dari Google Sheet!");
       await loadData();
     } catch (error) {
-      alert("Gagal tarik dari Sheet: " + error);
+      alert("Gagal sync dari Sheet: " + error);
     }
     setIsSyncing(false);
   };
 
   const handlePublishSitpp = async () => {
+    if (!orgEditEnabled) return;
     if (!confirm("Publish seluruh struktur organisasi ini ke SiTPP sekarang? SiTPP akan langsung membaca data terbaru ini.")) return;
     setIsSyncing(true);
     try {
       await api.exportForSitpp();
       showToast("🚀 Data struktur berhasil dipublish! SiTPP sekarang menggunakan versi terbaru ini.");
     } catch (error) {
-      alert("Gagal mempublish: " + error);
+      alert("Gagal publish ke SiTPP: " + error);
     }
     setIsSyncing(false);
   };
 
-
-
-  const toggleNode = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
   // --- MODAL HANDLERS ---
   const openAddOpdModal = () => {
+    if (!orgEditEnabled) return;
     setModalData({
       ...EMPTY_MODAL,
+      parentId: user?.unitKerjaId || '',
       targetType: 'opd'
     });
     setReferensiSearch("");
@@ -311,7 +328,8 @@ export default function OrganisasiPage() {
   const openAddModal = (parentNode: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log("openAddModal called for", parentNode);
+    if (!orgEditEnabled) return;
+    
     setModalData({
       ...EMPTY_MODAL,
       parentId: parentNode.type === 'JABATAN' ? parentNode.id : '',
@@ -326,7 +344,8 @@ export default function OrganisasiPage() {
   const openEditModal = (node: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log("openEditModal called for", node);
+    if (!orgEditEnabled) return;
+
     if (node.type === 'OPD') {
       const opd = rawOpds.find(o => o.id === node.id);
       setModalData({
@@ -354,6 +373,8 @@ export default function OrganisasiPage() {
   const handleDelete = async (node: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!orgEditEnabled) return;
+
     const type = node.type === 'OPD' ? 'Unit Kerja' : 'Jabatan';
     if (!confirm(`Yakin ingin menghapus ${type}: "${node.label}"? Ini tidak bisa dibatalkan.`)) return;
     try {
@@ -370,6 +391,8 @@ export default function OrganisasiPage() {
   };
 
   const handleModalSave = async () => {
+    if (!orgEditEnabled) return;
+
     if (modalData.targetType === 'jabatan' && (modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan.startsWith('Fungsional'))) {
       const isMatch = rawReferensi.some(ref => {
         const refJenis = (ref.jenisJabatan || '').toLowerCase();
@@ -493,14 +516,15 @@ export default function OrganisasiPage() {
           }
         }
       }
-
-      // Auto-expand direct parent if a child is added
+      setModalMode(null);
+      // Auto expand to show the newly added node
       const parentToExpand = modalMode === 'add' ? (modalData.parentId || modalData.unitKerjaId || null) : null;
       if (parentToExpand) {
-        setExpandedNodes(prev => ({ ...prev, [parentToExpand]: true }));
+        setExpandedNodes(prev => ({
+          ...prev,
+          [parentToExpand]: true
+        }));
       }
-
-      setModalMode(null);
       await loadData(true);
     } catch (error) {
       alert("Gagal menyimpan: " + error);
@@ -508,7 +532,15 @@ export default function OrganisasiPage() {
     setModalSaving(false);
   };
 
-  // --- SEARCH FILTER ---
+  const toggleNode = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedNodes(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  // Filter tree visually by search query
   const filterTree = (nodes: TreeNode[], query: string): TreeNode[] => {
     if (!query) return nodes;
     const q = query.toLowerCase();
@@ -524,7 +556,7 @@ export default function OrganisasiPage() {
 
   const displayTree = filterTree(treeData, searchQuery);
 
-  // Fungsi Renderer Rekursif
+  // Recursive tree node renderer
   const renderTreeNodes = (nodes: TreeNode[]) => (
     <ul>
       {nodes.map(node => {
@@ -562,17 +594,19 @@ export default function OrganisasiPage() {
                  {node.type === 'JABATAN' && node.kelas && (
                    <span className={styles.badgeKelas}>Kls {node.kelas}</span>
                  )}
-                 <div className={styles.treeActions}>
-                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} title="Tambah Bawahan" onClickCapture={(e) => openAddModal(node, e)}>
-                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                    </button>
-                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnWarning}`} title="Edit" onClickCapture={(e) => openEditModal(node, e)}>
-                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                    </button>
-                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnDanger}`} title="Hapus" onClickCapture={(e) => handleDelete(node, e)}>
-                       <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
-                 </div>
+                 {orgEditEnabled && (
+                   <div className={styles.treeActions}>
+                      <button type="button" className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} title="Tambah Bawahan" onClickCapture={(e) => openAddModal(node, e)}>
+                         <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                      </button>
+                      <button type="button" className={`${styles.actionBtn} ${styles.actionBtnWarning}`} title="Edit" onClickCapture={(e) => openEditModal(node, e)}>
+                         <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                      </button>
+                      <button type="button" className={`${styles.actionBtn} ${styles.actionBtnDanger}`} title="Hapus" onClickCapture={(e) => handleDelete(node, e)}>
+                         <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                   </div>
+                 )}
                </div>
             </div>
             {isExpanded && hasChildren && renderTreeNodes(node.children)}
@@ -581,6 +615,15 @@ export default function OrganisasiPage() {
       })}
     </ul>
   );
+
+  if (isUserLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', flexDirection: 'column', gap: '1rem', opacity: 0.7 }}>
+        <div style={{ fontSize: '3rem', animation: 'spin 2s linear infinite' }}>🔄</div>
+        <p>Memuat profil pengguna...</p>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
@@ -596,85 +639,71 @@ export default function OrganisasiPage() {
               <span className={styles.refreshSpinner} title="Sinkronisasi data...">🔄</span>
             )}
           </h1>
-          <p className={styles.subtitle}>Peta Jabatan — Master Data Sianjab</p>
+          <p className={styles.subtitle}>Silsilah Pohon Jabatan & Formasi OPD Anda</p>
         </div>
-        <div className={styles.actions}>
-          <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">
-            📥 Impor dari Sheet
-          </button>
-          <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Tulis data dari Website ke Google Sheet">
-            📤 Ekspor ke Sheet
-          </button>
-          <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
-            {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
-          </button>
-        </div>
+        {orgEditEnabled && (
+          <div className={styles.actions}>
+            <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">
+              📥 Impor dari Sheet
+            </button>
+            <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Tulis data dari Website ke Google Sheet">
+              📤 Ekspor ke Sheet
+            </button>
+            <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
+              {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Toggle switch for operator edit permission */}
-      <div className={`${styles.card} glass-panel`} style={{ marginBottom: '20px', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              🔒 Hak Akses Pengeditan Operator
-            </h3>
-            <p style={{ fontSize: '0.85rem', opacity: 0.7, margin: '4px 0 0 0' }}>
-              Aktifkan untuk mengizinkan operator melakukan pengeditan struktur organisasi masing-masing OPD. Matikan untuk mengunci/mencekal pengeditan.
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '26px', cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={orgEditEnabled}
-                onChange={handleToggleOrgEdit}
-                disabled={isSavingOrgSetting}
-                style={{ opacity: 0, width: 0, height: 0 }}
-              />
-              <span style={{
-                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                backgroundColor: orgEditEnabled ? '#10b981' : '#cbd5e1',
-                transition: '.3s', borderRadius: '34px'
-              }}>
-                <span style={{
-                  position: 'absolute', height: '18px', width: '18px', left: '4px', bottom: '4px',
-                  backgroundColor: 'white', transition: '.3s', borderRadius: '50%',
-                  transform: orgEditEnabled ? 'translateX(24px)' : 'translateX(0)'
-                }}/>
-              </span>
-            </label>
-            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: orgEditEnabled ? '#10b981' : '#64748b' }}>
-              {isSavingOrgSetting ? "Menyimpan..." : orgEditEnabled ? "Pengeditan Diizinkan" : "Pengeditan Dicekal"}
-            </span>
-          </div>
+      {/* WARNING BANNER IF LOCKED BY ADMIN */}
+      {!orgEditEnabled && (
+        <div style={{
+          padding: '16px 20px',
+          backgroundColor: '#fffbeb',
+          border: '1px solid #fef3c7',
+          borderRadius: '12px',
+          color: '#b45309',
+          fontSize: '0.95rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          marginBottom: '20px',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+        }}>
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <span>pengeditan struktur organisasi dicekal, untuk merubah hubungi Admin bagian organisasi dulu ya</span>
         </div>
-      </div>
+      )}
 
       <div className={`${styles.card} glass-panel`}>
         <div className={styles.toolbar}>
           <input
-            type="text" placeholder="Cari nama unit kerja atau jabatan..."
+            type="text" placeholder="Cari nama unit kerja atau jabatan di OPD..."
             className={styles.searchInput}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ flex: 1, padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
           />
-          <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
-            ➕ Tambah OPD Baru
-          </button>
+          {orgEditEnabled && (
+            <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
+              ➕ Tambah Sub-OPD Baru
+            </button>
+          )}
         </div>
 
         <div className={styles.treeContainer} style={{ padding: '20px', overflowX: 'auto' }}>
           {isLoading ? (
             <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>
                <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🌳</div>
-               Memuat silsilah pohon organisasi...
+               Memuat silsilah pohon organisasi OPD Anda...
             </div>
-          ) : isEmpty ? (
+          ) : isEmpty || treeData.length === 0 ? (
             <div style={{ padding: '4rem 2rem', textAlign: 'center', opacity: 0.7 }}>
               <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🏢</div>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Tabel Organisasi Kosong</h3>
-              <p style={{ opacity: 0.7 }}>Silakan tambah OPD baru untuk memulai.</p>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Struktur OPD Tidak Ditemukan</h3>
+              <p style={{ opacity: 0.7 }}>Hubungi Admin untuk mendaftarkan unit kerja utama Anda.</p>
             </div>
           ) : (
             <div className={styles.treeContainerWrapper} style={{ minWidth: '800px' }}>
@@ -685,7 +714,7 @@ export default function OrganisasiPage() {
       </div>
 
       {/* MODAL */}
-      {modalMode && (
+      {modalMode && orgEditEnabled && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
@@ -699,7 +728,7 @@ export default function OrganisasiPage() {
                     <label>Nama Unit Kerja</label>
                     <input type="text" className={styles.formInput} value={modalData.nama}
                       onChange={(e) => setModalData({...modalData, nama: e.target.value})}
-                      placeholder="Contoh: Dinas Kesehatan"
+                      placeholder="Contoh: Bidang Kesehatan Masyarakat"
                     />
                   </div>
                   <div className={styles.formGroup}>
@@ -708,23 +737,22 @@ export default function OrganisasiPage() {
                       onChange={(e) => setModalData({...modalData, parentId: e.target.value})}>
                       <option value="">-- Tidak ada (Ini adalah OPD Induk Utama) --</option>
                       {rawOpds
-                        .filter(o => o.id !== modalData.id && !o.parentId) // only allow picking top-level OPDs as parent
+                        .filter(o => o.id !== modalData.id && allowedOpdIds.includes(o.id))
                         .sort((a,b) => (a.nama||'').localeCompare(b.nama||''))
                         .map(o => (
                           <option key={o.id} value={o.id}>{o.nama}</option>
                         ))}
                     </select>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '4px' }}>Pilih jika ini adalah sub-unit seperti Puskesmas, UPTD, atau Bagian.</span>
                   </div>
                   <div className={styles.formGroup}>
-                    <label>Kode</label>
+                    <label>Kode Unit Kerja (Opsional)</label>
                     <input type="text" className={styles.formInput} value={modalData.kode}
                       onChange={(e) => setModalData({...modalData, kode: e.target.value})}
-                      placeholder="Contoh: 1.02"
+                      placeholder="Contoh: Dinas_Kesehatan_A"
                     />
                   </div>
                   <div className={styles.formGroup}>
-                    <label>Urutan (Opsional)</label>
+                    <label>Nomor Urut Visual (Opsional)</label>
                     <input type="number" className={styles.formInput} value={modalData.urutan}
                       onChange={(e) => setModalData({...modalData, urutan: parseInt(e.target.value) || 0})}
                       placeholder="Contoh: 1"
@@ -733,271 +761,180 @@ export default function OrganisasiPage() {
                 </>
               ) : (
                 <>
+                  <div className={styles.formGroup} style={{ position: 'relative' }}>
+                    <label>Nama Jabatan</label>
+                    <input
+                      type="text"
+                      className={styles.formInput}
+                      value={modalData.nama}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setModalData({ ...modalData, nama: val });
+                        setReferensiSearch(val);
+                        setShowReferensiDropdown(true);
+                      }}
+                      onFocus={() => setShowReferensiDropdown(true)}
+                      placeholder="Ketik untuk mencari referensi jabatan..."
+                    />
+
+                    {/* Autocomplete Dropdown Referensi Jabatan */}
+                    {showReferensiDropdown && referensiSearch.trim() !== "" && (
+                      <>
+                        <div
+                          style={{
+                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998
+                          }}
+                          onClick={() => setShowReferensiDropdown(false)}
+                        />
+                        <div
+                          className="glass-panel"
+                          style={{
+                            position: 'absolute', top: '100%', left: 0, right: 0,
+                            maxHeight: '220px', overflowY: 'auto',
+                            backgroundColor: 'var(--glass-bg, rgba(255, 255, 255, 0.95))',
+                            border: '1px solid var(--glass-border, #e2e8f0)',
+                            borderRadius: '12px', zIndex: 999,
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                            marginTop: '4px'
+                          }}
+                        >
+                          {rawReferensi
+                            .filter(ref => {
+                              const refJenis = (ref.jenisJabatan || '').toLowerCase();
+                              const modalJenis = modalData.jenisJabatan;
+                              if (modalJenis === 'Fungsional Keahlian') {
+                                return refJenis === 'fungsional' && ref.kategori === 'Keahlian';
+                              }
+                              if (modalJenis === 'Fungsional Keterampilan') {
+                                return refJenis === 'fungsional' && ref.kategori === 'Keterampilan';
+                              }
+                              if (modalJenis === 'Fungsional') {
+                                return refJenis === 'fungsional';
+                              }
+                              return refJenis === modalJenis.toLowerCase();
+                            })
+                            .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase()))
+                            .sort((a,b) => (a.namaBase || '').localeCompare(b.namaBase || ''))
+                            .map(ref => {
+                              const isSelected = ref.namaBase === modalData.nama;
+                              return (
+                                <div
+                                  key={ref.id}
+                                  style={{
+                                    padding: '0.6rem 1rem', cursor: 'pointer',
+                                    backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+                                    color: isSelected ? '#10b981' : 'inherit',
+                                    borderBottom: '1px solid var(--glass-border, #f1f5f9)',
+                                    fontSize: '0.85rem'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isSelected) e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                                  }}
+                                  onClick={() => {
+                                    setModalData({ 
+                                      ...modalData, 
+                                      nama: ref.namaBase || ''
+                                    });
+                                    setReferensiSearch(ref.namaBase || '');
+                                    setShowReferensiDropdown(false);
+                                  }}
+                                >
+                                  <strong>{ref.namaBase}</strong> {ref.jenisJabatan === 'Fungsional' && ref.kategori ? `(${ref.kategori})` : ''}
+                                </div>
+                              );
+                            })}
+                          {rawReferensi
+                            .filter(ref => {
+                              const refJenis = (ref.jenisJabatan || '').toLowerCase();
+                              const modalJenis = modalData.jenisJabatan;
+                              if (modalJenis === 'Fungsional Keahlian') {
+                                return refJenis === 'fungsional' && ref.kategori === 'Keahlian';
+                              }
+                              if (modalJenis === 'Fungsional Keterampilan') {
+                                return refJenis === 'fungsional' && ref.kategori === 'Keterampilan';
+                              }
+                              if (modalJenis === 'Fungsional') {
+                                return refJenis === 'fungsional';
+                              }
+                              return refJenis === modalJenis.toLowerCase();
+                            })
+                            .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase()))
+                            .length === 0 && (
+                            <div style={{ padding: '0.6rem 1rem', opacity: 0.5, fontStyle: 'italic', fontSize: '0.85rem' }}>
+                              Tidak ada referensi cocok untuk kategori {modalData.jenisJabatan}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <div className={styles.formGroup}>
                     <label>Jenis Jabatan</label>
                     <select className={styles.formInput} value={modalData.jenisJabatan}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setModalData({
-                          ...modalData,
-                          jenisJabatan: val,
-                          nama: '' // Reset nama if jenis changes
-                        });
-                        setReferensiSearch(''); // Reset autocomplete query
-                      }}>
-                      <option value="">-- Pilih --</option>
-                      <option value="Jabatan Pimpinan Tinggi">Jabatan Pimpinan Tinggi</option>
-                      <option value="Administrator">Administrator</option>
-                      <option value="Pengawas">Pengawas</option>
-                      <option value="Pelaksana">Pelaksana</option>
-                      <option value="Fungsional Keahlian">Fungsional Keahlian</option>
-                      <option value="Fungsional Keterampilan">Fungsional Keterampilan</option>
+                      onChange={(e) => setModalData({...modalData, jenisJabatan: e.target.value, nama: ''})}>
+                      <option value="">-- Pilih Jenis --</option>
+                      <option value="JPT Pratama">JPT Pratama (Eselon II)</option>
+                      <option value="Administrator">Administrator (Eselon III)</option>
+                      <option value="Pengawas">Pengawas (Eselon IV)</option>
+                      <option value="Pelaksana">Pelaksana (Staf)</option>
+                      <option value="Fungsional Keahlian">Fungsional (Keahlian)</option>
+                      <option value="Fungsional Keterampilan">Fungsional (Keterampilan)</option>
                     </select>
                   </div>
-
-                  {(modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan.startsWith('Fungsional')) ? (
-                    <div className={styles.formGroup} style={{ position: 'relative' }}>
-                      <label>Nama Jabatan (Sesuai Referensi)</label>
-                      <div style={{ position: 'relative' }}>
-                        <input
-                          type="text"
-                          className={styles.formInput}
-                          placeholder={`Ketik untuk mencari referensi ${modalData.jenisJabatan}...`}
-                          value={referensiSearch}
-                          onChange={(e) => {
-                            setReferensiSearch(e.target.value);
-                            setShowReferensiDropdown(true);
-                            // Reset modalData.nama to enforce choosing from references list
-                            setModalData({ ...modalData, nama: '' });
-                          }}
-                          onFocus={() => setShowReferensiDropdown(true)}
-                        />
-                        {modalData.nama && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setModalData({ ...modalData, nama: '' });
-                              setReferensiSearch('');
-                            }}
-                            style={{
-                              position: 'absolute',
-                              right: '10px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--foreground)',
-                              opacity: 0.5,
-                              cursor: 'pointer',
-                              fontSize: '1rem'
-                            }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                      {showReferensiDropdown && (
-                        <>
-                          <div 
-                            style={{
-                              position: 'fixed',
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              zIndex: 999
-                            }}
-                            onClick={() => setShowReferensiDropdown(false)}
-                          />
-                          <div style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            right: 0,
-                            backgroundColor: 'var(--background, #ffffff)',
-                            color: 'var(--foreground, #1e293b)',
-                            border: '1px solid var(--glass-border, #e2e8f0)',
-                            borderRadius: '8px',
-                            marginTop: '4px',
-                            maxHeight: '200px',
-                            overflowY: 'auto',
-                            zIndex: 1000,
-                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-                          }}>
-                            {rawReferensi
-                              .filter(ref => {
-                                const modalJenis = modalData.jenisJabatan;
-                                if (modalJenis === 'Fungsional Keahlian') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keahlian';
-                                }
-                                if (modalJenis === 'Fungsional Keterampilan') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keterampilan';
-                                }
-                                if (modalJenis === 'Fungsional') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional';
-                                }
-                                return (ref.jenisJabatan || '').toLowerCase() === modalJenis.toLowerCase();
-                              })
-                              .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase()))
-                              .sort((a, b) => (a.namaBase || '').localeCompare(b.namaBase || ''))
-                              .map(ref => {
-                                const isSelected = ref.namaBase === modalData.nama;
-                                return (
-                                  <div
-                                    key={ref.id}
-                                    style={{
-                                      padding: '0.5rem 1rem',
-                                      cursor: 'pointer',
-                                      backgroundColor: isSelected ? 'rgba(79, 70, 229, 0.12)' : 'transparent',
-                                      color: isSelected ? '#4f46e5' : 'inherit',
-                                      borderBottom: '1px solid var(--glass-border, #f1f5f9)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      if (!isSelected) e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.04)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
-                                    }}
-                                    onClick={() => {
-                                      setModalData({ ...modalData, nama: ref.namaBase });
-                                      setReferensiSearch(ref.namaBase);
-                                      setShowReferensiDropdown(false);
-                                    }}
-                                  >
-                                    {ref.namaBase} {ref.jenisJabatan === 'Fungsional' && ref.kategori ? `(${ref.kategori})` : ''}
-                                  </div>
-                                );
-                              })}
-                            {rawReferensi
-                              .filter(ref => {
-                                const modalJenis = modalData.jenisJabatan;
-                                if (modalJenis === 'Fungsional Keahlian') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keahlian';
-                                }
-                                if (modalJenis === 'Fungsional Keterampilan') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional' && ref.kategori === 'Keterampilan';
-                                }
-                                if (modalJenis === 'Fungsional') {
-                                  return (ref.jenisJabatan || '').toLowerCase() === 'fungsional';
-                                }
-                                return (ref.jenisJabatan || '').toLowerCase() === modalJenis.toLowerCase();
-                              })
-                              .filter(ref => (ref.namaBase || '').toLowerCase().includes(referensiSearch.toLowerCase())).length === 0 && (
-                              <div style={{ padding: '0.5rem 1rem', opacity: 0.5, fontStyle: 'italic' }}>
-                                Tidak ada referensi yang cocok
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <div className={styles.formGroup}>
-                      <label>Nama Jabatan</label>
-                      <input type="text" className={styles.formInput} value={modalData.nama}
-                        onChange={(e) => setModalData({...modalData, nama: e.target.value})}
-                        placeholder="Contoh: Kepala Seksi"
-                        disabled={!modalData.jenisJabatan}
-                      />
-                    </div>
-                  )}
-
-                  <div className={styles.formGroup}>
-                    <label>Urutan (Opsional)</label>
-                    <input type="number" className={styles.formInput} value={modalData.urutan}
-                      onChange={(e) => setModalData({...modalData, urutan: parseInt(e.target.value) || 0})}
-                      placeholder="Contoh: 1"
-                    />
-                  </div>
-
                   <div className={styles.formGroup}>
                     <label>Kelas Jabatan</label>
-                    <input type="number" className={styles.formInput} min={1} max={17}
-                      value={modalData.kelasJabatan}
+                    <input type="number" className={styles.formInput} value={modalData.kelasJabatan}
                       onChange={(e) => setModalData({...modalData, kelasJabatan: parseInt(e.target.value) || 1})}
+                      placeholder="Contoh: 7"
                     />
                   </div>
-
                   <div className={styles.formGroup} style={{ position: 'relative' }}>
-                    <label>Induk Jabatan (Atasan Langsung)</label>
-                    <div style={{ position: 'relative' }}>
-                      <input
-                        type="text"
-                        className={styles.formInput}
-                        placeholder="Ketik untuk mencari atasan langsung... (misal: camat)"
-                        value={parentSearch}
-                        onChange={(e) => {
-                          setParentSearch(e.target.value);
-                          setShowParentDropdown(true);
-                          if (!e.target.value.trim()) {
-                            setModalData({ ...modalData, parentId: '' });
-                          }
-                        }}
-                        onFocus={() => setShowParentDropdown(true)}
-                      />
-                      {modalData.parentId && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModalData({ ...modalData, parentId: '' });
-                            setParentSearch('');
-                          }}
-                          style={{
-                            position: 'absolute',
-                            right: '10px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--foreground)',
-                            opacity: 0.5,
-                            cursor: 'pointer',
-                            fontSize: '1rem'
-                          }}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
+                    <label>Atasan Langsung</label>
+                    <input
+                      type="text"
+                      className={styles.formInput}
+                      value={parentSearch}
+                      onChange={(e) => {
+                        setParentSearch(e.target.value);
+                        setShowParentDropdown(true);
+                      }}
+                      onFocus={() => setShowParentDropdown(true)}
+                      placeholder="Ketik untuk mencari jabatan atasan..."
+                    />
+
+                    {/* Autocomplete Dropdown Atasan Langsung */}
                     {showParentDropdown && (
                       <>
-                        <div 
+                        <div
                           style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            zIndex: 999
+                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998
                           }}
                           onClick={() => setShowParentDropdown(false)}
                         />
-                        <div style={{
-                          position: 'absolute',
-                          top: '100%',
-                          left: 0,
-                          right: 0,
-                          backgroundColor: 'var(--background, #ffffff)',
-                          color: 'var(--foreground, #1e293b)',
-                          border: '1px solid var(--glass-border, #e2e8f0)',
-                          borderRadius: '8px',
-                          marginTop: '4px',
-                          maxHeight: '200px',
-                          overflowY: 'auto',
-                          zIndex: 1000,
-                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-                        }}>
-                          <div 
+                        <div
+                          className="glass-panel"
+                          style={{
+                            position: 'absolute', top: '100%', left: 0, right: 0,
+                            maxHeight: '200px', overflowY: 'auto',
+                            backgroundColor: 'var(--glass-bg, rgba(255, 255, 255, 0.95))',
+                            border: '1px solid var(--glass-border, #e2e8f0)',
+                            borderRadius: '12px', zIndex: 999,
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                            marginTop: '4px'
+                          }}
+                        >
+                          <div
                             style={{
-                              padding: '0.5rem 1rem',
-                              cursor: 'pointer',
+                              padding: '0.5rem 1rem', cursor: 'pointer',
                               borderBottom: '1px solid var(--glass-border, #f1f5f9)',
-                              opacity: 0.8,
-                              backgroundColor: !modalData.parentId ? 'rgba(0, 0, 0, 0.04)' : 'transparent'
+                              fontStyle: 'italic', opacity: 0.7
                             }}
                             onClick={() => {
-                              setModalData({ ...modalData, parentId: '' });
-                              setParentSearch('');
+                              setModalData({ ...modalData, parentId: "" });
+                              setParentSearch("");
                               setShowParentDropdown(false);
                             }}
                           >
@@ -1005,6 +942,7 @@ export default function OrganisasiPage() {
                           </div>
                           {rawJabatans
                             .filter(j => j.id !== modalData.id) // cegah set diri sendiri
+                            .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId)) // batasi di OPD operator
                             .filter(j => {
                               const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
@@ -1040,13 +978,16 @@ export default function OrganisasiPage() {
                                 </div>
                               );
                             })}
-                          {rawJabatans.filter(j => j.id !== modalData.id).filter(j => {
-                            const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
-                            const label = `${j.namaJabatan} ${opdName}`;
-                            return label.toLowerCase().includes(parentSearch.toLowerCase());
-                          }).length === 0 && (
+                          {rawJabatans
+                            .filter(j => j.id !== modalData.id)
+                            .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId))
+                            .filter(j => {
+                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const label = `${j.namaJabatan} ${opdName}`;
+                              return label.toLowerCase().includes(parentSearch.toLowerCase());
+                            }).length === 0 && (
                             <div style={{ padding: '0.5rem 1rem', opacity: 0.5, fontStyle: 'italic' }}>
-                              Tidak ada atasan yang cocok
+                              Tidak ada atasan yang cocok di OPD Anda
                             </div>
                           )}
                         </div>
@@ -1061,9 +1002,11 @@ export default function OrganisasiPage() {
                     <select className={styles.formInput} value={modalData.unitKerjaId}
                       onChange={(e) => setModalData({...modalData, unitKerjaId: e.target.value})}>
                       <option value="">-- Pilih Unit --</option>
-                      {rawOpds.map(opd => (
-                        <option key={opd.id} value={opd.id}>{opd.nama}</option>
-                      ))}
+                      {rawOpds
+                        .filter(opd => allowedOpdIds.includes(opd.id))
+                        .map(opd => (
+                          <option key={opd.id} value={opd.id}>{opd.nama}</option>
+                        ))}
                     </select>
                   </div>
                 </>

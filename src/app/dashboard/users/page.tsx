@@ -9,18 +9,22 @@ interface UserFormData {
   username: string;
   password: string;
   namaLengkap: string;
+  email: string;
   role: "admin" | "operator";
   unitKerjaId: string;
   isActive: boolean;
+  bypassSpt?: boolean;
 }
 
 const defaultForm: UserFormData = {
   username: "",
   password: "",
   namaLengkap: "",
+  email: "",
   role: "operator",
   unitKerjaId: "",
   isActive: true,
+  bypassSpt: false,
 };
 
 export default function UsersPage() {
@@ -68,9 +72,11 @@ export default function UsersPage() {
       username: u.username,
       password: "",
       namaLengkap: u.namaLengkap,
+      email: u.email || "",
       role: u.role,
       unitKerjaId: u.unitKerjaId || "",
       isActive: u.isActive,
+      bypassSpt: false,
     });
     setError("");
     setShowModal(true);
@@ -83,8 +89,9 @@ export default function UsersPage() {
     try {
       if (editingUser) {
         // Update: only send password if filled
-        const updatePayload: Partial<UserFormData> & { password?: string } = {
+        const updatePayload: Partial<UserFormData> & { password?: string, email?: string } = {
           namaLengkap: form.namaLengkap,
+          email: form.email,
           role: form.role,
           unitKerjaId: form.role === "operator" ? form.unitKerjaId : "",
           isActive: form.isActive,
@@ -98,13 +105,54 @@ export default function UsersPage() {
           setSaving(false);
           return;
         }
+
+        let sptAdminNama = "";
+        let sptAdminNip = "";
+
+        // Validate SPT Digital if adding an operator and not bypassed
+        if (form.role === "operator" && !form.bypassSpt) {
+          const sptUrl = process.env.NEXT_PUBLIC_SPT_DIGITAL_URL;
+          const sptToken = process.env.NEXT_PUBLIC_SPT_DIGITAL_TOKEN || "***REMOVED***";
+
+          if (sptUrl) {
+            const opd = opds.find((o) => o.id === form.unitKerjaId);
+            const opdName = opd ? opd.nama : "";
+            if (!opdName) {
+              setError("OPD / Unit Kerja wajib dipilih.");
+              setSaving(false);
+              return;
+            }
+            const checkUrl = `${sptUrl}?action=checkSpt&opd=${encodeURIComponent(opdName)}&integrasi=SIANJAB&token=${encodeURIComponent(sptToken)}`;
+            try {
+              const res = await fetch(checkUrl);
+              const resJson = await res.json();
+              if (resJson.status !== "success" || !resJson.hasSubmitted) {
+                setError(`Gagal membuat user! OPD "${opdName}" belum mengisi SPT Digital untuk kegiatan SIANJAB. Silakan lakukan pengisian SPT terlebih dahulu.`);
+                setSaving(false);
+                return;
+              }
+              // Extract Admin Penandatangan SPT details
+              sptAdminNama = resJson.namaAdmin || resJson.adminNama || resJson.penandatanganNama || "";
+              sptAdminNip = resJson.nipAdmin || resJson.adminNip || resJson.penandatanganNip || "";
+            } catch (err) {
+              console.error("Gagal verifikasi ke SPTDigital:", err);
+              setError("Gagal menghubungi server SPTDigital untuk verifikasi. Silakan coba kembali nanti.");
+              setSaving(false);
+              return;
+            }
+          }
+        }
+
         await api.createUser({
           username: form.username,
           password: form.password,
           namaLengkap: form.namaLengkap,
+          email: form.email,
           role: form.role,
           unitKerjaId: form.role === "operator" ? form.unitKerjaId : "",
           isActive: form.isActive,
+          sptAdminNama,
+          sptAdminNip,
         });
         setSuccessMsg("User baru berhasil dibuat.");
       }
@@ -194,10 +242,22 @@ export default function UsersPage() {
                           <div className={styles.userAvatar} data-role={u.role}>
                             {u.namaLengkap?.charAt(0).toUpperCase() || u.username.charAt(0).toUpperCase()}
                           </div>
-                          <span>{u.username}</span>
+                          <div style={{ display: "flex", flexDirection: "column" }}>
+                            <span>{u.username}</span>
+                            {u.email && <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>{u.email}</span>}
+                          </div>
                         </div>
                       </td>
-                      <td>{u.namaLengkap || "-"}</td>
+                      <td>
+                        <div>
+                          <div>{u.namaLengkap || "-"}</div>
+                          {u.role === "operator" && (u.sptAdminNama || u.sptAdminNip) && (
+                            <div style={{ fontSize: "0.75rem", opacity: 0.7, color: "#10b981", marginTop: "0.2rem" }}>
+                              ✍️ SPT oleh: {u.sptAdminNama || "-"} (NIP: {u.sptAdminNip || "-"})
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       <td>
                         <span className={`${styles.roleBadge} ${u.role === "admin" ? styles.badgeAdmin : styles.badgeOperator}`}>
                           {u.role === "admin" ? "🛡️ Admin" : "👤 Operator OPD"}
@@ -273,6 +333,18 @@ export default function UsersPage() {
                 </div>
 
                 <div className={styles.formGroup}>
+                  <label htmlFor="form-email">Email</label>
+                  <input
+                    id="form-email"
+                    className={styles.formInput}
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="Contoh: operator@domain.com"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
                   <label htmlFor="form-password">
                     Password {editingUser && <span className={styles.hint}>(kosongkan jika tidak diubah)</span>}
                   </label>
@@ -330,6 +402,22 @@ export default function UsersPage() {
                         </>
                       )}
                     </select>
+                  </div>
+                )}
+
+                {form.role === "operator" && !editingUser && (
+                  <div className={styles.formGroup} style={{ gridColumn: "1 / -1" }}>
+                    <label className={styles.checkboxLabel}>
+                      <input
+                        id="form-bypass-spt"
+                        type="checkbox"
+                        checked={form.bypassSpt}
+                        onChange={(e) => setForm({ ...form, bypassSpt: e.target.checked })}
+                      />
+                      <span style={{ color: "#eab308", fontWeight: 600 }}>
+                        ⚠️ Bypass verifikasi SPT Digital (Untuk Akun Demo/Testing)
+                      </span>
+                    </label>
                   </div>
                 )}
 

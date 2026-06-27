@@ -158,6 +158,9 @@ export interface User {
   id: string;
   username: string;
   namaLengkap: string;
+  email?: string;
+  sptAdminNama?: string;
+  sptAdminNip?: string;
   role: "admin" | "operator";
   unitKerjaId?: string; // Empty or ALL for admin, specific ID for operator
   isActive: boolean;

@@ -158,4 +158,11 @@ export const api = {
 
   getDeadline: () =>
     apiCall<{ deadline: string; enabled: boolean; message?: string; customDeadlines?: Record<string, string> } | null>('getDeadline', 'settings'),
+
+  saveOrgSetting: (data: { enabled: boolean }) =>
+    apiCall('update', 'settings', { data, params: { id: 'orgSetting' } }),
+
+  getOrgSetting: () =>
+    apiCall<{ enabled: boolean } | null>('read', 'settings', { params: { id: 'orgSetting' } }),
 };
+

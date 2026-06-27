@@ -1,0 +1,793 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.btnSecondary {
+  background: hsla(var(--primary), 0.1);
+  color: hsl(var(--primary));
+  border: 1px solid hsla(var(--primary), 0.2);
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btnSecondary:hover {
+  background: hsla(var(--primary), 0.2);
+}
+
+.card {
+  padding: 1.5rem;
+  border-radius: 16px;
+}
+/* --- TreeView CSS (SiTPP Style) --- */
+.treeContainerWrapper {
+  font-size: 0.875rem;
+}
+
+.treeContainerWrapper ul {
+  list-style: none;
+  padding-left: 24px;
+  margin: 0;
+}
+
+.treeContainerWrapper > ul {
+  padding-left: 0;
+}
+
+.treeNode {
+  position: relative;
+  margin: 4px 0;
+}
+
+/* Visual Tree connection dashed lines */
+.treeNode::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: -4px;
+  bottom: 0;
+  border-left: 1px dashed #cbd5e1; /* Tailwind slate-300 */
+}
+
+.treeNode::after {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 20px;
+  width: 10px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+/* Hide connection lines for first level roots */
+.treeContainerWrapper > ul > .treeNode::before,
+.treeContainerWrapper > ul > .treeNode::after {
+  display: none;
+}
+
+/* Terminate vertical line for the last child node */
+.treeNode:last-child::before {
+  height: 24px;
+  bottom: auto;
+}
+
+.treeNodeContent {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  gap: 10px;
+  user-select: none;
+  background: white;
+  border: 1px solid #f1f5f9;
+}
+
+.treeNodeContent:hover {
+  background: #f8fafc;
+  transform: translateX(2px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.treeNodeContentOpd {
+  background: rgba(238, 242, 255, 0.5);
+  border: 1px solid #e0e7ff;
+}
+
+/* --- TreeView CSS (SiTPP Minimalist Style) --- */
+.treeContainerWrapper {
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.treeContainerWrapper ul {
+  list-style: none;
+  padding-left: 28px;
+  margin: 0;
+}
+
+.treeContainerWrapper > ul {
+  padding-left: 0;
+}
+
+.treeNode {
+  position: relative;
+}
+
+/* Visual Tree connection dashed lines */
+.treeNode::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 0px;
+  bottom: 0;
+  border-left: 1px dashed #cbd5e1;
+}
+
+.treeNode::after {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 22px;
+  width: 14px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+/* Hide connection lines for first level roots */
+.treeContainerWrapper > ul > .treeNode::before,
+.treeContainerWrapper > ul > .treeNode::after {
+  display: none;
+}
+
+/* Terminate vertical line for the last child node */
+.treeNode:last-child::before {
+  height: 23px;
+  bottom: auto;
+}
+
+.treeNodeContent {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  gap: 12px;
+  user-select: none;
+  background: transparent;
+  border-left: 3px solid transparent;
+  margin: 2px 0;
+}
+
+.treeNodeContent:hover {
+  background: #f8fafc;
+}
+
+/* Highlight style for specific nodes (e.g., JPT) */
+.nodeHighlightJpt {
+  background: #fff1f2;
+  border-left: 3px solid #f43f5e;
+}
+
+.nodeHighlightJpt:hover {
+  background: #ffe4e6;
+}
+
+.treeToggle {
+  width: 16px;
+  display: flex;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.treeToggle span {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.treeIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.treeTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.titleLabel {
+  font-weight: 500;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+/* Push to the right */
+.rightSection {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.badgeKelas {
+  background-color: #f1f5f9;
+  color: #1e293b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+
+.badgeEselon {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+/* SiTPP Premium Eselon Colors */
+.eselonJpt { background-color: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.eselonAdministrator { background-color: #fffbeb; color: #b45309; border-color: #fde68a; }
+.eselonPengawas { background-color: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.eselonFungsional { background-color: #faf5ff; color: #7e22ce; border-color: #e9d5ff; }
+.eselonPelaksana { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.eselonLainnya { background-color: #f8fafc; color: #334155; border-color: #e2e8f0; }
+
+.badgeStatus {
+  background-color: #fee2e2;
+  color: #991b1b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.treeActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.treeNodeContent:hover .treeActions {
+  opacity: 1;
+}
+
+.actionBtn {
+  padding: 4px;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+}
+
+.actionBtnPrimary:hover { color: #4f46e5; background: #eef2ff; }
+.actionBtnWarning:hover { color: #d97706; background: #fffbeb; }
+.actionBtnDanger:hover { color: #dc2626; background: #fef2f2; }
+
+.treeNodeContentJabatan:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.treeToggle {
+  width: 20px;
+  display: flex;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  transition: transform 0.2s;
+}
+
+.treeToggle span {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.opdIcon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background-color: #4f46e5;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.treeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.treeTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titleOpd {
+  font-weight: 700;
+  color: #312e81;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titleJabatan {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badgeOpdSub {
+  background: white;
+  color: #4338ca;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #e0e7ff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.treeBadges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badgeEselon {
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.badgeIcon {
+  font-size: 0.75rem;
+}
+
+/* SiTPP Premium Eselon Colors */
+.eselonJpt { background-color: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.eselonAdministrator { background-color: #fffbeb; color: #b45309; border-color: #fde68a; }
+.eselonPengawas { background-color: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.eselonFungsional { background-color: #faf5ff; color: #7e22ce; border-color: #e9d5ff; }
+.eselonPelaksana { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.eselonLainnya { background-color: #f8fafc; color: #334155; border-color: #e2e8f0; }
+
+.badgeKelas {
+  background-color: #f1f5f9;
+  color: #334155;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.badgeSuccess {
+  background-color: #ecfccb;
+  color: #3f6212;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #d9f99d;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.badgeWarning {
+  background-color: #fef9c3;
+  color: #854d0e;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #fef08a;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.treeActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 1; /* FORCED VISIBLE */
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+.treeNodeContent:hover .treeActions {
+  opacity: 1;
+}
+
+.actionBtn {
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionBtnPrimary:hover { color: #4f46e5; background: #eef2ff; border-color: #e0e7ff; }
+.actionBtnWarning:hover { color: #d97706; background: #fffbeb; border-color: #fef3c7; }
+.actionBtnDanger:hover { color: #dc2626; background: #fef2f2; border-color: #fee2e2; }
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.searchInput {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  padding: 10px 16px;
+  border-radius: 10px;
+  color: var(--foreground);
+  width: 300px;
+  font-family: inherit;
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsla(var(--primary), 0.2);
+}
+
+.treeContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.treeNode {
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: hsla(0, 0%, 100%, 0.02);
+  transition: border-color 0.2s;
+}
+
+.treeNode:hover {
+  border-color: hsla(var(--primary), 0.3);
+}
+
+.nodeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.nodeHeader:hover {
+  background: hsla(var(--primary), 0.05);
+}
+
+.nodeTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.expandIcon {
+  font-size: 0.75rem;
+  transition: transform 0.2s;
+  opacity: 0.6;
+  display: inline-block;
+}
+
+.expanded .expandIcon {
+  transform: rotate(90deg);
+}
+
+.nodeTitle {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.nodeType {
+  font-size: 0.75rem;
+  background: hsla(var(--primary), 0.15);
+  color: hsl(var(--primary));
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.nodeStats {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.nodeChildren {
+  padding-left: 3rem;
+  padding-right: 1rem;
+  padding-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--glass-border);
+}
+
+.childNode {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--glass-bg);
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  font-size: 0.9rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.childNode:hover {
+  transform: translateX(4px);
+  border-color: hsla(var(--primary), 0.3);
+}
+
+.childTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 500;
+}
+
+.childDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--secondary));
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: hsl(142, 71%, 30%);
+  color: #fff;
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  z-index: 9999;
+  animation: toastIn 0.3s ease-out;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modalContent {
+  background: var(--background, #fff);
+  border-radius: 20px;
+  width: 90%;
+  max-width: 520px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: modalSlide 0.3s ease-out;
+}
+
+@keyframes modalSlide {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--glass-border, #e2e8f0);
+}
+
+.modalHeader h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.modalClose {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.modalClose:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.modalBody {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--glass-border, #e2e8f0);
+}
+
+/* Form elements */
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.formGroup label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.formInput {
+  background: hsla(0, 0%, 100%, 0.05);
+  border: 1px solid var(--glass-border, #e2e8f0);
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.formInput:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsla(var(--primary), 0.15);
+}
+
+.btnSave {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btnSave:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px hsla(var(--primary), 0.4);
+}
+
+.btnSave:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btnCancel {
+  background: transparent;
+  border: 1px solid var(--glass-border, #e2e8f0);
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--foreground);
+  transition: all 0.2s;
+}
+
+.btnCancel:hover {
+  background: hsla(0, 0%, 50%, 0.05);
+}
+
+.refreshSpinner {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 1.25rem;
+  animation: spin 1.5s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

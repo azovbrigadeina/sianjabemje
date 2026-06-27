@@ -17,11 +17,11 @@ function onOpen() {
 }
 
 // KONFIGURASI - Ganti dengan data project Firebase Anda
-var FIREBASE_URL = 'YOUR_FIREBASE_URL';
-var FIREBASE_SECRET = 'YOUR_FIREBASE_SECRET';
-var SHEET_ID = 'YOUR_SHEET_ID';
-var SITPP_FIREBASE_URL = 'YOUR_SITPP_FIREBASE_URL';
-var SITPP_SECRET = 'YOUR_SITPP_SECRET';
+var FIREBASE_URL = 'https://anjabmj-44141-default-rtdb.asia-southeast1.firebasedatabase.app';
+var FIREBASE_SECRET = '***REMOVED***';
+var SHEET_ID = '1WIDlKL3zsBADg9SR6Rv8KudIpWF0Bvyi4kRwJ2GmLPg';
+var SITPP_FIREBASE_URL = 'https://sitpp-7b65d-default-rtdb.asia-southeast1.firebasedatabase.app';
+var SITPP_SECRET = '5PXDOaG1wEc45duZOyr2XlKliibhp1s6Kkct2g0k';
 
 // =============================================
 // WEB APP ENTRY POINTS
@@ -92,6 +92,9 @@ function handleRequest_(e) {
       case 'createUser':
         result = createUser_(data);
         break;
+      case 'autoRegisterOperator':
+        result = autoRegisterOperator_(data);
+        break;
       case 'updateUser':
         result = updateUser_(id, data);
         break;
@@ -104,6 +107,9 @@ function handleRequest_(e) {
         break;
       case 'syncFromSheet':
         result = syncFromSheet_();
+        break;
+      case 'getSptSpreadsheetData':
+        result = getSptSpreadsheetData_();
         break;
       case 'saveABK':
         result = saveABK_(parentId, data);
@@ -507,6 +513,9 @@ function loginUser_(data) {
     id: foundUserId,
     username: user.username,
     namaLengkap: user.namaLengkap,
+    email: user.email || "",
+    sptAdminNama: user.sptAdminNama || "",
+    sptAdminNip: user.sptAdminNip || "",
     role: user.role,
     unitKerjaId: user.unitKerjaId,
     isActive: user.isActive
@@ -533,6 +542,9 @@ function createUser_(data) {
     username: data.username,
     password: hashPassword_(data.password),
     namaLengkap: data.namaLengkap || "",
+    email: data.email || "",
+    sptAdminNama: data.sptAdminNama || "",
+    sptAdminNip: data.sptAdminNip || "",
     role: data.role,
     unitKerjaId: data.unitKerjaId || "",
     isActive: data.isActive !== undefined ? data.isActive : true,
@@ -545,6 +557,9 @@ function createUser_(data) {
     id: result.name,
     username: newUser.username,
     namaLengkap: newUser.namaLengkap,
+    email: newUser.email,
+    sptAdminNama: newUser.sptAdminNama,
+    sptAdminNip: newUser.sptAdminNip,
     role: newUser.role,
     unitKerjaId: newUser.unitKerjaId,
     isActive: newUser.isActive
@@ -936,4 +951,91 @@ function syncFromSheet_() {
     success: true,
     message: "Berhasil diimpor dari Sheet. Update massal " + Object.keys(batchUpdates).length + " data."
   };
+}
+
+function getSptSpreadsheetData_() {
+  var sptSsId = "1hA68rgMDtbX9ySdOI5TF5CUypzO5vJKHHIPAVjTk798";
+  var ss = SpreadsheetApp.openById(sptSsId);
+  var sheet = ss.getSheetByName("Sheet1");
+  var values = sheet.getDataRange().getValues();
+  return values;
+}
+
+function autoRegisterOperator_(data) {
+  // Security Token Check
+  var EXPECTED_TOKEN = "***REMOVED***";
+  if (data.token !== EXPECTED_TOKEN) {
+    throw new Error("Token keamanan tidak valid");
+  }
+
+  if (!data.nip || !data.nama) {
+    throw new Error("NIP dan nama wajib diisi");
+  }
+
+  var username = String(data.nip).trim();
+  
+  // 1. Resolve unitKerjaId by opdName
+  var unitKerjaId = "";
+  if (data.opdName) {
+    var allUnit = fbGet_('unitKerja') || {};
+    var targetNorm = normalizeOpdName_(data.opdName);
+    for (var key in allUnit) {
+      var unitNorm = normalizeOpdName_(allUnit[key].nama);
+      if (unitNorm === targetNorm || unitNorm.indexOf(targetNorm) !== -1 || targetNorm.indexOf(unitNorm) !== -1) {
+        unitKerjaId = key;
+        break;
+      }
+    }
+  }
+
+  // 2. Check if user already exists
+  var users = fbGet_('users') || {};
+  var foundUserId = null;
+  for (var key in users) {
+    if (users[key].username === username) {
+      foundUserId = key;
+      break;
+    }
+  }
+
+  if (foundUserId) {
+    // User already exists! We can update their email/namaLengkap/unitKerjaId
+    var updatePayload = {
+      namaLengkap: data.nama,
+      email: data.email || users[foundUserId].email || "",
+      isActive: true
+    };
+    if (unitKerjaId) {
+      updatePayload.unitKerjaId = unitKerjaId;
+    }
+    fbPatch_('users/' + foundUserId, updatePayload);
+    return { status: "updated", id: foundUserId, message: "User sudah ada, data diperbarui." };
+  }
+
+  // 3. Create new user
+  var newUser = {
+    username: username,
+    password: hashPassword_("sianjabmj2026"), // default password
+    namaLengkap: data.nama,
+    email: data.email || "",
+    role: "operator",
+    unitKerjaId: unitKerjaId,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  };
+
+  var result = fbPost_('users', newUser);
+  return { status: "created", id: result.name, message: "User berhasil didaftarkan otomatis." };
+}
+
+function normalizeOpdName_(str) {
+  if (!str) return "";
+  return String(str)
+    .toLowerCase()
+    .replace(/[\s\r\n\t]+/g, "")
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/rumahsakitumumdaerah/g, "rs")
+    .replace(/rumahsakit/g, "rs")
+    .replace(/rsud/g, "rs")
+    .replace(/dan/g, "");
 }

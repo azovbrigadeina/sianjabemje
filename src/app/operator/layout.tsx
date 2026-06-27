@@ -71,6 +71,7 @@ export default function OperatorLayout({
   const getPageTitle = () => {
     if (pathname === '/operator') return opdName;
     if (pathname.includes('/peta-jabatan')) return 'Peta Jabatan';
+    if (pathname.includes('/organisasi')) return 'Struktur Organisasi';
     if (pathname.includes('/analisis')) return 'Pengisian Anjab';
     if (pathname.includes('/beban-kerja')) return 'Hitung ABK';
     if (pathname.includes('/validasi')) return 'Kirim Validasi';
@@ -95,6 +96,9 @@ export default function OperatorLayout({
         <nav className={styles.sidebarNav}>
           <Link href="/operator" className={`${styles.navItem} ${pathname === '/operator' ? styles.active : ''}`}>
             <span className={styles.navIcon}>📊</span> <span className={styles.navText}>Beranda OPD</span>
+          </Link>
+          <Link href="/operator/organisasi" className={`${styles.navItem} ${pathname.includes('/operator/organisasi') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🏢</span> <span className={styles.navText}>Struktur Organisasi</span>
           </Link>
           <Link href="/operator/peta-jabatan" className={`${styles.navItem} ${pathname.includes('/peta-jabatan') ? styles.active : ''}`}>
             <span className={styles.navIcon}>🗺️</span> <span className={styles.navText}>Peta Jabatan</span>
