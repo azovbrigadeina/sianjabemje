@@ -9,7 +9,7 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Sianjab ABK | Analisis Jabatan & Beban Kerja",
+  title: "SianjabABK EM-JE | Analisis Jabatan & Beban Kerja",
   description: "Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020",
 };
 

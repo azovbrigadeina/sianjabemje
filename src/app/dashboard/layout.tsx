@@ -51,7 +51,7 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
-  const displayName = user?.namaLengkap || user?.username || "Admin Sianjab";
+  const displayName = user?.namaLengkap || user?.username || "Admin SianjabABK EM-JE";
   const avatarChar = displayName.charAt(0).toUpperCase();
 
   // Dynamic header title based on route
@@ -76,7 +76,10 @@ export default function DashboardLayout({
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarLogo}>
             <div className={styles.logoMark}>S</div>
-            <span className={styles.logoText}>Sianjab ABK</span>
+            <span className={styles.logoText}>
+              SianjabABK
+              <span className={styles.logoAccent}>EM-JE</span>
+            </span>
           </div>
           {!isCollapsed && (
             <button

@@ -84,7 +84,10 @@ export default function OperatorLayout({
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarLogo}>
             <div className={styles.logoMark}>S</div>
-            <span className={styles.logoText}>Sianjab ABK</span>
+            <span className={styles.logoText}>
+              SianjabABK
+              <span className={styles.logoAccent}>EM-JE</span>
+            </span>
           </div>
         </div>
 

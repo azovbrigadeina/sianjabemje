@@ -240,7 +240,7 @@ export default function OperatorOrganisasiPage() {
         const next = { ...prev };
         opds.forEach(opd => {
           if (next[opd.id] === undefined) {
-            next[opd.id] = true;
+            next[opd.id] = false; // Collapsed by default
           }
         });
         return next;
@@ -532,6 +532,26 @@ export default function OperatorOrganisasiPage() {
     setModalSaving(false);
   };
 
+  const expandAll = () => {
+    const next: Record<string, boolean> = {};
+    const traverse = (nodes: TreeNode[]) => {
+      nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          next[node.id] = true;
+          traverse(node.children);
+        }
+      });
+    };
+    traverse(treeData);
+    setExpandedNodes(next);
+    showToast("➕ Semua tingkatan dikembangkan");
+  };
+
+  const collapseAll = () => {
+    setExpandedNodes({});
+    showToast("➖ Semua tingkatan diciutkan");
+  };
+
   const toggleNode = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedNodes(prev => ({
@@ -686,6 +706,12 @@ export default function OperatorOrganisasiPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ flex: 1, padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
           />
+          <button type="button" className={styles.btnSecondary} onClick={expandAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➕ Kembangkan Semua
+          </button>
+          <button type="button" className={styles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➖ Ciutkan Semua
+          </button>
           {orgEditEnabled && (
             <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
               ➕ Tambah Sub-OPD Baru

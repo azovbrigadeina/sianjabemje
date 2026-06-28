@@ -66,7 +66,7 @@ export default function DashboardHome() {
   return (
     <div className="animate-fade-in">
       <div className={styles.welcomeSection}>
-        <h1 className={styles.title}>Selamat Datang di <span className="text-gradient">Sianjab ABK</span></h1>
+        <h1 className={styles.title}>Selamat Datang di <span className="text-gradient">SianjabABK EM-JE</span></h1>
         <p className={styles.subtitle}>Pantau progres penyusunan dokumen Analisis Jabatan dan Beban Kerja seluruh unit kerja.</p>
       </div>
 
@@ -183,7 +183,7 @@ export default function DashboardHome() {
             <div className={styles.activityItem}>
               <div className={styles.activityDot} style={{ background: 'hsl(142, 71%, 45%)' }}></div>
               <div className={styles.activityContent}>
-                <p>Sistem Sianjab siap digunakan untuk penginputan Analisis Jabatan dan Beban Kerja terintegrasi.</p>
+                <p>Sistem SianjabABK EM-JE siap digunakan untuk penginputan Analisis Jabatan dan Beban Kerja terintegrasi.</p>
                 <span className={styles.time}>Otomatis</span>
               </div>
             </div>

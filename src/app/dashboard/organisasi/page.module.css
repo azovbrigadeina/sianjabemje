@@ -791,3 +791,51 @@
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Pagination Controls */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding: 1rem 0;
+}
+
+.pageButton {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--foreground);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pageButton:hover:not(:disabled) {
+  background: var(--glass-border);
+  transform: translateY(-1px);
+}
+
+.pageButtonActive {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+  color: white;
+  border-color: transparent;
+}
+
+.pageButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.paginationInfo {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  font-weight: 500;
+  margin: 0 1rem;
+}

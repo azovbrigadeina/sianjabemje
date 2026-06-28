@@ -104,7 +104,7 @@ export default function Home() {
       <main className={styles.container}>
         <nav className={`${styles.nav} glass-panel`}>
           <div className={styles.logo}>
-            <span className="text-gradient">Sianjab ABK</span>
+            <span className="text-gradient">SianjabABK EM-JE</span>
           </div>
           <div className={styles.navLinks}>
             <a href="#">Beranda</a>

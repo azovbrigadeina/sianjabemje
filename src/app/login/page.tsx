@@ -52,7 +52,7 @@ export default function Login() {
             <div className={styles.logoMark}>
               <span>S</span>
             </div>
-            <h1 className="text-gradient">Sianjab ABK</h1>
+            <h1 className="text-gradient">SianjabABK EM-JE</h1>
             <p>Sistem Analisis Jabatan &amp; Beban Kerja</p>
             <p style={{ fontSize: "0.75rem", opacity: 0.6, marginTop: "0.25rem" }}>
               Silakan masuk menggunakan kredensial Anda

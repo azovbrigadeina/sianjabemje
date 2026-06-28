@@ -48,6 +48,7 @@ export default function OrganisasiPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [orgEditEnabled, setOrgEditEnabled] = useState<boolean>(true);
   const [isSavingOrgSetting, setIsSavingOrgSetting] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal state
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -238,7 +239,7 @@ export default function OrganisasiPage() {
         const next = { ...prev };
         opds.forEach(opd => {
           if (next[opd.id] === undefined) {
-            next[opd.id] = true;
+            next[opd.id] = false; // Collapsed by default
           }
         });
         return next;
@@ -292,6 +293,26 @@ export default function OrganisasiPage() {
   };
 
 
+
+  const expandAll = () => {
+    const next: Record<string, boolean> = {};
+    const traverse = (nodes: TreeNode[]) => {
+      nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          next[node.id] = true;
+          traverse(node.children);
+        }
+      });
+    };
+    traverse(treeData);
+    setExpandedNodes(next);
+    showToast("➕ Semua tingkatan dikembangkan");
+  };
+
+  const collapseAll = () => {
+    setExpandedNodes({});
+    showToast("➖ Semua tingkatan diciutkan");
+  };
 
   const toggleNode = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -524,6 +545,22 @@ export default function OrganisasiPage() {
 
   const displayTree = filterTree(treeData, searchQuery);
 
+  // Pagination logic
+  const pageSize = 10;
+  const totalPages = Math.ceil(displayTree.length / pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [displayTree, totalPages, currentPage]);
+
+  const paginatedTree = displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   // Fungsi Renderer Rekursif
   const renderTreeNodes = (nodes: TreeNode[]) => (
     <ul>
@@ -659,6 +696,12 @@ export default function OrganisasiPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ flex: 1, padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
           />
+          <button type="button" className={styles.btnSecondary} onClick={expandAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➕ Kembangkan Semua
+          </button>
+          <button type="button" className={styles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➖ Ciutkan Semua
+          </button>
           <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
             ➕ Tambah OPD Baru
           </button>
@@ -678,7 +721,33 @@ export default function OrganisasiPage() {
             </div>
           ) : (
             <div className={styles.treeContainerWrapper} style={{ minWidth: '800px' }}>
-              {renderTreeNodes(displayTree)}
+              {renderTreeNodes(paginatedTree)}
+              
+              {totalPages > 1 && (
+                <div className={styles.pagination}>
+                  <button 
+                    type="button"
+                    className={styles.pageButton} 
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Sebelumnya
+                  </button>
+                  
+                  <span className={styles.paginationInfo}>
+                    Halaman <strong>{currentPage}</strong> dari <strong>{totalPages}</strong> ({displayTree.length} OPD)
+                  </span>
+                  
+                  <button 
+                    type="button"
+                    className={styles.pageButton} 
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Berikutnya
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

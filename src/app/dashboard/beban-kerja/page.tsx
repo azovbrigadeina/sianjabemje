@@ -48,6 +48,7 @@ export default function BebanKerjaPage() {
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingTree, setIsLoadingTree] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Editor State
   const [activeJob, setActiveJob] = useState("");
@@ -97,7 +98,7 @@ export default function BebanKerjaPage() {
           id: opd.id, type: 'OPD', label: opd.nama || opd.id,
           parentId: opd.parentId, urutan: opd.urutan || 0, children: []
         };
-        expandState[opd.id] = true;
+        expandState[opd.id] = false; // Collapsed by default
       });
 
       jabatans.forEach(jbt => {
@@ -160,6 +161,26 @@ export default function BebanKerjaPage() {
   useEffect(() => {
     loadTree();
   }, [loadTree]);
+
+  const expandAll = () => {
+    const next: Record<string, boolean> = {};
+    const traverse = (nodes: TreeNode[]) => {
+      nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          next[node.id] = true;
+          traverse(node.children);
+        }
+      });
+    };
+    traverse(treeData);
+    setExpandedNodes(next);
+    showToast("➕ Semua tingkatan dikembangkan");
+  };
+
+  const collapseAll = () => {
+    setExpandedNodes({});
+    showToast("➖ Semua tingkatan diciutkan");
+  };
 
   const toggleNode = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -367,6 +388,22 @@ export default function BebanKerjaPage() {
 
   const displayTree = searchQuery ? treeData : treeData;
 
+  // Pagination logic
+  const pageSize = 10;
+  const totalPages = Math.ceil(displayTree.length / pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [displayTree, totalPages, currentPage]);
+
+  const paginatedTree = displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div className={styles.container}>
       {toast && <div className={styles.toast}>{toast}</div>}
@@ -389,13 +426,47 @@ export default function BebanKerjaPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ flex: 1, padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
           />
+          <button type="button" className={treeStyles.btnSecondary} onClick={expandAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➕ Kembangkan Semua
+          </button>
+          <button type="button" className={treeStyles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
+            ➖ Ciutkan Semua
+          </button>
         </div>
 
         <div className={treeStyles.treeContainerWrapper} style={{ overflowX: 'auto', minWidth: '800px', padding: '20px' }}>
           {isLoadingTree ? (
             <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>Memuat silsilah pohon organisasi...</div>
           ) : (
-            renderTreeNodes(displayTree)
+            <>
+              {renderTreeNodes(paginatedTree)}
+              
+              {totalPages > 1 && (
+                <div className={treeStyles.pagination}>
+                  <button 
+                    type="button"
+                    className={treeStyles.pageButton} 
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Sebelumnya
+                  </button>
+                  
+                  <span className={treeStyles.paginationInfo}>
+                    Halaman <strong>{currentPage}</strong> dari <strong>{totalPages}</strong> ({displayTree.length} OPD)
+                  </span>
+                  
+                  <button 
+                    type="button"
+                    className={treeStyles.pageButton} 
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Berikutnya
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -25,6 +25,7 @@ export default function PetaJabatanPage() {
   const [abkMap, setAbkMap] = useState<Record<string, { totalKebutuhan: number; formasiPembulatan: number }>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
 
   // Layout & Visualization Controls
   const [zoom, setZoom] = useState<number>(0.95);
@@ -219,9 +220,16 @@ export default function PetaJabatanPage() {
 
         if (filteredJabatans.length === 0) {
           setHierarchy([]);
+          setExpandedNodes({});
         } else {
           const tree = buildHierarchyTree(filteredJabatans);
           setHierarchy(tree);
+          // Initialize expandedNodes: only roots are expanded by default
+          const initialExpanded: Record<string, boolean> = {};
+          tree.forEach(root => {
+            initialExpanded[root.id] = true;
+          });
+          setExpandedNodes(initialExpanded);
         }
       } catch (err) {
         console.error("Gagal memuat struktur jabatan:", err);
@@ -242,6 +250,32 @@ export default function PetaJabatanPage() {
   const handleZoomReset = () => {
     setZoom(0.95);
     setPanOffset({ x: 30, y: 30 });
+  };
+
+  // Expand / Collapse All logic
+  const expandAll = () => {
+    const newExpanded: Record<string, boolean> = {};
+    const traverse = (nodes: StructuralNode[]) => {
+      nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          newExpanded[node.id] = true;
+          traverse(node.children);
+        }
+      });
+    };
+    traverse(hierarchy);
+    setExpandedNodes(newExpanded);
+    showToast("➕ Semua tingkatan bagan dikembangkan");
+  };
+
+  const collapseAll = () => {
+    const newExpanded: Record<string, boolean> = {};
+    // Keep root nodes expanded so they are visible
+    hierarchy.forEach(root => {
+      newExpanded[root.id] = true;
+    });
+    setExpandedNodes(newExpanded);
+    showToast("➖ Semua tingkatan bagan diciutkan");
   };
 
   // Grab-to-pan Canvas Mouse Drag Logic
@@ -276,7 +310,12 @@ export default function PetaJabatanPage() {
   };
 
   // Node Component Render Helper
-  const renderNodeBox = (node: StructuralNode, isSummaryMode: boolean = false, branchIndex: number = -1) => {
+  const renderNodeBox = (
+    node: StructuralNode, 
+    isSummaryMode: boolean = false, 
+    branchIndex: number = -1,
+    showToggle: boolean = false
+  ) => {
     const eselonVal = (node.jenisJabatan || '').toLowerCase().trim();
     let eselonClass = styles.eselonLain;
     let badgeClass = styles.badgeEselonLain;
@@ -294,6 +333,9 @@ export default function PetaJabatanPage() {
 
     const abkStat = abkMap[node.id] || { totalKebutuhan: 0, formasiPembulatan: 0 };
     const labelFormasi = abkStat.formasiPembulatan > 0 ? abkStat.formasiPembulatan : "-";
+
+    const hasChildren = node.children && node.children.length > 0;
+    const isExpanded = !!expandedNodes[node.id];
 
     return (
       <div className={`${styles.nodeBox} ${eselonClass}`}>
@@ -365,6 +407,23 @@ export default function PetaJabatanPage() {
             </div>
           </div>
         )}
+
+        {/* Toggle Button for Screen View */}
+        {showToggle && hasChildren && (
+          <button 
+            className={`${styles.toggleBtn} ${layoutMode === 'horizontal' ? styles.toggleBtnHorizontal : styles.toggleBtnVertical} ${isExpanded ? styles.toggleBtnExpanded : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpandedNodes(prev => ({
+                ...prev,
+                [node.id]: !prev[node.id]
+              }));
+            }}
+            title={isExpanded ? "Ciutkan cabang" : "Kembangkan cabang"}
+          >
+            {isExpanded ? "−" : "+"}
+          </button>
+        )}
       </div>
     );
   };
@@ -372,6 +431,7 @@ export default function PetaJabatanPage() {
   // Recursive Tree Rendering for Screen Canvas
   const renderHierarchyNode = (node: StructuralNode, isRoot: boolean) => {
     const hasChildren = node.children && node.children.length > 0;
+    const isExpanded = !!expandedNodes[node.id];
 
     if (layoutMode === 'horizontal') {
       return (
@@ -379,9 +439,9 @@ export default function PetaJabatanPage() {
           className={`${styles.treeBranchHorizontal} ${isRoot ? styles.rootBranchHorizontal : ''}`} 
           key={node.id}
         >
-          {renderNodeBox(node)}
+          {renderNodeBox(node, false, -1, true)}
           
-          {hasChildren && (
+          {hasChildren && isExpanded && (
             <>
               <div className={styles.parentLineHorizontal} />
               <div className={styles.childrenContainerHorizontal}>
@@ -398,9 +458,9 @@ export default function PetaJabatanPage() {
         className={`${styles.treeBranch} ${isRoot ? styles.rootBranch : ''}`} 
         key={node.id}
       >
-        {renderNodeBox(node)}
+        {renderNodeBox(node, false, -1, true)}
         
-        {hasChildren && (
+        {hasChildren && isExpanded && (
           <>
             <div className={styles.parentLine} />
             <div className={styles.childrenContainer}>
@@ -432,7 +492,7 @@ export default function PetaJabatanPage() {
           className={`${styles.treeBranchHorizontal} ${isRoot ? styles.rootBranchHorizontal : ''}`} 
           key={node.id}
         >
-          {renderNodeBox(node, isSummaryMode && depth === 1, branchIndex)}
+          {renderNodeBox(node, isSummaryMode && depth === 1, branchIndex, false)}
           
           {hasChildren && (
             <>
@@ -451,7 +511,7 @@ export default function PetaJabatanPage() {
         className={`${styles.treeBranch} ${isRoot ? styles.rootBranch : ''}`} 
         key={node.id}
       >
-        {renderNodeBox(node, isSummaryMode && depth === 1, branchIndex)}
+        {renderNodeBox(node, isSummaryMode && depth === 1, branchIndex, false)}
         
         {hasChildren && (
           <>
@@ -528,6 +588,22 @@ export default function PetaJabatanPage() {
               title="Tampilkan/Sembunyikan Informasi Detail Jabatan"
             >
               👁️ {showDetails ? 'Sembunyikan Detail' : 'Tampilkan Detail'}
+            </button>
+
+            {/* Collapse/Expand All Buttons */}
+            <button
+              onClick={expandAll}
+              className={styles.btnControl}
+              title="Kembangkan semua cabang bagan"
+            >
+              ➕ Kembangkan Semua
+            </button>
+            <button
+              onClick={collapseAll}
+              className={styles.btnControl}
+              title="Ciutkan semua cabang bagan (kecuali root)"
+            >
+              ➖ Ciutkan Semua
             </button>
 
             {/* Zoom Controls widget */}

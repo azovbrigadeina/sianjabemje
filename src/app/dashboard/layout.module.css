@@ -65,16 +65,25 @@
 }
 
 .logoText {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 800;
   color: hsl(var(--primary));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
   min-width: 0;
+  white-space: nowrap;
   transition: opacity 0.25s ease, max-width 0.3s ease;
   max-width: 200px;
   opacity: 1;
+}
+
+.logoAccent {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: hsl(var(--secondary));
+  letter-spacing: 0.05em;
+  margin-top: 1px;
 }
 
 .collapsed .logoText {

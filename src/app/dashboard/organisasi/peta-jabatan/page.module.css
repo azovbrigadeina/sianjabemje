@@ -684,6 +684,59 @@
   display: none;
 }
 
+/* Expand / Collapse Toggle Button */
+.toggleBtn {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1px solid var(--glass-border);
+  color: hsl(var(--primary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  line-height: 1;
+}
+
+.toggleBtn:hover {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--secondary)));
+  color: white;
+  border-color: transparent;
+  transform: var(--hover-transform) scale(1.15);
+  box-shadow: 0 6px 15px hsla(var(--primary), 0.3);
+}
+
+.toggleBtnVertical {
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  --hover-transform: translateX(-50%);
+}
+
+.toggleBtnHorizontal {
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  --hover-transform: translateY(-50%);
+}
+
+.toggleBtnExpanded {
+  color: #ef4444;
+}
+
+.toggleBtnExpanded:hover {
+  background: #ef4444;
+  box-shadow: 0 6px 15px rgba(239, 68, 68, 0.3);
+}
+
 /* =============================================
    PRINT MEDIA RULES FOR VECTOR PDF EXPORTS
    ============================================= */
