@@ -101,14 +101,15 @@ export default function Home() {
 
   return (
     <>
+      {loading && <div className={styles.topLoadingBar} />}
       <main className={styles.container}>
         <nav className={`${styles.nav} glass-panel`}>
           <div className={styles.logo}>
             <span className="text-gradient">SianjabABK EM-JE</span>
           </div>
           <div className={styles.navLinks}>
-            <a href="#">Beranda</a>
-            <a href="#">Struktur Organisasi</a>
+            <Link href="/">Beranda</Link>
+            <Link href="/organisasi">Struktur Organisasi</Link>
             <a href="#">Analisis</a>
           </div>
         </nav>
@@ -145,7 +146,11 @@ export default function Home() {
                     <div className={styles.statRow}>
                       <span>Validasi OPD (Induk)</span>
                       <span className={styles.statValue}>
-                        {loading ? "..." : `${stats.opdDisetujui} / ${stats.totalOpdMain}`}
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '60px', height: '1.1rem' }}></span>
+                        ) : (
+                          `${stats.opdDisetujui} / ${stats.totalOpdMain}`
+                        )}
                       </span>
                     </div>
                     <div className={styles.progressBar}>
@@ -157,7 +162,11 @@ export default function Home() {
                     <div className={styles.statRow}>
                       <span>Pengisian Anjab (Jabatan)</span>
                       <span className={styles.statValue}>
-                        {loading ? "..." : `${stats.anjabSelesai} / ${stats.totalJabatan}`}
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '60px', height: '1.1rem' }}></span>
+                        ) : (
+                          `${stats.anjabSelesai} / ${stats.totalJabatan}`
+                        )}
                       </span>
                     </div>
                     <div className={styles.progressBar}>
@@ -169,7 +178,11 @@ export default function Home() {
                     <div className={styles.statRow}>
                       <span>Pengisian ABK (Jabatan)</span>
                       <span className={styles.statValue}>
-                        {loading ? "..." : `${stats.abkSelesai} / ${stats.totalJabatan}`}
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '60px', height: '1.1rem' }}></span>
+                        ) : (
+                          `${stats.abkSelesai} / ${stats.totalJabatan}`
+                        )}
                       </span>
                     </div>
                     <div className={styles.progressBar}>
@@ -191,7 +204,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>🏢</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalOpdMain}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '30px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalOpdMain
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>OPD Induk</span>
                     </div>
                   </div>
@@ -199,7 +218,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>👥</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalJabatan}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '40px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalJabatan
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>Total Jabatan</span>
                     </div>
                   </div>
@@ -207,7 +232,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>👑</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalJPT}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '30px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalJPT
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>JPT</span>
                     </div>
                   </div>
@@ -215,7 +246,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>🛡️</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalAdministrator}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '30px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalAdministrator
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>Administrator</span>
                     </div>
                   </div>
@@ -223,7 +260,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>🔍</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalPengawas}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '30px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalPengawas
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>Pengawas</span>
                     </div>
                   </div>
@@ -231,7 +274,13 @@ export default function Home() {
                   <div className={styles.compactStatItem}>
                     <span className={styles.compactIcon}>💼</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalPelaksana}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '35px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalPelaksana
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>Pelaksana</span>
                     </div>
                   </div>
@@ -239,7 +288,13 @@ export default function Home() {
                   <div className={`${styles.compactStatItem} ${styles.fullWidth}`}>
                     <span className={styles.compactIcon}>⚡</span>
                     <div className={styles.compactInfo}>
-                      <span className={styles.compactVal}>{loading ? "..." : stats.totalFungsional}</span>
+                      <span className={styles.compactVal}>
+                        {loading ? (
+                          <span className={styles.skeleton} style={{ width: '40px', height: '1rem' }}></span>
+                        ) : (
+                          stats.totalFungsional
+                        )}
+                      </span>
                       <span className={styles.compactLabel}>Jabatan Fungsional</span>
                     </div>
                   </div>

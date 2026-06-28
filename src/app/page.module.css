@@ -321,3 +321,57 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Skeleton Loading Animation */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--glass-border) 25%,
+    var(--glass-bg) 50%,
+    var(--glass-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite linear;
+  border-radius: 8px;
+  display: inline-block;
+  color: transparent !important;
+  user-select: none;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Top Loading Progress Bar */
+.topLoadingBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--secondary)));
+  z-index: 9999;
+  transform: translateX(-100%);
+  animation: loading-bar 2s infinite ease-in-out;
+}
+
+@keyframes loading-bar {
+  0% {
+    left: -100%;
+    right: 100%;
+  }
+  50% {
+    left: 0%;
+    right: 0%;
+  }
+  100% {
+    left: 100%;
+    right: -100%;
+  }
+}
+

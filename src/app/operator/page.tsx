@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import styles from "../dashboard/page.module.css";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
-import type { UnitKerja } from "@/lib/types";
+import type { UnitKerja, Jabatan } from "@/lib/types";
 import Link from "next/link";
 
 export default function OperatorHome() {
@@ -14,6 +14,7 @@ export default function OperatorHome() {
   const [catatanRevisi, setCatatanRevisi] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalJabatan: 0,
+    anjabSelesai: 0,
     abkSelesai: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ export default function OperatorHome() {
 
         // Fetch jabatan filtered
         const jabatansRaw = await api.readAllEntity("jabatan", "");
-        const jabatans = (jabatansRaw as { id: string; unitKerjaId?: string }[]) || [];
+        const jabatans = (jabatansRaw as Jabatan[]) || [];
         const myJabatan = jabatans.filter((j) => allUnitIds.includes(j.unitKerjaId || ""));
 
         // Fetch ABK
@@ -54,8 +55,12 @@ export default function OperatorHome() {
         const myJabatanIds = new Set(myJabatan.map((j) => j.id));
         const myAbks = abks.filter((a) => myJabatanIds.has(a.id));
 
+        // Calculate ANJAB selesai (ikhtisarJabatan is filled)
+        const myAnjabSelesai = myJabatan.filter((jbt) => jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5).length;
+
         setStats({
           totalJabatan: myJabatan.length,
+          anjabSelesai: myAnjabSelesai,
           abkSelesai: myAbks.length,
         });
       } catch (err) {
@@ -67,11 +72,14 @@ export default function OperatorHome() {
     fetchData();
   }, [user]);
 
+  const anjabBelum = Math.max(0, stats.totalJabatan - stats.anjabSelesai);
+  const anjabProgressPct = stats.totalJabatan > 0 ? Math.round((stats.anjabSelesai / stats.totalJabatan) * 100) : 0;
   const abkBelum = Math.max(0, stats.totalJabatan - stats.abkSelesai);
   const progressPct = stats.totalJabatan > 0 ? Math.round((stats.abkSelesai / stats.totalJabatan) * 100) : 0;
 
   return (
     <div className="animate-fade-in">
+      {loading && <div className={styles.topLoadingBar} />}
       <div className={styles.welcomeSection}>
         <h1 className={styles.title}>
           Halo, <span className="text-gradient">{user?.namaLengkap || "Operator"}</span>
@@ -177,62 +185,153 @@ export default function OperatorHome() {
       )}
 
       <div className={styles.statsGrid}>
+        {/* Total Jabatan */}
         <div className={`${styles.statCard} glass-panel`}>
           <div className={styles.statIcon} style={{ background: 'hsla(199, 89%, 48%, 0.1)', color: 'hsl(199, 89%, 48%)' }}>👥</div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Total Jabatan OPD</span>
-            <span className={styles.statValue}>{loading ? "..." : stats.totalJabatan.toLocaleString()}</span>
+            <span className={styles.statValue}>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '80px', height: '2rem' }}></span>
+              ) : (
+                stats.totalJabatan.toLocaleString()
+              )}
+            </span>
           </div>
         </div>
 
+        {/* ANJAB Selesai */}
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(270, 70%, 50%, 0.1)', color: 'hsl(270, 70%, 50%)' }}>📝</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>ANJAB Selesai</span>
+            <span className={styles.statValue}>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '60px', height: '2rem' }}></span>
+              ) : (
+                stats.anjabSelesai
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Progress ANJAB */}
+        <div className={`${styles.statCard} glass-panel`}>
+          <div className={styles.statIcon} style={{ background: 'hsla(300, 70%, 50%, 0.1)', color: 'hsl(300, 70%, 50%)' }}>📈</div>
+          <div className={styles.statInfo}>
+            <span className={styles.statLabel}>Progress ANJAB</span>
+            <span className={styles.statValue}>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '60px', height: '2rem' }}></span>
+              ) : (
+                `${anjabProgressPct}%`
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* ABK Selesai */}
         <div className={`${styles.statCard} glass-panel`}>
           <div className={styles.statIcon} style={{ background: 'hsla(142, 71%, 45%, 0.1)', color: 'hsl(142, 71%, 45%)' }}>⚖️</div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>ABK Selesai</span>
-            <span className={styles.statValue}>{loading ? "..." : stats.abkSelesai}</span>
+            <span className={styles.statValue}>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '60px', height: '2rem' }}></span>
+              ) : (
+                stats.abkSelesai
+              )}
+            </span>
           </div>
         </div>
 
-        <div className={`${styles.statCard} glass-panel`}>
-          <div className={styles.statIcon} style={{ background: 'hsla(39, 100%, 50%, 0.1)', color: 'hsl(39, 100%, 50%)' }}>⏳</div>
-          <div className={styles.statInfo}>
-            <span className={styles.statLabel}>ABK Menunggu</span>
-            <span className={styles.statValue}>{loading ? "..." : abkBelum}</span>
-          </div>
-        </div>
-
+        {/* Progress ABK */}
         <div className={`${styles.statCard} glass-panel`}>
           <div className={styles.statIcon} style={{ background: 'hsla(256, 65%, 50%, 0.1)', color: 'hsl(256, 65%, 50%)' }}>📊</div>
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Progress ABK</span>
-            <span className={styles.statValue}>{loading ? "..." : `${progressPct}%`}</span>
+            <span className={styles.statValue}>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '60px', height: '2rem' }}></span>
+              ) : (
+                `${progressPct}%`
+              )}
+            </span>
           </div>
         </div>
       </div>
 
-      {!loading && stats.totalJabatan > 0 && (
-        <div style={{ marginTop: '1.5rem' }}>
+      {stats.totalJabatan > 0 || loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+          {/* ANJAB Progress Card */}
           <div className={`glass-panel`} style={{ padding: '1.5rem', borderRadius: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.9rem', fontWeight: 600 }}>
-              <span>Progress Pengisian ABK</span>
-              <span style={{ color: 'hsl(var(--primary))' }}>{progressPct}%</span>
+              <span>Progress Pengisian ANJAB</span>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '40px', height: '1.2rem' }}></span>
+              ) : (
+                <span style={{ color: 'hsl(var(--primary))' }}>{anjabProgressPct}%</span>
+              )}
             </div>
             <div style={{ background: 'var(--glass-border)', borderRadius: '99px', height: '10px', overflow: 'hidden' }}>
               <div style={{
                 height: '100%',
-                width: `${progressPct}%`,
+                width: `${loading ? 0 : anjabProgressPct}%`,
                 background: 'linear-gradient(90deg, hsl(var(--primary)), hsl(var(--secondary)))',
                 borderRadius: '99px',
                 transition: 'width 0.8s ease',
               }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
-              <span>{stats.abkSelesai} selesai</span>
-              <span>{abkBelum} tersisa dari {stats.totalJabatan} jabatan</span>
+              {loading ? (
+                <>
+                  <span className={styles.skeleton} style={{ width: '60px', height: '0.9rem' }}></span>
+                  <span className={styles.skeleton} style={{ width: '120px', height: '0.9rem' }}></span>
+                </>
+              ) : (
+                <>
+                  <span>{stats.anjabSelesai} selesai</span>
+                  <span>{anjabBelum} tersisa dari {stats.totalJabatan} jabatan</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ABK Progress Card */}
+          <div className={`glass-panel`} style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.9rem', fontWeight: 600 }}>
+              <span>Progress Pengisian ABK</span>
+              {loading ? (
+                <span className={styles.skeleton} style={{ width: '40px', height: '1.2rem' }}></span>
+              ) : (
+                <span style={{ color: 'hsl(var(--secondary))' }}>{progressPct}%</span>
+              )}
+            </div>
+            <div style={{ background: 'var(--glass-border)', borderRadius: '99px', height: '10px', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${loading ? 0 : progressPct}%`,
+                background: 'linear-gradient(90deg, hsl(var(--secondary)), #f472b6)',
+                borderRadius: '99px',
+                transition: 'width 0.8s ease',
+              }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
+              {loading ? (
+                <>
+                  <span className={styles.skeleton} style={{ width: '60px', height: '0.9rem' }}></span>
+                  <span className={styles.skeleton} style={{ width: '120px', height: '0.9rem' }}></span>
+                </>
+              ) : (
+                <>
+                  <span>{stats.abkSelesai} selesai</span>
+                  <span>{abkBelum} tersisa dari {stats.totalJabatan} jabatan</span>
+                </>
+              )}
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className={styles.recentActivity}>
         <div className={`${styles.activityCard} glass-panel`}>
