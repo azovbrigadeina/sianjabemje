@@ -17,11 +17,12 @@ function onOpen() {
 }
 
 // KONFIGURASI - Ganti dengan data project Firebase Anda
-var FIREBASE_URL = 'https://anjabmj-44141-default-rtdb.asia-southeast1.firebasedatabase.app';
-var FIREBASE_SECRET = '***REMOVED***';
-var SHEET_ID = '1WIDlKL3zsBADg9SR6Rv8KudIpWF0Bvyi4kRwJ2GmLPg';
-var SITPP_FIREBASE_URL = 'https://sitpp-7b65d-default-rtdb.asia-southeast1.firebasedatabase.app';
-var SITPP_SECRET = '5PXDOaG1wEc45duZOyr2XlKliibhp1s6Kkct2g0k';
+var FIREBASE_URL = 'YOUR_FIREBASE_URL';
+var FIREBASE_SECRET = 'YOUR_FIREBASE_SECRET';
+var SHEET_ID = 'YOUR_SHEET_ID';
+var SITPP_FIREBASE_URL = 'YOUR_SITPP_FIREBASE_URL';
+var SITPP_SECRET = 'YOUR_SITPP_SECRET';
+
 
 // =============================================
 // WEB APP ENTRY POINTS

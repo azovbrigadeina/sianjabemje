@@ -112,7 +112,7 @@ export default function UsersPage() {
         // Validate SPT Digital if adding an operator and not bypassed
         if (form.role === "operator" && !form.bypassSpt) {
           const sptUrl = process.env.NEXT_PUBLIC_SPT_DIGITAL_URL;
-          const sptToken = process.env.NEXT_PUBLIC_SPT_DIGITAL_TOKEN || "***REMOVED***";
+          const sptToken = process.env.NEXT_PUBLIC_SPT_DIGITAL_TOKEN || "YOUR_TOKEN";
 
           if (sptUrl) {
             const opd = opds.find((o) => o.id === form.unitKerjaId);

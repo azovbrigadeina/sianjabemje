@@ -16,12 +16,13 @@ function onOpen() {
       .addToUi();
 }
 
-// KONFIGURASI - Ganti dengan data project Firebase Anda
-var FIREBASE_URL = 'https://anjabmj-44141-default-rtdb.asia-southeast1.firebasedatabase.app';
-var FIREBASE_SECRET = '***REMOVED***';
-var SHEET_ID = '1WIDlKL3zsBADg9SR6Rv8KudIpWF0Bvyi4kRwJ2GmLPg';
-var SITPP_FIREBASE_URL = 'https://sitpp-7b65d-default-rtdb.asia-southeast1.firebasedatabase.app';
-var SITPP_SECRET = '5PXDOaG1wEc45duZOyr2XlKliibhp1s6Kkct2g0k';
+// KONFIGURASI - Diambil dari Script Properties
+var FIREBASE_URL = PropertiesService.getScriptProperties().getProperty('FIREBASE_URL') || 'YOUR_FIREBASE_URL';
+var FIREBASE_SECRET = PropertiesService.getScriptProperties().getProperty('FIREBASE_SECRET') || 'YOUR_FIREBASE_SECRET';
+var SHEET_ID = PropertiesService.getScriptProperties().getProperty('SHEET_ID') || 'YOUR_SHEET_ID';
+var SITPP_FIREBASE_URL = PropertiesService.getScriptProperties().getProperty('SITPP_FIREBASE_URL') || 'YOUR_SITPP_FIREBASE_URL';
+var SITPP_SECRET = PropertiesService.getScriptProperties().getProperty('SITPP_SECRET') || 'YOUR_SITPP_SECRET';
+
 
 // =============================================
 // WEB APP ENTRY POINTS
@@ -954,7 +955,7 @@ function syncFromSheet_() {
 }
 
 function getSptSpreadsheetData_() {
-  var sptSsId = "1hA68rgMDtbX9ySdOI5TF5CUypzO5vJKHHIPAVjTk798";
+  var sptSsId = PropertiesService.getScriptProperties().getProperty('SPT_SPREADSHEET_ID') || "YOUR_SPT_SPREADSHEET_ID";
   var ss = SpreadsheetApp.openById(sptSsId);
   var sheet = ss.getSheetByName("Sheet1");
   var values = sheet.getDataRange().getValues();
@@ -963,7 +964,7 @@ function getSptSpreadsheetData_() {
 
 function autoRegisterOperator_(data) {
   // Security Token Check
-  var EXPECTED_TOKEN = "***REMOVED***";
+  var EXPECTED_TOKEN = PropertiesService.getScriptProperties().getProperty('INTEGRATION_TOKEN') || "YOUR_INTEGRATION_TOKEN";
   if (data.token !== EXPECTED_TOKEN) {
     throw new Error("Token keamanan tidak valid");
   }
@@ -1039,3 +1040,4 @@ function normalizeOpdName_(str) {
     .replace(/rsud/g, "rs")
     .replace(/dan/g, "");
 }
+
