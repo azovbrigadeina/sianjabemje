@@ -3,8 +3,6 @@
   flex-direction: column;
   gap: 1.5rem;
   animation: fadeIn 0.4s ease-out;
-  height: calc(100vh - 120px);
-  position: relative;
 }
 
 /* Header */
