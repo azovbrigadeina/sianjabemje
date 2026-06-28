@@ -8,6 +8,7 @@ import { useUser } from "@/lib/UserContext";
 import { api } from "@/lib/api";
 import type { UnitKerja } from "@/lib/types";
 import Footer from "@/components/Footer";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 
 export default function OperatorLayout({
@@ -157,7 +158,9 @@ export default function OperatorLayout({
 
         <main className={styles.contentScroll}>
           <div style={{ flex: 1 }}>
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
           </div>
           <div style={{ marginTop: '2rem' }}>
             <Footer />

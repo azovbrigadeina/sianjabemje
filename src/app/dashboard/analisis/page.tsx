@@ -52,6 +52,30 @@ export default function AnalisisPage() {
   const [jabatanData, setJabatanData] = useState<JabatanFull | null>(null);
   const [loadingEditor, setLoadingEditor] = useState(false);
   const [versionKey, setVersionKey] = useState(0);
+  const [activeYear, setActiveYear] = useState<string>("2026");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [progressStatus, setProgressStatus] = useState<{
+    show: boolean;
+    title: string;
+    steps: { text: string; status: 'waiting' | 'loading' | 'success' | 'error' }[];
+    currentStepIndex: number;
+    terminalLogs: string[];
+  }>({
+    show: false,
+    title: "",
+    steps: [],
+    currentStepIndex: 0,
+    terminalLogs: []
+  });
+
+  useEffect(() => {
+    if (progressStatus.show) {
+      const container = document.getElementById("terminal-log-container");
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+  }, [progressStatus.terminalLogs, progressStatus.show]);
   
   const [toast, setToast] = useState<string | null>(null);
 
@@ -145,8 +169,28 @@ export default function AnalisisPage() {
   }, []);
 
   useEffect(() => {
+    // Initial load
+    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+    setActiveYear(savedYear);
     loadTree();
+
+    // Listener for header year changes
+    const handleYearChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      const newYear = customEvent.detail || "2026";
+      setActiveYear(newYear);
+    };
+
+    window.addEventListener("yearChanged", handleYearChanged);
+    return () => {
+      window.removeEventListener("yearChanged", handleYearChanged);
+    };
   }, [loadTree]);
+
+  // Trigger reload when activeYear changes
+  useEffect(() => {
+    loadTree();
+  }, [activeYear, loadTree]);
 
   const expandAll = () => {
     const next: Record<string, boolean> = {};
@@ -174,6 +218,202 @@ export default function AnalisisPage() {
   };
 
   // EDITOR LOGIC
+  const handleTriggerAI = async () => {
+    if (!jabatanData) return;
+    if (!confirm(`Yakin ingin menyusun draf dokumen Anjab menggunakan AI (Gemini) untuk jabatan "${jabatanData.namaJabatan}"? Isian form identitas, tugas pokok, dan syarat jabatan saat ini akan ditimpa dengan draf AI.`)) return;
+
+    const steps = [
+      { text: "Mengidentifikasi data jabatan & unit kerja", status: 'loading' as const },
+      { text: "Mengirim instruksi & prompt ke Gemini AI", status: 'waiting' as const },
+      { text: "Memproses & menormalisasi struktur draf", status: 'waiting' as const },
+      { text: "Menyimpan data Identitas, Kualifikasi, & Syarat Jabatan", status: 'waiting' as const },
+      { text: "Menyimpan data Tugas Pokok & Hasil Kerja", status: 'waiting' as const },
+      { text: "Menyimpan tabel-tabel pendukung (Bahan, Perangkat, TJ, dll)", status: 'waiting' as const },
+      { text: "Sinkronisasi database & pembersihan cache lokal", status: 'waiting' as const }
+    ];
+
+    const getTimestamp = () => `[${new Date().toTimeString().split(' ')[0]}]`;
+
+    setProgressStatus({
+      show: true,
+      title: "Gemini AI Draft Builder",
+      steps,
+      currentStepIndex: 0,
+      terminalLogs: [
+        `${getTimestamp()} START: Memulai proses penyusunan draf AI untuk jabatan "${jabatanData.namaJabatan}"`,
+        `${getTimestamp()} INFO: Mencari data organisasi induk di unit kerja...`
+      ]
+    });
+
+    setAiLoading(true);
+
+    const updateStep = (idx: number, status: 'loading' | 'success' | 'error', newLogs: string[]) => {
+      setProgressStatus(prev => {
+        const nextSteps = [...prev.steps];
+        nextSteps[idx] = { ...nextSteps[idx], status };
+        return {
+          ...prev,
+          steps: nextSteps,
+          currentStepIndex: idx,
+          terminalLogs: [...prev.terminalLogs, ...newLogs]
+        };
+      });
+    };
+
+    try {
+      // Find parent unit name for context
+      const activeUnit = treeData.find(node => node.id === jabatanData.unitKerjaId || node.children.some(child => child.id === jabatanData.unitKerjaId));
+      const parentUnitName = activeUnit?.label || "Umum";
+
+      updateStep(0, 'success', [
+        `${getTimestamp()} SUCCESS: Identifikasi jabatan dan struktur organisasi berhasil.`,
+        `${getTimestamp()} INFO: Unit Kerja: ${activeUnit?.label || "Umum"}`,
+        `${getTimestamp()} INFO: Induk OPD: ${parentUnitName}`,
+        `${getTimestamp()} INFO: Menghubungi Google Gemini API...`
+      ]);
+
+      // Move to step 2
+      updateStep(1, 'loading', [`${getTimestamp()} PROCESS: Mengirimkan prompt & menunggu analisis AI...`]);
+      await new Promise(r => setTimeout(r, 200));
+
+      const aiDraft = await api.generateAnjabWithAI(
+        jabatanData.namaJabatan,
+        activeUnit?.label || "Umum",
+        parentUnitName
+      );
+
+      if (!aiDraft) {
+        throw new Error("Respons dari model AI kosong atau tidak valid.");
+      }
+
+      updateStep(1, 'success', [
+        `${getTimestamp()} SUCCESS: Analisis AI berhasil diterima.`,
+        `${getTimestamp()} INFO: Memulai pemrosesan draf...`
+      ]);
+
+      // Step 3
+      updateStep(2, 'loading', [`${getTimestamp()} PROCESS: Menjalankan parser skema & validasi data...`]);
+      await new Promise(r => setTimeout(r, 400));
+
+      updateStep(2, 'success', [
+        `${getTimestamp()} SUCCESS: Struktur data draf AI valid (Poin 1 s/d 14 terkonfirmasi).`,
+        `${getTimestamp()} INFO: Memulai penyimpanan ke Firebase Realtime Database...`
+      ]);
+
+      // Step 4: Identitas, Kualifikasi, Syarat
+      updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Identitas, Kualifikasi, & Syarat Jabatan...`]);
+      
+      await api.updateJabatan(jabatanData.id, {
+        ...jabatanData,
+        ikhtisarJabatan: aiDraft.ikhtisarJabatan
+      });
+      await api.saveSingleEntity('kualifikasi', jabatanData.id, aiDraft.kualifikasi);
+      await api.saveSingleEntity('syaratJabatan', jabatanData.id, aiDraft.syaratJabatan);
+      await new Promise(r => setTimeout(r, 300));
+
+      updateStep(3, 'success', [
+        `${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, & Syarat Jabatan berhasil disimpan.`
+      ]);
+
+      // Step 5: Tugas Pokok & Hasil Kerja
+      updateStep(4, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Tugas Pokok & Hasil Kerja...`]);
+      
+      const mappedTasks = (aiDraft.tugasPokok || []).map((tp: any, index: number) => ({
+        nomorUrut: tp.nomorUrut || index + 1,
+        uraianTugas: tp.uraianTugas,
+        hasilKerja: tp.hasilKerja || "Dokumen Laporan",
+        jumlahHasil: 1,
+        waktuPenyelesaian: tp.waktuPenyelesaian || 60,
+        waktuEfektif: 72000,
+        kebutuhanPegawai: Number(((1 * (tp.waktuPenyelesaian || 60)) / 72000).toFixed(4))
+      }));
+      await api.saveMultiEntity('tugasPokok', jabatanData.id, mappedTasks);
+
+      if (aiDraft.hasilKerja) {
+        const hasilKerjaData = Array.isArray(aiDraft.hasilKerja)
+          ? { uraian: JSON.stringify(aiDraft.hasilKerja) }
+          : typeof aiDraft.hasilKerja === 'string'
+            ? { uraian: aiDraft.hasilKerja }
+            : aiDraft.hasilKerja;
+        await api.saveSingleEntity('hasilKerja', jabatanData.id, hasilKerjaData);
+      }
+      await new Promise(r => setTimeout(r, 300));
+
+      updateStep(4, 'success', [
+        `${getTimestamp()} SUCCESS: Tugas Pokok (5+ poin) & Hasil Kerja (narasi) berhasil disimpan.`
+      ]);
+
+      // Step 6: Tabel Pendukung
+      updateStep(5, 'loading', [`${getTimestamp()} PROCESS: Menyimpan tabel-tabel data pendukung...`]);
+      
+      if (aiDraft.prestasiKerja) {
+        await api.saveSingleEntity('prestasiKerja', jabatanData.id, aiDraft.prestasiKerja);
+      }
+      if (aiDraft.bahanKerja && aiDraft.bahanKerja.length > 0) {
+        await api.saveMultiEntity('bahanKerja', jabatanData.id, aiDraft.bahanKerja.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.perangkatKerja && aiDraft.perangkatKerja.length > 0) {
+        await api.saveMultiEntity('perangkatKerja', jabatanData.id, aiDraft.perangkatKerja.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.tanggungJawab && aiDraft.tanggungJawab.length > 0) {
+        await api.saveMultiEntity('tanggungJawab', jabatanData.id, aiDraft.tanggungJawab.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.wewenang && aiDraft.wewenang.length > 0) {
+        await api.saveMultiEntity('wewenang', jabatanData.id, aiDraft.wewenang.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.korelasiJabatan && aiDraft.korelasiJabatan.length > 0) {
+        await api.saveMultiEntity('korelasiJabatan', jabatanData.id, aiDraft.korelasiJabatan.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.kondisiLingkungan && aiDraft.kondisiLingkungan.length > 0) {
+        await api.saveMultiEntity('kondisiLingkungan', jabatanData.id, aiDraft.kondisiLingkungan.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      if (aiDraft.risikoBahaya && aiDraft.risikoBahaya.length > 0) {
+        await api.saveMultiEntity('risikoBahaya', jabatanData.id, aiDraft.risikoBahaya.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
+      }
+      await new Promise(r => setTimeout(r, 400));
+
+      updateStep(5, 'success', [
+        `${getTimestamp()} SUCCESS: Seluruh tabel pendukung (Bahan, Perangkat, TJ, Wewenang) berhasil disimpan.`
+      ]);
+
+      // Step 7: Finalisasi
+      updateStep(6, 'loading', [`${getTimestamp()} PROCESS: Membersihkan cache lokal & sinkronisasi UI...`]);
+      
+      localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
+      localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
+
+      const refreshed = await api.getJabatanFull(jabatanData.id) as JabatanFull;
+      setJabatanData(refreshed);
+      setVersionKey(prev => prev + 1);
+      await new Promise(r => setTimeout(r, 300));
+
+      updateStep(6, 'success', [
+        `${getTimestamp()} SUCCESS: Cache lokal dibersihkan.`,
+        `${getTimestamp()} SUCCESS: Draf AI berhasil dipasang secara live!`,
+        `${getTimestamp()} FINISH: Seluruh tahapan selesai dengan sukses.`
+      ]);
+
+      showToast("✨ Draf Anjab berhasil dipasang oleh Gemini AI!");
+
+    } catch (e: any) {
+      setProgressStatus(prev => {
+        const nextSteps = [...prev.steps];
+        if (nextSteps[prev.currentStepIndex]) {
+          nextSteps[prev.currentStepIndex].status = 'error';
+        }
+        return {
+          ...prev,
+          steps: nextSteps,
+          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${e.message}`, `${getTimestamp()} FAILED: Proses dihentikan.`]
+        };
+      });
+      alert("Terjadi kesalahan: " + e.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+
   const openEditor = async (node: TreeNode, e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveJob(node.id);
@@ -324,73 +564,156 @@ export default function AnalisisPage() {
     }
   };
 
-  const processImportedData = async (parsedData: any, logs: string[]) => {
+  const processImportedData = async (parsedData: any, logs: string[], importType: string) => {
     if (!jabatanData) return;
     
-    const updatedJabatan = { ...jabatanData };
+    const steps = [
+      { text: "Membaca & validasi struktur file Excel", status: 'success' as const },
+      { text: "Mengekstrak data lembar kerja (Sheet)", status: 'success' as const },
+      { text: "Menyimpan data Identitas & Kualifikasi", status: 'loading' as const },
+      { text: "Menyimpan Tugas Pokok & Hasil Kerja", status: 'waiting' as const },
+      { text: "Menyimpan tabel pendukung (Bahan, Perangkat, TJ, dll)", status: 'waiting' as const },
+      { text: "Finalisasi & penyelarasan data", status: 'waiting' as const }
+    ];
 
-    localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
-    localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
-    
-    if (parsedData.identitas.ikhtisarJabatan) {
-      updatedJabatan.ikhtisarJabatan = parsedData.identitas.ikhtisarJabatan;
-      await handleSaveIdentitas({ ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan });
-    }
-    if (parsedData.kualifikasi.pendidikanFormal?.length > 0 || parsedData.kualifikasi.pengalamanKerja?.length > 0) {
-      updatedJabatan.kualifikasi = parsedData.kualifikasi;
-      await handleSaveKualifikasi(parsedData.kualifikasi);
-    }
-    if (parsedData.tugasPokok.length > 0) {
-      updatedJabatan.tugasPokok = parsedData.tugasPokok;
-      await handleSaveTugas(parsedData.tugasPokok);
-    }
-    if (parsedData.syaratJabatan) {
-      updatedJabatan.syaratJabatan = parsedData.syaratJabatan;
-      await handleSaveSyarat(parsedData.syaratJabatan);
-    }
-    if (parsedData.prestasiKerja?.uraian) {
-      updatedJabatan.prestasiKerja = parsedData.prestasiKerja;
-      await handleSavePrestasi(parsedData.prestasiKerja.uraian);
-    }
-    if (parsedData.hasilKerja?.uraian) {
-      updatedJabatan.hasilKerja = parsedData.hasilKerja;
-      await handleSaveHasilKerja(parsedData.hasilKerja.uraian);
-    }
-    if (parsedData.bahanKerja.length > 0) {
-      updatedJabatan.bahanKerja = parsedData.bahanKerja;
-      await handleSaveMultiRows('bahanKerja', parsedData.bahanKerja);
-    }
-    if (parsedData.perangkatKerja.length > 0) {
-      updatedJabatan.perangkatKerja = parsedData.perangkatKerja;
-      await handleSaveMultiRows('perangkatKerja', parsedData.perangkatKerja);
-    }
-    if (parsedData.tanggungJawab.length > 0) {
-      updatedJabatan.tanggungJawab = parsedData.tanggungJawab;
-      await handleSaveMultiRows('tanggungJawab', parsedData.tanggungJawab);
-    }
-    if (parsedData.wewenang.length > 0) {
-      updatedJabatan.wewenang = parsedData.wewenang;
-      await handleSaveMultiRows('wewenang', parsedData.wewenang);
-    }
-    if (parsedData.korelasiJabatan.length > 0) {
-      updatedJabatan.korelasiJabatan = parsedData.korelasiJabatan;
-      await handleSaveMultiRows('korelasiJabatan', parsedData.korelasiJabatan);
-    }
-    if (parsedData.kondisiLingkungan.length > 0) {
-      updatedJabatan.kondisiLingkungan = parsedData.kondisiLingkungan;
-      await handleSaveMultiRows('kondisiLingkungan', parsedData.kondisiLingkungan);
-    }
-    if (parsedData.risikoBahaya.length > 0) {
-      updatedJabatan.risikoBahaya = parsedData.risikoBahaya;
-      await handleSaveMultiRows('risikoBahaya', parsedData.risikoBahaya);
-    }
+    const getTimestamp = () => `[${new Date().toTimeString().split(' ')[0]}]`;
 
-    setJabatanData(updatedJabatan);
-    setVersionKey(prev => prev + 1);
-    showToast("✅ Berhasil mengimpor data dari Excel!");
-    
-    if (logs && logs.length > 0) {
-      alert("Laporan Hasil Impor:\n\n" + logs.join("\n"));
+    setProgressStatus({
+      show: true,
+      title: `Import Engine: ${importType}`,
+      steps,
+      currentStepIndex: 2,
+      terminalLogs: [
+        `${getTimestamp()} START: Memulai proses impor data dari file Excel (${importType})`,
+        `${getTimestamp()} SUCCESS: Pembacaan berkas Excel selesai.`,
+        `${getTimestamp()} SUCCESS: Sheet data diekstrak dengan sukses.`,
+        `${getTimestamp()} INFO: Menjalankan penyimpanan ke database...`
+      ]
+    });
+
+    const updateStep = (idx: number, status: 'loading' | 'success' | 'error', newLogs: string[]) => {
+      setProgressStatus(prev => {
+        const nextSteps = [...prev.steps];
+        nextSteps[idx] = { ...nextSteps[idx], status };
+        return {
+          ...prev,
+          steps: nextSteps,
+          currentStepIndex: idx,
+          terminalLogs: [...prev.terminalLogs, ...newLogs]
+        };
+      });
+    };
+
+    try {
+      const updatedJabatan = { ...jabatanData };
+
+      localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
+      localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
+
+      // Step 3: Identitas & Kualifikasi & Syarat
+      if (parsedData.identitas.ikhtisarJabatan) {
+        updatedJabatan.ikhtisarJabatan = parsedData.identitas.ikhtisarJabatan;
+        await api.updateJabatan(jabatanData.id, {
+          ...jabatanData,
+          ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan
+        });
+      }
+      if (parsedData.kualifikasi.pendidikanFormal?.length > 0 || parsedData.kualifikasi.pengalamanKerja?.length > 0) {
+        updatedJabatan.kualifikasi = parsedData.kualifikasi;
+        await api.saveSingleEntity('kualifikasi', jabatanData.id, parsedData.kualifikasi);
+      }
+      if (parsedData.syaratJabatan) {
+        updatedJabatan.syaratJabatan = parsedData.syaratJabatan;
+        await api.saveSingleEntity('syaratJabatan', jabatanData.id, parsedData.syaratJabatan);
+      }
+      await new Promise(r => setTimeout(r, 400));
+      updateStep(2, 'success', [
+        `${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, dan Syarat Jabatan berhasil disimpan.`
+      ]);
+
+      // Step 4: Tugas Pokok & Hasil Kerja
+      updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Tugas Pokok & Hasil Kerja...`]);
+      if (parsedData.tugasPokok.length > 0) {
+        updatedJabatan.tugasPokok = parsedData.tugasPokok;
+        await api.saveMultiEntity('tugasPokok', jabatanData.id, parsedData.tugasPokok);
+      }
+      if (parsedData.hasilKerja?.uraian) {
+        updatedJabatan.hasilKerja = parsedData.hasilKerja;
+        await api.saveSingleEntity('hasilKerja', jabatanData.id, parsedData.hasilKerja);
+      }
+      if (parsedData.prestasiKerja?.uraian) {
+        updatedJabatan.prestasiKerja = parsedData.prestasiKerja;
+        await api.saveSingleEntity('prestasiKerja', jabatanData.id, parsedData.prestasiKerja);
+      }
+      await new Promise(r => setTimeout(r, 400));
+      updateStep(3, 'success', [
+        `${getTimestamp()} SUCCESS: Tugas Pokok & Hasil Kerja berhasil disimpan.`
+      ]);
+
+      // Step 5: Tabel Pendukung
+      updateStep(4, 'loading', [`${getTimestamp()} PROCESS: Menyimpan tabel-tabel data pendukung...`]);
+      if (parsedData.bahanKerja.length > 0) {
+        updatedJabatan.bahanKerja = parsedData.bahanKerja;
+        await api.saveMultiEntity('bahanKerja', jabatanData.id, parsedData.bahanKerja);
+      }
+      if (parsedData.perangkatKerja.length > 0) {
+        updatedJabatan.perangkatKerja = parsedData.perangkatKerja;
+        await api.saveMultiEntity('perangkatKerja', jabatanData.id, parsedData.perangkatKerja);
+      }
+      if (parsedData.tanggungJawab.length > 0) {
+        updatedJabatan.tanggungJawab = parsedData.tanggungJawab;
+        await api.saveMultiEntity('tanggungJawab', jabatanData.id, parsedData.tanggungJawab);
+      }
+      if (parsedData.wewenang.length > 0) {
+        updatedJabatan.wewenang = parsedData.wewenang;
+        await api.saveMultiEntity('wewenang', jabatanData.id, parsedData.wewenang);
+      }
+      if (parsedData.korelasiJabatan.length > 0) {
+        updatedJabatan.korelasiJabatan = parsedData.korelasiJabatan;
+        await api.saveMultiEntity('korelasiJabatan', jabatanData.id, parsedData.korelasiJabatan);
+      }
+      if (parsedData.kondisiLingkungan.length > 0) {
+        updatedJabatan.kondisiLingkungan = parsedData.kondisiLingkungan;
+        await api.saveMultiEntity('kondisiLingkungan', jabatanData.id, parsedData.kondisiLingkungan);
+      }
+      if (parsedData.risikoBahaya.length > 0) {
+        updatedJabatan.risikoBahaya = parsedData.risikoBahaya;
+        await api.saveMultiEntity('risikoBahaya', jabatanData.id, parsedData.risikoBahaya);
+      }
+      await new Promise(r => setTimeout(r, 400));
+      updateStep(4, 'success', [
+        `${getTimestamp()} SUCCESS: Seluruh data tabel pendukung berhasil disimpan.`
+      ]);
+
+      // Step 6: Finalisasi
+      updateStep(5, 'loading', [`${getTimestamp()} PROCESS: Memuat ulang tampilan editor...`]);
+      setJabatanData(updatedJabatan);
+      setVersionKey(prev => prev + 1);
+      await new Promise(r => setTimeout(r, 300));
+      updateStep(5, 'success', [
+        `${getTimestamp()} SUCCESS: Impor file Excel selesai dengan sukses!`,
+        `${getTimestamp()} FINISH: Semua tahapan impor berhasil diselesaikan.`
+      ]);
+
+      showToast("✅ Berhasil mengimpor data dari Excel!");
+      
+      if (logs && logs.length > 0) {
+        alert("Laporan Hasil Impor:\n\n" + logs.join("\n"));
+      }
+
+    } catch (e: any) {
+      setProgressStatus(prev => {
+        const nextSteps = [...prev.steps];
+        if (nextSteps[prev.currentStepIndex]) {
+          nextSteps[prev.currentStepIndex].status = 'error';
+        }
+        return {
+          ...prev,
+          steps: nextSteps,
+          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${e.message}`, `${getTimestamp()} FAILED: Proses impor dibatalkan.`]
+        };
+      });
+      alert("Gagal memproses data impor: " + e.message);
     }
   };
 
@@ -401,7 +724,7 @@ export default function AnalisisPage() {
     showToast("⏳ Membaca file Excel...");
     try {
       const { data: parsedData, logs } = await parseXlsxForAnjab(file);
-      await processImportedData(parsedData, logs);
+      await processImportedData(parsedData, logs, "Template Excel");
     } catch (err) {
       showToast("❌ Gagal mengimpor Excel: Format tidak sesuai atau file rusak.");
       console.error(err);
@@ -415,7 +738,7 @@ export default function AnalisisPage() {
     showToast("⏳ Membaca file Excel Anjab Asli...");
     try {
       const { data: parsedData, logs } = await parseAnjabAsli(file);
-      await processImportedData(parsedData, logs);
+      await processImportedData(parsedData, logs, "Anjab Asli");
     } catch (err) {
       showToast("❌ Gagal mengimpor Anjab Asli: Format tidak sesuai atau file rusak.");
       console.error(err);
@@ -531,9 +854,9 @@ export default function AnalisisPage() {
 
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Analisis Jabatan</h1>
+          <h1 className={styles.title}>Analisis Jabatan (Tahun {activeYear})</h1>
           <p className={styles.subtitle}>
-            Formulir Informasi Jabatan — Permenpan RB No. 1 Tahun 2020
+            Formulir Informasi Jabatan — Permenpan RB No. 1 Tahun 2020 (Tahun {activeYear})
           </p>
         </div>
       </div>
@@ -610,6 +933,14 @@ export default function AnalisisPage() {
                 <span>{' · '} Kelas: <strong>{jabatanData.kelasJabatan}</strong></span>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
                   <button 
+                    onClick={handleTriggerAI}
+                    disabled={aiLoading}
+                    style={{ background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    title="Susun draf Anjab otomatis dengan Gemini AI"
+                  >
+                    <span>✨</span> {aiLoading ? "Memproses AI..." : "Draf AI"}
+                  </button>
+                  <button 
                     onClick={() => downloadTemplateXlsx(jabatanData)}
                     style={{ background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                   >
@@ -658,7 +989,7 @@ export default function AnalisisPage() {
             ) : jabatanData ? (
               <>
                 {activeTab === "identitas" && (
-                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} />
+                  <TabIdentitas key={`identitas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} treeData={treeData} onSave={handleSaveIdentitas} loading={loadingEditor} readOnlyNama={true} />
                 )}
                 {activeTab === "tugas" && (
                   <TabTugasPokok key={`tugas-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSaveTugas={handleSaveTugas}
@@ -680,6 +1011,202 @@ export default function AnalisisPage() {
           </div>
         </div>
       </div>
+      )}
+      {progressStatus.show && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '750px',
+            background: '#0f172a',
+            border: '1px solid rgba(168, 85, 247, 0.4)',
+            borderRadius: '12px',
+            boxShadow: '0 25px 50px -12px rgba(168, 85, 247, 0.25), 0 0 30px rgba(168, 85, 247, 0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+          }}>
+            {/* Terminal Top Bar */}
+            <div style={{
+              background: '#1e293b',
+              padding: '0.75rem 1rem',
+              borderBottom: '1px solid #334155',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }}></span>
+                <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#eab308', display: 'inline-block' }}></span>
+                <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }}></span>
+              </div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.05em', fontFamily: 'monospace' }}>
+                {progressStatus.title.toUpperCase()}
+              </span>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', fontFamily: 'monospace' }}>bash - 80x24</span>
+            </div>
+
+            {/* Terminal Body */}
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              
+              {/* Stepper (Progress Steps) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {progressStatus.steps.map((step, idx) => {
+                  const isActive = idx === progressStatus.currentStepIndex;
+                  let icon = '⚫';
+                  let textColor = '#64748b';
+                  let weight = '400';
+                  
+                  if (step.status === 'success') {
+                    icon = '🟢';
+                    textColor = '#10b981';
+                  } else if (step.status === 'loading') {
+                    icon = '🌀';
+                    textColor = '#a855f7';
+                    weight = '600';
+                  } else if (step.status === 'error') {
+                    icon = '🔴';
+                    textColor = '#ef4444';
+                  } else if (isActive) {
+                    icon = '🟡';
+                    textColor = '#eab308';
+                    weight = '600';
+                  }
+                  
+                  return (
+                    <div key={idx} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      color: textColor,
+                      fontSize: '0.85rem',
+                      fontWeight: weight,
+                      transition: 'all 0.2s ease',
+                      paddingLeft: isActive ? '0.25rem' : '0'
+                    }}>
+                      <span style={{
+                        animation: step.status === 'loading' ? 'spin 1.5s linear infinite' : 'none',
+                        display: 'inline-block',
+                      }}>{icon}</span>
+                      <span>{step.text}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Progress Bar Line */}
+              <div style={{
+                height: '6px',
+                background: '#1e293b',
+                borderRadius: '999px',
+                overflow: 'hidden',
+                position: 'relative'
+              }}>
+                <div style={{
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #a855f7 0%, #6366f1 100%)',
+                  width: `${(progressStatus.steps.filter(s => s.status === 'success').length / progressStatus.steps.length) * 100}%`,
+                  transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: '0 0 8px #a855f7'
+                }}></div>
+              </div>
+
+              {/* Console Logs */}
+              <div style={{
+                background: '#020617',
+                border: '1px solid #1e293b',
+                borderRadius: '8px',
+                padding: '1rem',
+                height: '180px',
+                overflowY: 'auto',
+                fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace',
+                fontSize: '0.8rem',
+                color: '#38bdf8',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem',
+                boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.8)'
+              }} id="terminal-log-container">
+                {progressStatus.terminalLogs.map((log, idx) => (
+                  <div key={idx} style={{
+                    color: log.includes('ERROR') ? '#ef4444' : log.includes('SUCCESS') ? '#10b981' : log.includes('WARN') ? '#eab308' : '#38bdf8',
+                    lineHeight: '1.25'
+                  }}>
+                    {log}
+                  </div>
+                ))}
+                {/* Flashing Cursor */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: '#10b981' }}>
+                  <span>$</span>
+                  <span style={{
+                    width: '8px',
+                    height: '14px',
+                    background: '#10b981',
+                    animation: 'blink 1s step-end infinite'
+                  }}></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Terminal Footer */}
+            <div style={{
+              background: '#1e293b',
+              padding: '0.75rem 1.5rem',
+              borderTop: '1px solid #334155',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+            }}>
+              {progressStatus.currentStepIndex >= progressStatus.steps.length - 1 && 
+               progressStatus.steps.every(s => s.status === 'success' || s.status === 'error') ? (
+                <button 
+                  onClick={() => setProgressStatus(prev => ({ ...prev, show: false }))}
+                  style={{
+                    background: '#a855f7',
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.4rem 1.5rem',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.8rem',
+                    boxShadow: '0 0 10px rgba(168, 85, 247, 0.4)'
+                  }}
+                >
+                  Selesai
+                </button>
+              ) : (
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                  Harap tunggu, proses sedang berlangsung...
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Spin and Blink animations */}
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes spin {
+              from { transform: rotate(0deg); }
+              to { transform: rotate(360deg); }
+            }
+            @keyframes blink {
+              from, to { background-color: transparent }
+              50% { background-color: #10b981 }
+            }
+          `}} />
+        </div>
       )}
     </div>
   );

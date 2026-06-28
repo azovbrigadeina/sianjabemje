@@ -11,6 +11,61 @@ interface ApiResponse<T = unknown> {
   error?: string;
 }
 
+// =============================================
+// CLIENT-SIDE CACHE
+// Hanya untuk GET requests. Setiap operasi write
+// (create/update/delete/save) langsung MENGHAPUS
+// SELURUH cache supaya user selalu lihat data terbaru.
+// =============================================
+
+interface CacheEntry {
+  data: unknown;
+  expiry: number;
+}
+
+const API_CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 menit
+
+/** Hapus SELURUH cache — dipanggil setiap kali ada operasi write */
+function invalidateAllCache() {
+  API_CACHE.clear();
+}
+
+/** Ambil dari cache jika masih valid */
+function getFromCache<T>(key: string): T | null {
+  const entry = API_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiry) {
+    API_CACHE.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+/** Simpan ke cache */
+function setCache(key: string, data: unknown) {
+  API_CACHE.set(key, {
+    data,
+    expiry: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+// =============================================
+// AUTH TOKEN HELPER
+// Ambil token login dari cookie untuk dikirim 
+// ke GAS sebagai validasi autentikasi.
+// =============================================
+
+function getAuthToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)sianjab_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+// =============================================
+// CORE API CALL
+// =============================================
+
 async function apiCall<T = unknown>(
   action: string,
   entity: string,
@@ -23,29 +78,77 @@ async function apiCall<T = unknown>(
     console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
   }
 
-  const searchParams = new URLSearchParams({ action, entity });
+  const isWriteOperation = !!options.data;
+  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+  const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
   if (options.params) {
     Object.entries(options.params).forEach(([k, v]) => searchParams.set(k, v));
   }
 
+  // Sertakan auth token untuk semua request kecuali login
+  const authToken = getAuthToken();
+  if (authToken && action !== 'login') {
+    searchParams.set('token', authToken);
+  }
+
   const url = `${API_BASE}?${searchParams.toString()}`;
 
+  // Cek cache untuk GET request (non-write)
+  if (!isWriteOperation) {
+    const cached = getFromCache<T>(url);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+
+  // Jika ini operasi write → langsung hapus SELURUH cache
+  // supaya setelah save/delete, data yang ditampilkan pasti fresh
+  if (isWriteOperation) {
+    invalidateAllCache();
+  }
+
   const fetchOpts: RequestInit = {
-    method: options.data ? 'POST' : 'GET',
-    headers: options.data ? { 'Content-Type': 'text/plain' } : undefined,
+    method: isWriteOperation ? 'POST' : 'GET',
+    headers: isWriteOperation ? { 'Content-Type': 'text/plain' } : undefined,
     redirect: 'follow',
   };
   if (options.data) {
     fetchOpts.body = JSON.stringify(options.data);
   }
 
-  const res = await fetch(url, fetchOpts);
-  const json: ApiResponse<T> = await res.json();
+  // Fetch with 1x retry on failure
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url, fetchOpts);
+      const json: ApiResponse<T> = await res.json();
 
-  if (!json.success) {
-    throw new Error(json.error || 'API request failed');
+      if (!json.success) {
+        throw new Error(json.error || 'API request failed');
+      }
+
+      // Simpan ke cache jika ini GET request
+      if (!isWriteOperation) {
+        setCache(url, json.data);
+      }
+
+      // Setelah write berhasil, hapus cache lagi untuk memastikan
+      // GET berikutnya ambil data segar dari server
+      if (isWriteOperation) {
+        invalidateAllCache();
+      }
+
+      return json.data;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt === 0) {
+        // Tunggu 2 detik sebelum retry
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
   }
-  return json.data;
+
+  throw lastError || new Error('API request failed after retry');
 }
 
 // =============================================
@@ -164,5 +267,21 @@ export const api = {
 
   getOrgSetting: () =>
     apiCall<{ enabled: boolean } | null>('read', 'settings', { params: { id: 'orgSetting' } }),
-};
 
+  saveAiConfig: (data: { geminiApiKey: string; geminiModel: string }) =>
+    apiCall('update', 'settings', { data, params: { id: 'aiConfig' } }),
+
+  getAiConfig: () =>
+    apiCall<{ geminiApiKey?: string; geminiModel?: string } | null>('read', 'settings', { params: { id: 'aiConfig' } }),
+
+  // -- Year Cloning and Deletion --
+  cloneYear: (fromYear: string, toYear: string) =>
+    apiCall<{ success: boolean; message: string }>('cloneYearData', '', { params: { fromYear, toYear } }),
+
+  deleteYear: (tahun: string) =>
+    apiCall<{ success: boolean; message: string }>('deleteYearData', '', { params: { tahun } }),
+
+  // -- AI Generation --
+  generateAnjabWithAI: (namaJabatan: string, unitKerja: string, namaOPD: string) =>
+    apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } }),
+};

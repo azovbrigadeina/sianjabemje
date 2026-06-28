@@ -42,7 +42,15 @@ next-env.d.ts
 
 # local files containing sensitive credentials
 gas/Code.gs.local
+backup.sh
+backups/
 
 # spreadsheet exports
 siasn_export.xlsx
+
+# helper and local tool cache
+.agents/
+.firebase/
+
+
 

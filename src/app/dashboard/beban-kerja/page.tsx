@@ -49,6 +49,7 @@ export default function BebanKerjaPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingTree, setIsLoadingTree] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [activeYear, setActiveYear] = useState<string>("2026");
 
   // Editor State
   const [activeJob, setActiveJob] = useState("");
@@ -159,8 +160,28 @@ export default function BebanKerjaPage() {
   }, []);
 
   useEffect(() => {
+    // Initial load
+    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+    setActiveYear(savedYear);
     loadTree();
+
+    // Listener for header year changes
+    const handleYearChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      const newYear = customEvent.detail || "2026";
+      setActiveYear(newYear);
+    };
+
+    window.addEventListener("yearChanged", handleYearChanged);
+    return () => {
+      window.removeEventListener("yearChanged", handleYearChanged);
+    };
   }, [loadTree]);
+
+  // Trigger reload when activeYear changes
+  useEffect(() => {
+    loadTree();
+  }, [activeYear, loadTree]);
 
   const expandAll = () => {
     const next: Record<string, boolean> = {};
@@ -410,9 +431,9 @@ export default function BebanKerjaPage() {
 
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Analisis Beban Kerja</h1>
+          <h1 className={styles.title}>Analisis Beban Kerja (Tahun {activeYear})</h1>
           <p className={styles.subtitle}>
-            Perhitungan Formasi Kebutuhan Pegawai Negeri Sipil
+            Perhitungan Formasi Kebutuhan Pegawai Negeri Sipil (Tahun {activeYear})
           </p>
         </div>
       </div>

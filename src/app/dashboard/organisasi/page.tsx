@@ -41,6 +41,7 @@ export default function OrganisasiPage() {
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeYear, setActiveYear] = useState<string>("2026");
   const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
@@ -251,7 +252,29 @@ export default function OrganisasiPage() {
     setIsBackgroundRefreshing(false);
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    // Initial load
+    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+    setActiveYear(savedYear);
+    loadData();
+
+    // Listener for header year changes
+    const handleYearChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      const newYear = customEvent.detail || "2026";
+      setActiveYear(newYear);
+    };
+
+    window.addEventListener("yearChanged", handleYearChanged);
+    return () => {
+      window.removeEventListener("yearChanged", handleYearChanged);
+    };
+  }, [loadData]);
+
+  // Trigger reload when activeYear changes
+  useEffect(() => {
+    loadData();
+  }, [activeYear, loadData]);
 
 
 
@@ -421,7 +444,7 @@ export default function OrganisasiPage() {
           kode: modalData.kode,
           parentId: modalData.parentId || null,
           urutan: modalData.urutan || 0,
-          tahun: "2026"
+          tahun: activeYear
         };
         if (modalMode === 'edit' && modalData.id) {
           await api.updateEntity('unitKerja', modalData.id, opdPayload);
@@ -441,7 +464,7 @@ export default function OrganisasiPage() {
           urutan: modalData.urutan || 0,
           ikhtisarJabatan: '',
           level: 1,
-          tahun: "2026"
+          tahun: activeYear
         };
         if (modalMode === 'edit' && modalData.id) {
           await api.updateJabatan(modalData.id, {
@@ -454,7 +477,7 @@ export default function OrganisasiPage() {
             urutan: modalData.urutan || 0,
             ikhtisarJabatan: '',
             level: 1,
-            tahun: "2026"
+            tahun: activeYear
           });
           showToast("✅ Jabatan berhasil diperbarui.");
         } else {
@@ -478,7 +501,7 @@ export default function OrganisasiPage() {
                 urutan: modalData.urutan || 0,
                 ikhtisarJabatan: '',
                 level: 1,
-                tahun: "2026"
+                tahun: activeYear
               };
               await api.createJabatan(payload);
             }
@@ -503,7 +526,7 @@ export default function OrganisasiPage() {
                 urutan: modalData.urutan || 0,
                 ikhtisarJabatan: '',
                 level: 1,
-                tahun: "2026"
+                tahun: activeYear
               };
               await api.createJabatan(payload);
             }
@@ -633,7 +656,7 @@ export default function OrganisasiPage() {
               <span className={styles.refreshSpinner} title="Sinkronisasi data...">🔄</span>
             )}
           </h1>
-          <p className={styles.subtitle}>Peta Jabatan — Master Data Sianjab</p>
+          <p className={styles.subtitle}>Peta Jabatan (Tahun {activeYear}) — Master Data Sianjab</p>
         </div>
         <div className={styles.actions}>
           <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">

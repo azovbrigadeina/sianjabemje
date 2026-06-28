@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import styles from "./layout.module.css";
 import { useUser } from "@/lib/UserContext";
 import Footer from "@/components/Footer";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 
 export default function DashboardLayout({
@@ -18,6 +19,7 @@ export default function DashboardLayout({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user, logout, isLoading } = useUser();
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [selectedYear, setSelectedYear] = useState<string>("2026");
 
   // Load saved theme or default to light mode
   useEffect(() => {
@@ -25,7 +27,19 @@ export default function DashboardLayout({
     const initialTheme = savedTheme || "light";
     setTheme(initialTheme);
     document.documentElement.setAttribute("data-theme", initialTheme);
+    
+    // Load saved year
+    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+    setSelectedYear(savedYear);
   }, []);
+
+  const handleYearChange = (newYear: string) => {
+    setSelectedYear(newYear);
+    localStorage.setItem("sianjab_active_year", newYear);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("yearChanged", { detail: newYear }));
+    }
+  };
 
   const toggleTheme = () => {
     const nextTheme = theme === "light" ? "dark" : "light";
@@ -67,6 +81,7 @@ export default function DashboardLayout({
     if (pathname.includes('/laporan')) return 'Laporan';
     if (pathname.includes('/referensi')) return 'Referensi Jabatan';
     if (pathname.includes('/users')) return 'Manajemen User';
+    if (pathname.includes('/pengaturan')) return 'Pengaturan AI';
     return 'Ringkasan Sistem';
   };
 
@@ -146,6 +161,9 @@ export default function DashboardLayout({
           <Link href="/dashboard/users" className={`${styles.navItem} ${pathname.includes('/users') ? styles.active : ''}`}>
             <span className={styles.navIcon}>👤</span> <span className={styles.navText}>Manajemen User</span>
           </Link>
+          <Link href="/dashboard/pengaturan" className={`${styles.navItem} ${pathname.includes('/pengaturan') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Pengaturan AI</span>
+          </Link>
         </nav>
 
         <div className={styles.sidebarFooter}>
@@ -166,6 +184,16 @@ export default function DashboardLayout({
             {getPageTitle()}
           </div>
           <div className={styles.headerActions}>
+            <select
+              className={styles.yearSelect}
+              value={selectedYear}
+              onChange={(e) => handleYearChange(e.target.value)}
+              title="Pilih Tahun Anggaran"
+            >
+              <option value="2026">Tahun 2026</option>
+              <option value="2027">Tahun 2027</option>
+              <option value="2028">Tahun 2028</option>
+            </select>
             <button
               onClick={toggleTheme}
               className={styles.themeToggleBtn}
@@ -186,7 +214,9 @@ export default function DashboardLayout({
 
         <main className={styles.contentScroll}>
           <div style={{ flex: 1 }}>
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
           </div>
           <div style={{ marginTop: '2rem' }}>
             <Footer />

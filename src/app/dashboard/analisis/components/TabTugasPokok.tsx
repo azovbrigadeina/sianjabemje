@@ -70,6 +70,15 @@ export default function TabTugasPokok({
 
       isInitialMount.current = true;
 
+      const parseStringOrArray = (val: any): string[] => {
+        if (!val) return [];
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') {
+          return val.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [];
+      };
+
       const rows = (jabatan.tugasPokok || []).map((t) => ({
         ...t,
         waktuEfektif: t.waktuEfektif || 1250,
@@ -78,9 +87,9 @@ export default function TabTugasPokok({
 
       if (jabatan.kualifikasi) {
         setKualifikasi({
-          pendidikanFormal: (jabatan.kualifikasi.pendidikanFormal || []).join(", "),
-          pendidikanPelatihan: (jabatan.kualifikasi.pendidikanPelatihan || []).join(", "),
-          pengalamanKerja: (jabatan.kualifikasi.pengalamanKerja || []).join(", "),
+          pendidikanFormal: parseStringOrArray(jabatan.kualifikasi.pendidikanFormal).join(", "),
+          pendidikanPelatihan: parseStringOrArray(jabatan.kualifikasi.pendidikanPelatihan).join(", "),
+          pengalamanKerja: parseStringOrArray(jabatan.kualifikasi.pengalamanKerja).join(", "),
         });
       } else {
         setKualifikasi({

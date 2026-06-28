@@ -35,6 +35,7 @@ export default function OPDManagementPage() {
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeYear, setActiveYear] = useState<string>("2026");
   const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,6 +85,68 @@ export default function OPDManagementPage() {
       alert("Gagal mempublish: " + error);
     }
     setIsSyncing(false);
+  };
+
+  const handleCloneYear = async () => {
+    const targetYear = prompt("Masukkan tahun sasaran untuk kloning data (misal: 2027, 2028):");
+    if (!targetYear) return;
+    const yearNum = parseInt(targetYear);
+    if (isNaN(yearNum) || yearNum < 2020 || yearNum > 2100) {
+      alert("Tahun tidak valid. Harap masukkan tahun antara 2020 - 2100.");
+      return;
+    }
+    
+    if (targetYear === activeYear) {
+      alert("Tahun sasaran tidak boleh sama dengan tahun aktif saat ini.");
+      return;
+    }
+
+    if (!confirm(`Yakin ingin menduplikasi seluruh unit kerja, jabatan, dan isian Anjab/ABK dari tahun ${activeYear} ke tahun ${targetYear}?`)) return;
+    
+    setIsSyncing(true);
+    try {
+      const res = await api.cloneYear(activeYear, targetYear);
+      if (res.success) {
+        showToast(`✅ Berhasil menyalin data ke tahun ${targetYear}!`);
+        localStorage.setItem("sianjab_active_year", targetYear);
+        window.dispatchEvent(new CustomEvent("yearChanged", { detail: targetYear }));
+      } else {
+        alert("Gagal kloning: " + res.message);
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan: " + e.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDeleteYear = async () => {
+    if (activeYear === '2026') {
+      alert("Tahun baseline '2026' dilindungi dan tidak boleh dihapus.");
+      return;
+    }
+
+    if (!confirm(`⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus seluruh data struktur, Anjab, dan ABK untuk tahun ${activeYear}? Tindakan ini akan menghapus data di database secara permanen.`)) return;
+    if (prompt(`Ketik "HAPUS ${activeYear}" untuk mengonfirmasi penghapusan data secara permanen:`) !== `HAPUS ${activeYear}`) {
+      alert("Konfirmasi gagal. Penghapusan dibatalkan.");
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const res = await api.deleteYear(activeYear);
+      if (res.success) {
+        showToast(`🗑️ Seluruh data tahun ${activeYear} berhasil dihapus.`);
+        localStorage.setItem("sianjab_active_year", "2026");
+        window.dispatchEvent(new CustomEvent("yearChanged", { detail: "2026" }));
+      } else {
+        alert("Gagal menghapus data tahun: " + res.message);
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan: " + e.message);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const showToast = (msg: string) => {
@@ -174,8 +237,28 @@ export default function OPDManagementPage() {
   }, []);
 
   useEffect(() => {
+    // Initial load
+    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+    setActiveYear(savedYear);
     loadData();
+
+    // Listener for header year changes
+    const handleYearChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      const newYear = customEvent.detail || "2026";
+      setActiveYear(newYear);
+    };
+
+    window.addEventListener("yearChanged", handleYearChanged);
+    return () => {
+      window.removeEventListener("yearChanged", handleYearChanged);
+    };
   }, [loadData]);
+
+  // Trigger reload when activeYear changes
+  useEffect(() => {
+    loadData();
+  }, [activeYear, loadData]);
 
   const toggleNode = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -248,7 +331,7 @@ export default function OPDManagementPage() {
         kode: modalData.kode.trim(),
         parentId: modalData.parentId || null,
         urutan: modalData.urutan || 0,
-        tahun: originalOpd?.tahun || "2026",
+        tahun: originalOpd?.tahun || activeYear,
         statusValidasi: originalOpd?.statusValidasi || "Draft",
         catatanRevisi: originalOpd?.catatanRevisi || "",
         historyValidasi: originalOpd?.historyValidasi || []
@@ -258,7 +341,17 @@ export default function OPDManagementPage() {
         await api.updateUnitKerja(modalData.id, opdPayload);
         showToast("✅ Unit Kerja berhasil diperbarui.");
       } else {
-        await api.createUnitKerja(opdPayload);
+        const opdCreated = await api.createEntity('unitKerja', opdPayload) as { id: string };
+        
+        // Ensure new UnitKerja conforms to parent's tahun
+        if (opdPayload.parentId) {
+          const parentOpd = rawOpds.find(o => o.id === opdPayload.parentId);
+          if (parentOpd && parentOpd.tahun && parentOpd.tahun !== opdPayload.tahun) {
+            opdPayload.tahun = parentOpd.tahun;
+            await api.updateUnitKerja(opdCreated.id, opdPayload);
+          }
+        }
+        
         showToast("✅ Unit Kerja baru berhasil ditambahkan.");
       }
 
@@ -394,7 +487,7 @@ export default function OPDManagementPage() {
               <span className={styles.refreshSpinner} title="Sinkronisasi data...">🔄</span>
             )}
           </h1>
-          <p className={styles.subtitle}>Atur hirarki perangkat daerah dan sub unit kerja di bawahnya.</p>
+          <p className={styles.subtitle}>Atur hirarki perangkat daerah dan sub unit kerja di bawahnya (Tahun {activeYear}).</p>
         </div>
         <div className={styles.actions}>
           <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">
@@ -422,6 +515,26 @@ export default function OPDManagementPage() {
           <button className={styles.btnSave} onClick={openAddOpdModal}>
             ➕ Tambah OPD Utama
           </button>
+          
+          <button 
+            className={styles.btnSecondary} 
+            onClick={handleCloneYear} 
+            title="Salin seluruh data tahun aktif ini ke tahun anggaran baru"
+            style={{ marginLeft: 'auto', border: '1px solid #c084fc', color: '#7e22ce' }}
+          >
+            👯 Clone ke Tahun Baru
+          </button>
+          
+          {activeYear !== '2026' && (
+            <button 
+              className={styles.btnSecondary} 
+              onClick={handleDeleteYear} 
+              title="Hapus bersih seluruh data tahun aktif saat ini"
+              style={{ border: '1px solid #f87171', color: '#dc2626' }}
+            >
+              🗑️ Hapus Data {activeYear}
+            </button>
+          )}
         </div>
 
         <div className={styles.treeContainer} style={{ padding: '10px 0', overflowX: 'auto' }}>

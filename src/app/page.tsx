@@ -104,8 +104,9 @@ export default function Home() {
       {loading && <div className={styles.topLoadingBar} />}
       <main className={styles.container}>
         <nav className={`${styles.nav} glass-panel`}>
-          <div className={styles.logo}>
+          <div className={styles.logo} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <span className="text-gradient">SianjabABK EM-JE</span>
+            <span style={{ fontSize: '0.625rem', background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)', color: 'white', padding: '0.15rem 0.45rem', borderRadius: '6px', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.07em', boxShadow: '0 2px 8px rgba(168, 85, 247, 0.2)' }}>AI Powered</span>
           </div>
           <div className={styles.navLinks}>
             <Link href="/">Beranda</Link>
@@ -116,12 +117,15 @@ export default function Home() {
 
         <section className={styles.hero}>
           <div className={`${styles.heroContent} animate-fade-in`}>
+            <div className={styles.aiBadge}>
+              <span className={styles.aiIcon}>✨</span> Ditenagai oleh AI Generatif Google Gemini
+            </div>
             <h1 className={styles.title}>
               Sistem Terpadu <br />
               <span className="text-gradient">Analisis Jabatan & Beban Kerja</span>
             </h1>
             <p className={styles.subtitle}>
-              Berdasarkan Permenpan RB No. 1 Tahun 2020. Aplikasi komprehensif untuk merumuskan, memetakan, dan menganalisis kebutuhan pegawai di setiap unit kerja secara presisi dan efisien.
+              Berdasarkan Permenpan RB No. 1 Tahun 2020. Aplikasi komprehensif yang ditenagai oleh <strong>Google Gemini AI</strong> untuk merumuskan, memetakan, dan menyusun draf analisis jabatan secara instan, presisi, dan efisien.
             </p>
             <div className={styles.heroActions}>
               <Link href="/login" className="btn-primary">Masuk / Login</Link>

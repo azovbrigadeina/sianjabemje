@@ -132,15 +132,24 @@ export default function TabSyaratJabatan({
       const defaultFungsi = "D2, O6, B7";
       const defaultPrestasi = "Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan.";
 
+      const parseStringOrArray = (val: any, defaultVal: string[]): string[] => {
+        if (!val) return defaultVal;
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') {
+          return val.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return defaultVal;
+      };
+
       const sy = jabatan.syaratJabatan;
       if (sy) {
-        setKeterampilanKerja(sy.keterampilanKerja && sy.keterampilanKerja.length > 0 ? sy.keterampilanKerja.join(", ") : defaultKeterampilan);
-        setBakatKerja(sy.bakatKerja && sy.bakatKerja.length > 0 ? sy.bakatKerja : defaultBakat);
-        setTemperamenKerja(sy.temperamenKerja && sy.temperamenKerja.length > 0 ? sy.temperamenKerja : defaultTemperamen);
-        setMinatKerja(sy.minatKerja && sy.minatKerja.length > 0 ? sy.minatKerja : defaultMinat);
-        setUpayaFisik(sy.upayaFisik && sy.upayaFisik.length > 0 ? sy.upayaFisik : defaultUpaya);
+        setKeterampilanKerja(parseStringOrArray(sy.keterampilanKerja, []).join(", ") || defaultKeterampilan);
+        setBakatKerja(parseStringOrArray(sy.bakatKerja, defaultBakat));
+        setTemperamenKerja(parseStringOrArray(sy.temperamenKerja, defaultTemperamen));
+        setMinatKerja(parseStringOrArray(sy.minatKerja, defaultMinat));
+        setUpayaFisik(parseStringOrArray(sy.upayaFisik, defaultUpaya));
         setKondisiFisik(sy.kondisiFisik || kondisiFisik);
-        setFungsiPekerjaan(sy.fungsiPekerjaan && sy.fungsiPekerjaan.length > 0 ? sy.fungsiPekerjaan.join(", ") : defaultFungsi);
+        setFungsiPekerjaan(parseStringOrArray(sy.fungsiPekerjaan, []).join(", ") || defaultFungsi);
       } else {
         setKeterampilanKerja(defaultKeterampilan);
         setBakatKerja(defaultBakat);

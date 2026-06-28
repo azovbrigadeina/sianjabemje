@@ -44,6 +44,44 @@
   max-width: 600px;
 }
 
+.aiBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, hsla(270, 76%, 50%, 0.1) 0%, hsla(200, 80%, 50%, 0.1) 100%);
+  border: 1px solid hsla(260, 60%, 50%, 0.25);
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #a855f7;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: pulseLight 3s infinite ease-in-out;
+}
+
+.aiIcon {
+  font-size: 0.9rem;
+  background: linear-gradient(135deg, #a855f7, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes pulseLight {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.05);
+    border-color: hsla(260, 60%, 50%, 0.25);
+  }
+  50% {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(168, 85, 247, 0.15);
+    border-color: hsla(260, 80%, 60%, 0.45);
+  }
+}
+
 .title {
   font-size: 3.5rem;
   line-height: 1.1;
