@@ -595,6 +595,7 @@ export default function OrganisasiPage() {
         let icon = '📌';
         let eselonClass = styles.eselonLainnya;
         const eselonVal = (node.eselon || '').toLowerCase().trim();
+        const isJbtDisabled = node.type === 'JABATAN' && (eselonVal === 'pelaksana' || eselonVal.includes('fungsional'));
         
         if (eselonVal.includes('pimpinan tinggi')) { highlightClass = styles.nodeHighlightJpt; icon = '⭐'; eselonClass = styles.eselonJpt; }
         else if (eselonVal === 'administrator') { icon = '🛡️'; eselonClass = styles.eselonAdministrator; }
@@ -623,7 +624,18 @@ export default function OrganisasiPage() {
                    <span className={styles.badgeKelas}>Kls {node.kelas}</span>
                  )}
                  <div className={styles.treeActions}>
-                    <button type="button" className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} title="Tambah Bawahan" onClickCapture={(e) => openAddModal(node, e)}>
+                    <button
+                      type="button"
+                      className={`${styles.actionBtn} ${styles.actionBtnPrimary} ${isJbtDisabled ? styles.actionBtnDisabled : ''}`}
+                      title={isJbtDisabled ? "Tidak dapat menambah jabatan di bawah Pelaksana/Fungsional" : "Tambah Bawahan"}
+                      disabled={isJbtDisabled}
+                      onClickCapture={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isJbtDisabled) return;
+                        openAddModal(node, e);
+                      }}
+                    >
                        <svg style={{ pointerEvents: 'none' }} width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                     </button>
                     <button type="button" className={`${styles.actionBtn} ${styles.actionBtnWarning}`} title="Edit" onClickCapture={(e) => openEditModal(node, e)}>
@@ -725,9 +737,6 @@ export default function OrganisasiPage() {
           <button type="button" className={styles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
             ➖ Ciutkan Semua
           </button>
-          <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
-            ➕ Tambah OPD Baru
-          </button>
         </div>
 
         <div className={styles.treeContainer} style={{ padding: '20px', overflowX: 'auto' }}>
@@ -740,7 +749,7 @@ export default function OrganisasiPage() {
             <div style={{ padding: '4rem 2rem', textAlign: 'center', opacity: 0.7 }}>
               <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🏢</div>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Tabel Organisasi Kosong</h3>
-              <p style={{ opacity: 0.7 }}>Silakan tambah OPD baru untuk memulai.</p>
+              <p style={{ opacity: 0.7 }}>Silakan kelola OPD di menu Kelola OPD untuk memulai.</p>
             </div>
           ) : (
             <div className={styles.treeContainerWrapper} style={{ minWidth: '800px' }}>
