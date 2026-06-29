@@ -774,15 +774,59 @@ function updateUser_(id, data) {
 // =============================================
 
 function exportForSitpp_() {
+  Logger.log('[EXPORT] === exportForSitpp_ STARTED ===');
+  
+  // Baca data root sebagai base/fallback
   var allUnit = fbGet_('unitKerja') || {};
+  var allJabatan = fbGet_('jabatan') || {};
+  var allABK = fbGet_('abk') || {};
+  
+  // Daftar tahun untuk discan dan digabungkan (yearly data)
+  var years = ['2025', '2026', '2027', '2028', '2029', '2030'];
+  
+  years.forEach(function(yr) {
+    // Merge unitKerja
+    var yearlyUnit = fbGet_(yr + '/unitKerja');
+    if (yearlyUnit) {
+      Object.keys(yearlyUnit).forEach(function(key) {
+        if (yearlyUnit[key]) {
+          allUnit[key] = yearlyUnit[key];
+          allUnit[key].tahun = yr; // Pastikan tahun sesuai folder
+        }
+      });
+    }
+    
+    // Merge jabatan
+    var yearlyJab = fbGet_(yr + '/jabatan');
+    if (yearlyJab) {
+      Object.keys(yearlyJab).forEach(function(key) {
+        if (yearlyJab[key]) {
+          allJabatan[key] = yearlyJab[key];
+          allJabatan[key].tahun = yr; // Pastikan tahun sesuai folder
+        }
+      });
+    }
+    
+    // Merge abk
+    var yearlyABK = fbGet_(yr + '/abk');
+    if (yearlyABK) {
+      Object.keys(yearlyABK).forEach(function(key) {
+        if (yearlyABK[key]) {
+          allABK[key] = yearlyABK[key];
+        }
+      });
+    }
+  });
+
   var unitList = Object.keys(allUnit).map(function(key) {
     var u = allUnit[key]; u.id = key; return u;
   });
-  var allJabatan = fbGet_('jabatan') || {};
+  Logger.log('[EXPORT] Total unit kerja combined: ' + unitList.length);
+  
   var jabatanList = Object.keys(allJabatan).map(function(key) {
     var j = allJabatan[key]; j.id = key; return j;
   });
-  var allABK = fbGet_('abk') || {};
+  Logger.log('[EXPORT] Total jabatan combined: ' + jabatanList.length);
 
   var opdListByTahun = {};
   var orgMasterByTahun = {};
@@ -824,6 +868,17 @@ function exportForSitpp_() {
     };
   });
 
+  // Log jumlah per tahun
+  Object.keys(opdListByTahun).sort().forEach(function(t) {
+    var opdCount = Object.keys(opdListByTahun[t]).length;
+    var indukCount = 0;
+    Object.keys(opdListByTahun[t]).forEach(function(k) {
+      if (!opdListByTahun[t][k].admin_parent_opd) indukCount++;
+    });
+    var jabCount = orgMasterByTahun[t] ? Object.keys(orgMasterByTahun[t]).length : 0;
+    Logger.log('[EXPORT] Tahun ' + t + ': ' + opdCount + ' OPD (' + indukCount + ' induk), ' + jabCount + ' jabatan');
+  });
+
   var exportData = {
     timestamp: new Date().toISOString(),
     opd_list: opdListByTahun,
@@ -832,27 +887,258 @@ function exportForSitpp_() {
 
   // Tulis ke path sianjab_export di Firebase Sianjab
   fbPut_('sianjab_export', exportData);
+  Logger.log('[EXPORT] Written to Sianjab Firebase OK');
 
   // Tulis ke path sianjab_export di Firebase SiTPP (LIVE)
-  if (typeof SITPP_FIREBASE_URL !== 'undefined' && SITPP_FIREBASE_URL) {
-    fbPutSitpp_('sianjab_export', exportData);
+  var sitppUrl = SITPP_FIREBASE_URL || '';
+  var sitppSecret = SITPP_SECRET || '';
+  var isValidSitpp = sitppUrl && sitppUrl.indexOf('YOUR_') === -1 && sitppUrl.indexOf('http') === 0
+                  && sitppSecret && sitppSecret.indexOf('YOUR_') === -1;
+  if (isValidSitpp) {
+    Logger.log('[SITPP] Publishing to SITPP Firebase: ' + sitppUrl);
+    var sitppResult = fbPutSitpp_('sianjab_export', exportData);
+    Logger.log('[SITPP] Publish result: ' + JSON.stringify(sitppResult).substring(0, 500));
+  } else {
+    Logger.log('[SITPP] SKIPPED — SITPP_FIREBASE_URL or SITPP_SECRET not configured or still placeholder. URL="' + sitppUrl + '"');
   }
 
+  Logger.log('[EXPORT] === exportForSitpp_ COMPLETED === timestamp=' + exportData.timestamp);
   return exportData;
 }
 
 function fbPutSitpp_(path, data) {
   var url = SITPP_FIREBASE_URL + '/' + path + '.json?auth=' + SITPP_SECRET;
+  var payload = JSON.stringify(data);
+  Logger.log('[SITPP] PUT ' + url.split('?')[0] + ' payload size: ' + payload.length + ' bytes');
   var res = UrlFetchApp.fetch(url, {
     method: 'put',
     contentType: 'application/json',
-    payload: JSON.stringify(data),
+    payload: payload,
     muteHttpExceptions: true
   });
-  return JSON.parse(res.getContentText());
+  var code = res.getResponseCode();
+  var body = res.getContentText();
+  if (code < 200 || code >= 300) {
+    Logger.log('[SITPP] ERROR HTTP ' + code + ': ' + body.substring(0, 500));
+    throw new Error('SITPP publish gagal (HTTP ' + code + '): ' + body.substring(0, 200));
+  }
+  Logger.log('[SITPP] SUCCESS HTTP ' + code);
+  return JSON.parse(body);
 }
 
+/**
+ * DIAGNOSTIC: Jalankan manual dari GAS Editor untuk test publish ke SITPP.
+ * Akan menjalankan exportForSitpp_() dan menampilkan log detail.
+ */
+function testPublishSitpp() {
+  Logger.log('=== MANUAL PUBLISH TEST ===');
+  var result = exportForSitpp_();
+  Logger.log('Export timestamp: ' + result.timestamp);
+  
+  // Verify: baca balik dari Sianjab Firebase
+  var verify = fbGet_('sianjab_export/timestamp');
+  Logger.log('Verify Sianjab Firebase timestamp: ' + verify);
+  
+  // Verify: baca balik dari SITPP Firebase
+  var sitppUrl = SITPP_FIREBASE_URL || '';
+  var sitppSecret = SITPP_SECRET || '';
+  if (sitppUrl && sitppUrl.indexOf('YOUR_') === -1) {
+    var verifyUrl = sitppUrl + '/sianjab_export/timestamp.json?auth=' + sitppSecret;
+    var res = UrlFetchApp.fetch(verifyUrl, { muteHttpExceptions: true });
+    Logger.log('Verify SITPP Firebase timestamp: ' + res.getContentText());
+    
+    // Cek jumlah OPD di SITPP
+    var opdUrl = sitppUrl + '/sianjab_export/opd_list/2026.json?auth=' + sitppSecret + '&shallow=true';
+    var opdRes = UrlFetchApp.fetch(opdUrl, { muteHttpExceptions: true });
+    var opdKeys = JSON.parse(opdRes.getContentText());
+    if (opdKeys) {
+      Logger.log('SITPP opd_list/2026 keys count: ' + Object.keys(opdKeys).length);
+    }
+  }
+  Logger.log('=== MANUAL PUBLISH TEST SELESAI ===');
+}
 
+/**
+ * DIAGNOSTIC: Jalankan manual dari GAS Editor untuk test koneksi ke SITPP.
+ * Buka Execution Log setelah run untuk lihat hasilnya.
+ */
+function testSitppConnection() {
+  var sitppUrl = SITPP_FIREBASE_URL || '';
+  var sitppSecret = SITPP_SECRET || '';
+  
+  Logger.log('=== SITPP CONNECTION DIAGNOSTIC ===');
+  Logger.log('SITPP_FIREBASE_URL = "' + sitppUrl + '"');
+  Logger.log('SITPP_SECRET length = ' + sitppSecret.length + ' chars');
+  Logger.log('SITPP_SECRET preview = "' + sitppSecret.substring(0, 5) + '..."');
+  
+  // Check placeholder
+  if (sitppUrl.indexOf('YOUR_') !== -1 || sitppSecret.indexOf('YOUR_') !== -1) {
+    Logger.log('❌ MASIH PLACEHOLDER! Belum diisi dengan URL/Secret yang benar.');
+    return;
+  }
+  
+  if (!sitppUrl || sitppUrl.indexOf('http') !== 0) {
+    Logger.log('❌ URL tidak valid. Harus dimulai dengan https://');
+    return;
+  }
+  
+  // Test 1: Coba READ dari SITPP
+  Logger.log('\n--- Test 1: READ sianjab_export dari SITPP ---');
+  try {
+    var readUrl = sitppUrl + '/sianjab_export.json?auth=' + sitppSecret + '&shallow=true';
+    var readRes = UrlFetchApp.fetch(readUrl, { muteHttpExceptions: true });
+    var readCode = readRes.getResponseCode();
+    var readBody = readRes.getContentText();
+    Logger.log('HTTP ' + readCode + ': ' + readBody.substring(0, 500));
+    if (readCode === 200) {
+      Logger.log('✅ READ berhasil');
+    } else if (readCode === 401) {
+      Logger.log('❌ AUTH GAGAL — SITPP_SECRET salah atau expired');
+    } else if (readCode === 404) {
+      Logger.log('⚠️ Path sianjab_export belum ada di SITPP (normal kalau pertama kali)');
+    } else {
+      Logger.log('❌ Error tidak terduga');
+    }
+  } catch (e) {
+    Logger.log('❌ Exception: ' + e.message);
+  }
+  
+  // Test 2: Coba WRITE kecil ke SITPP
+  Logger.log('\n--- Test 2: WRITE test ke SITPP ---');
+  try {
+    var testData = { test: true, timestamp: new Date().toISOString(), from: 'sianjab_diagnostic' };
+    var writeUrl = sitppUrl + '/sianjab_export/_diagnostic.json?auth=' + sitppSecret;
+    var writeRes = UrlFetchApp.fetch(writeUrl, {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify(testData),
+      muteHttpExceptions: true
+    });
+    var writeCode = writeRes.getResponseCode();
+    var writeBody = writeRes.getContentText();
+    Logger.log('HTTP ' + writeCode + ': ' + writeBody.substring(0, 500));
+    if (writeCode === 200) {
+      Logger.log('✅ WRITE berhasil — koneksi OK!');
+    } else if (writeCode === 401) {
+      Logger.log('❌ AUTH GAGAL — Secret tidak punya write access');
+    } else if (writeCode === 403) {
+      Logger.log('❌ FORBIDDEN — Security Rules SITPP menolak write dari Sianjab');
+    } else {
+      Logger.log('❌ Error: HTTP ' + writeCode);
+    }
+  } catch (e) {
+    Logger.log('❌ Exception: ' + e.message);
+  }
+  
+  // Test 3: Cek total OPD di Sianjab per tahun
+  Logger.log('\n--- Test 3: Jumlah OPD di Sianjab per Tahun ---');
+  var allUnit = fbGet_('unitKerja') || {};
+  var unitKeys = Object.keys(allUnit);
+  Logger.log('Total unit kerja (semua tahun): ' + unitKeys.length);
+  
+  var perTahun = {};
+  unitKeys.forEach(function(key) {
+    var t = allUnit[key].tahun || '(kosong)';
+    if (!perTahun[t]) perTahun[t] = 0;
+    perTahun[t]++;
+  });
+  Object.keys(perTahun).sort().forEach(function(t) {
+    Logger.log('  Tahun ' + t + ': ' + perTahun[t] + ' unit');
+  });
+  
+  // Test 4: Cek data yang sudah ada di sianjab_export
+  Logger.log('\n--- Test 4: Data di sianjab_export (Sianjab Firebase) ---');
+  var exportedData = fbGet_('sianjab_export') || {};
+  Logger.log('timestamp: ' + (exportedData.timestamp || '(belum ada)'));
+  var opdList = exportedData.opd_list || {};
+  Object.keys(opdList).sort().forEach(function(t) {
+    var count = Object.keys(opdList[t] || {}).length;
+    Logger.log('  opd_list/' + t + ': ' + count + ' OPD');
+  });
+  var orgMaster = exportedData.org_master || {};
+  Object.keys(orgMaster).sort().forEach(function(t) {
+    var count = Object.keys(orgMaster[t] || {}).length;
+    Logger.log('  org_master/' + t + ': ' + count + ' jabatan');
+  });
+  
+  // Test 5: Cek data di SITPP Firebase
+  Logger.log('\n--- Test 5: Data di sianjab_export (SITPP Firebase) ---');
+  try {
+    var sitppExportUrl = sitppUrl + '/sianjab_export.json?auth=' + sitppSecret;
+    var sitppRes = UrlFetchApp.fetch(sitppExportUrl, { muteHttpExceptions: true });
+    if (sitppRes.getResponseCode() === 200) {
+      var sitppData = JSON.parse(sitppRes.getContentText()) || {};
+      Logger.log('timestamp: ' + (sitppData.timestamp || '(belum ada)'));
+      var sitppOpdList = sitppData.opd_list || {};
+      Object.keys(sitppOpdList).sort().forEach(function(t) {
+        var c = Object.keys(sitppOpdList[t] || {}).length;
+        Logger.log('  opd_list/' + t + ': ' + c + ' OPD');
+      });
+      var sitppOrgMaster = sitppData.org_master || {};
+      Object.keys(sitppOrgMaster).sort().forEach(function(t) {
+        var c = Object.keys(sitppOrgMaster[t] || {}).length;
+        Logger.log('  org_master/' + t + ': ' + c + ' jabatan');
+      });
+    } else {
+      Logger.log('HTTP ' + sitppRes.getResponseCode());
+    }
+  } catch (e) {
+    Logger.log('Error: ' + e.message);
+  }
+  
+  Logger.log('\n=== DIAGNOSTIC SELESAI ===');
+}
+
+/**
+ * DIAGNOSTIC: List semua OPD induk (tanpa parentId) dari Firebase.
+ */
+function listOpdInduk() {
+  var rootUnit = fbGet_('unitKerja') || {};
+  var yearlyUnit = fbGet_('2026/unitKerja') || {};
+  
+  Logger.log('Root unitKerja count: ' + Object.keys(rootUnit).length);
+  Logger.log('2026/unitKerja count: ' + Object.keys(yearlyUnit).length);
+  
+  var rootJbt = fbGet_('jabatan') || {};
+  var yearlyJbt = fbGet_('2026/jabatan') || {};
+  
+  Logger.log('Root jabatan count: ' + Object.keys(rootJbt).length);
+  Logger.log('2026/jabatan count: ' + Object.keys(yearlyJbt).length);
+  
+  var keys = Object.keys(yearlyUnit);
+  var induk = [];
+  var sub = [];
+  keys.forEach(function(key) {
+    var u = yearlyUnit[key];
+    var info = { id: key, nama: u.nama || '(tanpa nama)', kode: u.kode || '', parentId: u.parentId || '' };
+    if (!u.parentId) {
+      induk.push(info);
+    } else {
+      sub.push(info);
+    }
+  });
+  
+  Logger.log('\n=== 2026 OPD INDUK (' + induk.length + ') ===');
+  induk.sort(function(a, b) { return a.nama.localeCompare(b.nama); });
+  induk.forEach(function(u, i) {
+    Logger.log((i+1) + '. ' + u.nama + ' [kode=' + u.kode + ', id=' + u.id + ']');
+  });
+  
+  Logger.log('\n=== 2026 SUB UNIT (' + sub.length + ') ===');
+  sub.sort(function(a, b) { return a.nama.localeCompare(b.nama); });
+  sub.forEach(function(u, i) {
+    Logger.log((i+1) + '. ' + u.nama + ' [kode=' + u.kode + ', parentId=' + u.parentId + ']');
+  });
+  
+  // Cek apakah ada "percobaan" atau "coba" di 2026/unitKerja
+  Logger.log('\n=== SEARCH: unit mengandung "coba" atau "percobaan" di 2026/unitKerja ===');
+  keys.forEach(function(key) {
+    var nama = (yearlyUnit[key].nama || '').toLowerCase();
+    if (nama.indexOf('coba') > -1 || nama.indexOf('percobaan') > -1 || nama.indexOf('test') > -1) {
+      Logger.log('FOUND: ' + yearlyUnit[key].nama + ' [id=' + key + ', parentId=' + (yearlyUnit[key].parentId || 'NONE') + ']');
+    }
+  });
+}
 
 // =============================================
 // ANALISIS BEBAN KERJA (ABK)

@@ -118,14 +118,14 @@ export default function Home() {
         <section className={styles.hero}>
           <div className={`${styles.heroContent} animate-fade-in`}>
             <div className={styles.aiBadge}>
-              <span className={styles.aiIcon}>✨</span> Ditenagai oleh AI Generatif Google Gemini
+              <span className={styles.aiIcon}>✨</span> Ditenagai oleh Kecerdasan Buatan (AI)
             </div>
             <h1 className={styles.title}>
               Sistem Terpadu <br />
               <span className="text-gradient">Analisis Jabatan & Beban Kerja</span>
             </h1>
             <p className={styles.subtitle}>
-              Berdasarkan Permenpan RB No. 1 Tahun 2020. Aplikasi komprehensif yang ditenagai oleh <strong>Google Gemini AI</strong> untuk merumuskan, memetakan, dan menyusun draf analisis jabatan secara instan, presisi, dan efisien.
+              Berdasarkan Permenpan RB No. 1 Tahun 2020. Aplikasi komprehensif yang ditenagai oleh <strong>Kecerdasan Buatan (AI)</strong> untuk merumuskan, memetakan, dan menyusun draf analisis jabatan secara instan, presisi, dan efisien.
             </p>
             <div className={styles.heroActions}>
               <Link href="/login" className="btn-primary">Masuk / Login</Link>

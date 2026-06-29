@@ -78,7 +78,8 @@ async function apiCall<T = unknown>(
     console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
   }
 
-  const isWriteOperation = !!options.data;
+  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser'];
+  const isWriteOperation = writeActions.includes(action) || !!options.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
   const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
   if (options.params) {
