@@ -5,15 +5,15 @@ import styles from './Footer.module.css';
 import { api } from '@/lib/api';
 
 export default function Footer() {
-  const [showSupport, setShowSupport] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const local = localStorage.getItem('sianjab_show_slava_ukraini');
-      return local !== null ? local === 'true' : true;
-    }
-    return true;
-  });
+  const [showSupport, setShowSupport] = useState(true);
 
   useEffect(() => {
+    // Read from localStorage on mount (client-side only) to prevent mismatch
+    const local = localStorage.getItem('sianjab_show_slava_ukraini');
+    if (local !== null) {
+      setShowSupport(local === 'true');
+    }
+
     const fetchSetting = async () => {
       try {
         const res = await api.getFooterSetting();
