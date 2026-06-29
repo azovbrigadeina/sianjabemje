@@ -122,7 +122,7 @@ function validateToken_(token) {
 var CURRENT_TAHUN = '2026';
 
 function isYearlyEntity_(entity) {
-  var nonYearly = ['users', 'settings', 'sianjab_export', 'referensiJabatan'];
+  var nonYearly = ['users', 'settings', 'sianjab_export', 'referensiJabatan', 'security_logs'];
   return nonYearly.indexOf(entity) === -1;
 }
 
@@ -236,6 +236,9 @@ function handleRequest_(e) {
         break;
       case 'generateAnjabWithAI':
         result = generateAnjabWithAI_(params.namaJabatan, params.unitKerja, params.namaOPD);
+        break;
+      case 'testAiConnection':
+        result = testAiConnection_(data.geminiApiKey);
         break;
 
       case 'syncToSheet':
@@ -385,8 +388,13 @@ function readAllRecords_(entity, parentId) {
     });
   }
 
-  // Sort by nomorUrut if available
+  // Sort by nomorUrut if available (or timestamp descending if security_logs)
   records.sort(function (a, b) {
+    if (entity === 'security_logs') {
+      var timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      var timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    }
     return (a.nomorUrut || 0) - (b.nomorUrut || 0);
   });
 
@@ -585,8 +593,29 @@ function hashPassword_(password) {
   return hexString;
 }
 
+function writeSecurityLog_(username, status, reason, ip, userAgent) {
+  try {
+    var logData = {
+      timestamp: new Date().toISOString(),
+      username: username || 'unknown',
+      status: status, // "SUCCESS" or "FAILED"
+      reason: reason || '',
+      ip: ip || 'unknown',
+      userAgent: userAgent || 'unknown'
+    };
+    fbPost_('security_logs', logData);
+  } catch (err) {
+    console.error("Failed to write security log: " + err.message);
+  }
+}
+
 function loginUser_(data) {
+  var ip = data ? data.ip : 'unknown';
+  var userAgent = data ? data.userAgent : 'unknown';
+
   if (!data || !data.username || !data.password) {
+    var attemptedUser = (data && data.username) ? data.username : 'unknown';
+    writeSecurityLog_(attemptedUser, 'FAILED', 'Username dan password wajib diisi', ip, userAgent);
     throw new Error("Username dan password wajib diisi");
   }
 
@@ -603,11 +632,13 @@ function loginUser_(data) {
         createdAt: new Date().toISOString()
       };
       var res = createRecord_('users', initialAdmin);
+      writeSecurityLog_('admin', 'SUCCESS', 'Kanal admin inisial dibuat otomatis', ip, userAgent);
       return { 
         token: 'admin-token-' + new Date().getTime(), 
         user: { id: res.id, username: 'admin', role: 'admin', namaLengkap: 'Administrator Utama' } 
       };
     }
+    writeSecurityLog_(data.username, 'FAILED', 'Akun tidak ditemukan (Users kosong)', ip, userAgent);
     throw new Error("Akun tidak ditemukan");
   }
 
@@ -632,11 +663,13 @@ function loginUser_(data) {
         createdAt: new Date().toISOString()
       };
       var res = createRecord_('users', initialAdmin);
+      writeSecurityLog_('admin', 'SUCCESS', 'Kanal admin inisial dibuat otomatis', ip, userAgent);
       return { 
         token: 'admin-token-' + new Date().getTime(), 
         user: { id: res.id, username: 'admin', role: 'admin', namaLengkap: 'Administrator Utama' } 
       };
     }
+    writeSecurityLog_(data.username, 'FAILED', 'Akun tidak ditemukan', ip, userAgent);
     throw new Error("Akun tidak ditemukan");
   }
 
@@ -644,10 +677,12 @@ function loginUser_(data) {
   var hashedPassword = hashPassword_(data.password);
 
   if (user.password !== hashedPassword) {
+    writeSecurityLog_(data.username, 'FAILED', 'Password salah', ip, userAgent);
     throw new Error("Password salah");
   }
 
   if (user.isActive === false) {
+    writeSecurityLog_(data.username, 'FAILED', 'Akun ini telah dinonaktifkan', ip, userAgent);
     throw new Error("Akun ini telah dinonaktifkan");
   }
 
@@ -667,6 +702,7 @@ function loginUser_(data) {
     isActive: user.isActive
   };
 
+  writeSecurityLog_(user.username, 'SUCCESS', 'Login berhasil', ip, userAgent);
   return { token: token, user: safeUser };
 }
 
@@ -1286,7 +1322,7 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
   var modelName = aiConfig.geminiModel || 'gemini-2.5-flash';
 
   if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
-    return getMockAiAnjab_(namaJabatan, unitKerja, namaOPD);
+    throw new Error("Kunci API Gemini (API Key) belum dikonfigurasi. Silakan masuk ke menu Pengaturan untuk memasukkan API Key.");
   }
 
   var prompt = "Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: " + namaJabatan + 
@@ -1452,6 +1488,22 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
     var responseText = response.getContentText();
     var responseJson = JSON.parse(responseText);
 
+    // Deteksi eror eksplisit dari API Google
+    if (responseJson.error) {
+      var err = responseJson.error;
+      var errMsg = err.message || "";
+      var status = err.status || "";
+      var code = err.code || 500;
+
+      if (status === "RESOURCE_EXHAUSTED" || code === 429) {
+        throw new Error("Kuota API Gemini habis (RESOURCE_EXHAUSTED). Silakan tunggu beberapa saat atau hubungkan kunci API dengan limit yang lebih besar.");
+      } else if (code === 400 && errMsg.indexOf("API key not valid") > -1) {
+        throw new Error("Kunci API Gemini tidak valid. Harap periksa kembali pengaturan API Key Anda.");
+      } else {
+        throw new Error("Eror dari Gemini API (" + code + "): " + errMsg);
+      }
+    }
+
     if (responseJson.candidates && responseJson.candidates[0].content.parts[0].text) {
       var textResult = responseJson.candidates[0].content.parts[0].text.trim();
 
@@ -1465,10 +1517,91 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
       var parsedData = JSON.parse(textResult.trim());
       return normalizeAiAnjabDraft_(parsedData);
     } else {
-      throw new Error("Respons Gemini tidak valid");
+      throw new Error("Respons dari Google Gemini tidak berisi draf teks.");
     }
   } catch (e) {
-    return normalizeAiAnjabDraft_(getMockAiAnjab_(namaJabatan, unitKerja, namaOPD));
+    // Bubble up if it's already a descriptive error we threw
+    if (e.message.indexOf("Kunci API Gemini") > -1 || 
+        e.message.indexOf("Kuota API Gemini") > -1 || 
+        e.message.indexOf("Eror dari Gemini API") > -1 ||
+        e.message.indexOf("Respons dari Google Gemini") > -1) {
+      throw e;
+    }
+    throw new Error("Gagal memanggil Gemini API: " + e.message);
+  }
+}
+
+function testAiConnection_(apiKey) {
+  if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
+    return { success: false, error: "Kunci API Gemini belum diisi." };
+  }
+
+  var url = "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey;
+  var options = {
+    method: "get",
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseText = response.getContentText();
+    var responseJson = JSON.parse(responseText);
+
+    if (responseJson.error) {
+      var err = responseJson.error;
+      var status = err.status || "";
+      var code = err.code || 500;
+      var errMsg = err.message || "";
+
+      if (status === "RESOURCE_EXHAUSTED" || code === 429) {
+        return { 
+          success: false, 
+          code: 429, 
+          status: "RESOURCE_EXHAUSTED", 
+          error: "Kuota habis (RESOURCE_EXHAUSTED). Limit harian/menit tercapai." 
+        };
+      } else if (code === 400 && errMsg.indexOf("API key not valid") > -1) {
+        return { 
+          success: false, 
+          code: 400, 
+          status: "INVALID_KEY", 
+          error: "Kunci API tidak valid. Silakan periksa kembali." 
+        };
+      } else {
+        return { 
+          success: false, 
+          code: code, 
+          status: status, 
+          error: "Eror (" + code + "): " + errMsg 
+        };
+      }
+    }
+
+    if (responseJson.models && responseJson.models.length > 0) {
+      var availableModels = [];
+      for (var i = 0; i < responseJson.models.length; i++) {
+        var model = responseJson.models[i];
+        if (model.supportedGenerationMethods && model.supportedGenerationMethods.indexOf("generateContent") > -1) {
+          var cleanName = model.name.replace(/^models\//, "");
+          var displayName = model.displayName || cleanName;
+          
+          availableModels.push({
+            name: cleanName,
+            displayName: displayName
+          });
+        }
+      }
+      
+      return { 
+        success: true, 
+        message: "Koneksi berhasil! Kunci API aktif dan siap digunakan.",
+        models: availableModels
+      };
+    } else {
+      return { success: false, error: "Tidak ada model yang ditemukan untuk kunci API ini." };
+    }
+  } catch (e) {
+    return { success: false, error: "Gagal terhubung ke API Google: " + e.message };
   }
 }
 

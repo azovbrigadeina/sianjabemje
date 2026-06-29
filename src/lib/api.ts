@@ -274,6 +274,15 @@ export const api = {
   getAiConfig: () =>
     apiCall<{ geminiApiKey?: string; geminiModel?: string } | null>('read', 'settings', { params: { id: 'aiConfig' } }),
 
+  testAiConnection: (data: { geminiApiKey: string; geminiModel: string }) =>
+    apiCall<{ success: boolean; message?: string; error?: string; code?: number; status?: string; models?: { name: string; displayName: string }[] }>('testAiConnection', '', { data }),
+
+  saveFooterSetting: (data: { showSlavaUkraini: boolean }) =>
+    apiCall('update', 'settings', { data, params: { id: 'footerSetting' } }),
+
+  getFooterSetting: () =>
+    apiCall<{ showSlavaUkraini: boolean } | null>('read', 'settings', { params: { id: 'footerSetting' } }),
+
   // -- Year Cloning and Deletion --
   cloneYear: (fromYear: string, toYear: string) =>
     apiCall<{ success: boolean; message: string }>('cloneYearData', '', { params: { fromYear, toYear } }),
@@ -284,4 +293,9 @@ export const api = {
   // -- AI Generation --
   generateAnjabWithAI: (namaJabatan: string, unitKerja: string, namaOPD: string) =>
     apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } }),
+
+  // -- Security Logs --
+  getSecurityLogs: () =>
+    apiCall<any[]>('readAll', 'security_logs'),
 };
+

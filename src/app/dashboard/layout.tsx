@@ -82,6 +82,7 @@ export default function DashboardLayout({
     if (pathname.includes('/referensi')) return 'Referensi Jabatan';
     if (pathname.includes('/users')) return 'Manajemen User';
     if (pathname.includes('/pengaturan')) return 'Pengaturan AI';
+    if (pathname.includes('/log-keamanan')) return 'Log Keamanan';
     return 'Ringkasan Sistem';
   };
 
@@ -163,6 +164,9 @@ export default function DashboardLayout({
           </Link>
           <Link href="/dashboard/pengaturan" className={`${styles.navItem} ${pathname.includes('/pengaturan') ? styles.active : ''}`}>
             <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Pengaturan AI</span>
+          </Link>
+          <Link href="/dashboard/log-keamanan" className={`${styles.navItem} ${pathname.includes('/log-keamanan') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🛡️</span> <span className={styles.navText}>Log Keamanan</span>
           </Link>
         </nav>
 

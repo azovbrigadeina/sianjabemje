@@ -37,18 +37,27 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [showSlavaUkraini, setShowSlavaUkraini] = useState(true);
+  const [savingFooter, setSavingFooter] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersRaw, opdsRaw] = await Promise.all([
+      const [usersRaw, opdsRaw, footerSetting] = await Promise.all([
         api.getUsers(),
         api.getUnitKerja(),
+        api.getFooterSetting().catch(err => {
+          console.error("Gagal memuat setting footer:", err);
+          return null;
+        })
       ]);
       setUsers((usersRaw as User[]) || []);
       // Show only top-level OPD (no parent) for assignment
       const allOpds = (opdsRaw as UnitKerja[]) || [];
       setOpds(allOpds);
+      if (footerSetting && footerSetting.showSlavaUkraini !== undefined) {
+        setShowSlavaUkraini(footerSetting.showSlavaUkraini);
+      }
     } catch (err) {
       console.error("Gagal memuat data", err);
     }
@@ -190,6 +199,19 @@ export default function UsersPage() {
     return opd ? opd.nama : unitKerjaId;
   };
 
+  const handleSaveFooter = async (e: FormEvent) => {
+    e.preventDefault();
+    setSavingFooter(true);
+    try {
+      await api.saveFooterSetting({ showSlavaUkraini });
+      setSuccessMsg("Pengaturan tampilan berhasil diperbarui.");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch (err: any) {
+      alert("Gagal menyimpan pengaturan tampilan: " + err.message);
+    }
+    setSavingFooter(false);
+  };
+
   return (
     <div style={{ animation: "fadeIn 0.4s ease-out" }}>
       <div className={styles.pageHeader}>
@@ -293,6 +315,48 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      {/* Pengaturan Tampilan Card */}
+      <div className={`${styles.tableCard} glass-panel`} style={{ padding: "2rem", marginTop: "2rem", maxWidth: "600px" }}>
+        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>⚙️ Pengaturan Tampilan</h2>
+        <p style={{ fontSize: "0.85rem", opacity: 0.7, marginBottom: "1.5rem" }}>
+          Konfigurasi elemen visual aplikasi Sianjab.
+        </p>
+
+        <form onSubmit={handleSaveFooter} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <input
+              type="checkbox"
+              id="showSlavaUkraini"
+              checked={showSlavaUkraini}
+              onChange={(e) => setShowSlavaUkraini(e.target.checked)}
+              style={{
+                width: "1.2rem",
+                height: "1.2rem",
+                cursor: "pointer",
+              }}
+            />
+            <label htmlFor="showSlavaUkraini" style={{ fontWeight: 600, cursor: "pointer", fontSize: "0.9rem" }}>
+              Tampilkan dukungan Ukraina di footer (#slavaukraini 🇮🇩 x 🇺🇦)
+            </label>
+          </div>
+
+          <hr style={{ border: "none", borderTop: "1px solid var(--glass-border)", margin: "0.5rem 0" }} />
+
+          <button
+            type="submit"
+            disabled={savingFooter}
+            className="btn-primary"
+            style={{
+              padding: "10px 20px",
+              fontSize: "0.85rem",
+              alignSelf: "flex-end"
+            }}
+          >
+            {savingFooter ? "Menyimpan..." : "💾 Simpan Tampilan"}
+          </button>
+        </form>
+      </div>
 
       {/* Modal Form */}
       {showModal && (

@@ -14,6 +14,16 @@ export default function PengaturanAIPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [testing, setTesting] = useState(false);
+  const [testStatus, setTestStatus] = useState<{
+    type: "success" | "error" | "warning" | null;
+    message: string;
+    models?: { name: string; displayName: string }[];
+  }>({
+    type: null,
+    message: ""
+  });
+
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -42,6 +52,42 @@ export default function PengaturanAIPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKey.trim()) {
+      alert("Harap masukkan API Key terlebih dahulu.");
+      return;
+    }
+    setTesting(true);
+    setTestStatus({ type: null, message: "" });
+    try {
+      const res = await api.testAiConnection({
+        geminiApiKey: apiKey.trim(),
+        geminiModel: model === "custom" ? customModel.trim() : model
+      });
+
+      if (res && res.success) {
+        setTestStatus({
+          type: "success",
+          message: res.message || "Koneksi berhasil! Kunci API aktif dan siap digunakan.",
+          models: res.models
+        });
+      } else {
+        const isQuota = res?.status === "RESOURCE_EXHAUSTED" || res?.code === 429;
+        setTestStatus({
+          type: isQuota ? "warning" : "error",
+          message: res?.error || "Gagal melakukan tes koneksi."
+        });
+      }
+    } catch (err: any) {
+      setTestStatus({
+        type: "error",
+        message: err.message || "Terjadi kesalahan saat menghubungi API."
+      });
+    } finally {
+      setTesting(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -204,25 +250,131 @@ export default function PengaturanAIPage() {
 
             <hr style={{ border: "none", borderTop: "1px solid var(--glass-border)", margin: "1rem 0" }} />
 
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                background: "linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)",
-                color: "white",
-                padding: "14px 28px",
-                border: "none",
+            {/* Test Status Indicator */}
+            {testStatus.type && (
+              <div style={{
+                background: testStatus.type === "success" 
+                  ? "rgba(34, 197, 94, 0.1)" 
+                  : testStatus.type === "warning"
+                    ? "rgba(234, 179, 8, 0.1)"
+                    : "rgba(239, 68, 68, 0.1)",
+                border: `1px solid ${
+                  testStatus.type === "success" 
+                    ? "rgb(34, 197, 94)" 
+                    : testStatus.type === "warning"
+                      ? "rgb(234, 179, 8)"
+                      : "rgb(239, 68, 68)"
+                }`,
+                padding: "1rem",
+                borderRadius: "10px",
+                fontSize: "0.9rem",
+                color: "var(--foreground)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: 600 }}>
+                  <span>
+                    {testStatus.type === "success" ? "🟢" : testStatus.type === "warning" ? "🟡" : "🔴"}
+                  </span>
+                  <span>
+                    {testStatus.type === "success" 
+                      ? "Koneksi Sukses" 
+                      : testStatus.type === "warning" 
+                        ? "Limit Kuota Habis" 
+                        : "Koneksi Gagal"}
+                  </span>
+                </div>
+                <div>{testStatus.message}</div>
+              </div>
+            )}
+
+            {/* List of models if available */}
+            {testStatus.models && testStatus.models.length > 0 && (
+              <div style={{
+                background: "var(--glass-bg)",
+                border: "1px solid var(--glass-border)",
+                padding: "1.25rem",
                 borderRadius: "12px",
-                fontWeight: 600,
-                fontSize: "0.95rem",
-                cursor: "pointer",
-                transition: "all 0.2s",
-                alignSelf: "flex-end",
-                boxShadow: "0 4px 14px rgba(168, 85, 247, 0.3)"
-              }}
-            >
-              {saving ? "Menyimpan..." : "💾 Simpan Konfigurasi"}
-            </button>
+                fontSize: "0.875rem"
+              }}>
+                <strong style={{ display: "block", marginBottom: "0.75rem", color: "var(--foreground)" }}>
+                  🤖 Model Teks Tersedia untuk Kunci API ini:
+                </strong>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  {testStatus.models.map((m) => (
+                    <span 
+                      key={m.name} 
+                      onClick={() => {
+                        if (["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"].includes(m.name)) {
+                          setModel(m.name);
+                        } else {
+                          setModel("custom");
+                          setCustomModel(m.name);
+                        }
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        background: "hsla(260, 50%, 50%, 0.15)",
+                        border: "1px solid hsla(260, 50%, 50%, 0.3)",
+                        borderRadius: "20px",
+                        fontSize: "0.8rem",
+                        color: "var(--foreground)",
+                        cursor: "pointer",
+                        transition: "all 0.2s"
+                      }}
+                      title="Klik untuk memilih model ini"
+                    >
+                      {m.name}
+                    </span>
+                  ))}
+                </div>
+                <span style={{ fontSize: "0.75rem", opacity: 0.5, marginTop: "0.5rem", display: "block" }}>
+                  * Klik nama model di atas untuk langsung menerapkannya di formulir input.
+                </span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing || !apiKey.trim()}
+                style={{
+                  background: "var(--glass-bg)",
+                  border: "1px solid var(--glass-border)",
+                  color: "var(--foreground)",
+                  padding: "14px 28px",
+                  borderRadius: "12px",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  opacity: (!apiKey.trim() || testing) ? 0.5 : 1
+                }}
+              >
+                {testing ? "🔍 Mengetes..." : "🔍 Tes Koneksi AI"}
+              </button>
+
+              <button
+                type="submit"
+                disabled={saving}
+                style={{
+                  background: "linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)",
+                  color: "white",
+                  padding: "14px 28px",
+                  border: "none",
+                  borderRadius: "12px",
+                  fontWeight: 600,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  boxShadow: "0 4px 14px rgba(168, 85, 247, 0.3)"
+                }}
+              >
+                {saving ? "Menyimpan..." : "💾 Simpan Konfigurasi"}
+              </button>
+            </div>
           </form>
         )}
       </div>
