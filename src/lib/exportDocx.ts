@@ -56,6 +56,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {})
   result[sjKeys.temperamenKerja || 'syarat_temperamenKerja'] = jabatan.syaratJabatan?.temperamenKerja || [];
   result[sjKeys.minatKerja || 'syarat_minatKerja'] = jabatan.syaratJabatan?.minatKerja || [];
   result[sjKeys.upayaFisik || 'syarat_upayaFisik'] = jabatan.syaratJabatan?.upayaFisik || [];
+  result[sjKeys.fungsiPekerjaan || 'syarat_fungsiPekerjaan'] = jabatan.syaratJabatan?.fungsiPekerjaan || [];
 
   // Syarat Jabatan -> Kondisi Fisik
   const physicalKeys = sjKeys.kondisiFisik || {};
@@ -69,8 +70,16 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {})
   result[sjKeys.kondisiFisikName || 'syarat_kondisiFisik'] = physResult;
 
   // Single-value fields
-  result[getValue('hasilKerja', 'hasilKerja')] = { uraian: jabatan.hasilKerja?.uraian || "-" };
-  result[getValue('prestasiKerja', 'prestasiKerja')] = { uraian: jabatan.prestasiKerja?.uraian || "-" };
+  const hasilKerjaVal = jabatan.hasilKerja?.uraian || "-";
+  const prestasiKerjaVal = jabatan.prestasiKerja?.uraian || "-";
+  result[getValue('hasilKerja', 'hasilKerja')] = {
+    uraian: hasilKerjaVal,
+    toString: () => hasilKerjaVal
+  };
+  result[getValue('prestasiKerja', 'prestasiKerja')] = {
+    uraian: prestasiKerjaVal,
+    toString: () => prestasiKerjaVal
+  };
 
   // Loop Arrays mapping
   const mapLoopArray = (arrayData: any[], loopMapping: any, defaultKey: string) => {
@@ -125,16 +134,29 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull) => {
     // 3. Transform data using mappings
     const renderData = transformData(jabatan, mappings);
 
-    // 4. Initialize pizzip and docxtemplater
+    // 4. Initialize pizzip and docxtemplater with dot-notation parser
     const zip = new PizZip(arrayBuffer);
+    const parser = function(tag: string) {
+      return {
+        get: function(scope: any) {
+          if (tag === '.') {
+            return scope;
+          }
+          return tag.split('.').reduce(function(accumulator, currentValue) {
+            return accumulator ? accumulator[currentValue] : undefined;
+          }, scope);
+        }
+      };
+    };
+
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
+      parser: parser
     });
 
     // 5. Render
-    doc.setData(renderData);
-    doc.render();
+    doc.render(renderData);
 
     // 6. Generate output zip/docx blob
     const outBlob = doc.getZip().generate({

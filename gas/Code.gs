@@ -34,49 +34,109 @@ var API_SECRET = PropertiesService.getScriptProperties().getProperty('API_SECRET
 
 var scriptCache_ = CacheService.getScriptCache();
 
-function cachedFbGet_(path, ttlSeconds) {
-  var cacheKey = 'fb_' + path;
-  var cached = scriptCache_.get(cacheKey);
-  if (cached) {
-    try {
-      return JSON.parse(cached);
-    } catch (e) {
-      // Cache corrupt, lanjut baca Firebase
+function putLargeCache_(key, data, ttlSeconds) {
+  try {
+    var serialized = JSON.stringify(data);
+    var chunkSize = 90000; // 90KB safe limit (max 100KB)
+    var len = serialized.length;
+    
+    removeLargeCache_(key);
+
+    if (len < chunkSize) {
+      scriptCache_.put(key, serialized, ttlSeconds || 300);
+      scriptCache_.put(key + '_chunks', '1', ttlSeconds || 300);
+      return;
     }
+
+    var numChunks = Math.ceil(len / chunkSize);
+    for (var i = 0; i < numChunks; i++) {
+      var start = i * chunkSize;
+      var chunk = serialized.substring(start, start + chunkSize);
+      scriptCache_.put(key + '_' + i, chunk, ttlSeconds || 300);
+    }
+    scriptCache_.put(key + '_chunks', numChunks.toString(), ttlSeconds || 300);
+  } catch (e) {
+    Logger.log('Error putting large cache for ' + key + ': ' + e.message);
+  }
+}
+
+function getLargeCache_(key) {
+  try {
+    var numChunksStr = scriptCache_.get(key + '_chunks');
+    if (!numChunksStr) {
+      var normal = scriptCache_.get(key);
+      if (normal) {
+        return JSON.parse(normal);
+      }
+      return null;
+    }
+
+    var numChunks = parseInt(numChunksStr, 10);
+    if (numChunks === 1) {
+      var normal = scriptCache_.get(key);
+      if (normal) {
+        return JSON.parse(normal);
+      }
+      return null;
+    }
+
+    var serialized = '';
+    for (var i = 0; i < numChunks; i++) {
+      var chunk = scriptCache_.get(key + '_' + i);
+      if (!chunk) {
+        return null;
+      }
+      serialized += chunk;
+    }
+    return JSON.parse(serialized);
+  } catch (e) {
+    Logger.log('Error getting large cache for ' + key + ': ' + e.message);
+    return null;
+  }
+}
+
+function removeLargeCache_(key) {
+  try {
+    var numChunksStr = scriptCache_.get(key + '_chunks');
+    var keys = [key, key + '_chunks'];
+    if (numChunksStr) {
+      var numChunks = parseInt(numChunksStr, 10);
+      for (var i = 0; i < numChunks; i++) {
+        keys.push(key + '_' + i);
+      }
+    }
+    scriptCache_.removeAll(keys);
+  } catch (e) {
+    Logger.log('Error removing large cache for ' + key + ': ' + e.message);
+  }
+}
+
+function cachedFbGet_(path, ttlSeconds) {
+  var cacheKey = 'fb_' + path.replace(/\//g, '_');
+  var cached = getLargeCache_(cacheKey);
+  if (cached !== null && cached !== undefined) {
+    return cached;
   }
   var data = fbGet_(path);
   if (data !== null && data !== undefined) {
-    try {
-      var serialized = JSON.stringify(data);
-      // CacheService max value size = 100KB
-      if (serialized.length < 100000) {
-        scriptCache_.put(cacheKey, serialized, ttlSeconds || 300);
-      }
-    } catch (e) {
-      // Data terlalu besar untuk cache, abaikan
-    }
+    putLargeCache_(cacheKey, data, ttlSeconds || 300);
   }
   return data;
 }
 
 function invalidateCache_(entity) {
-  // Hapus cache untuk entity tertentu + versi dengan tahun
-  var keys = [
-    'fb_' + entity,
-    'fb_' + CURRENT_TAHUN + '/' + entity
-  ];
-  scriptCache_.removeAll(keys);
+  var key1 = 'fb_' + entity;
+  var key2 = 'fb_' + CURRENT_TAHUN + '_' + entity;
+  removeLargeCache_(key1);
+  removeLargeCache_(key2);
 }
 
 function invalidateAllCaches_() {
-  // Hapus semua cache yang umum digunakan
-  var commonKeys = [
-    'fb_unitKerja', 'fb_jabatan', 'fb_settings',
-    'fb_' + CURRENT_TAHUN + '/unitKerja',
-    'fb_' + CURRENT_TAHUN + '/jabatan',
-    'fb_users'
-  ];
-  scriptCache_.removeAll(commonKeys);
+  var entities = ['unitKerja', 'jabatan', 'users', 'settings', 'abk'];
+  entities.forEach(function(ent) {
+    removeLargeCache_('fb_' + ent);
+    removeLargeCache_('fb_' + CURRENT_TAHUN + '_' + ent);
+  });
 }
 
 // =============================================
@@ -197,6 +257,9 @@ function handleRequest_(e) {
         break;
       case 'getJabatanByUnit':
         result = getJabatanByUnit_(unitId);
+        break;
+      case 'getDashboardStats':
+        result = getDashboardStats_();
         break;
       case 'getUnitKerja':
         result = readAllRecords_('unitKerja', '');
@@ -366,7 +429,7 @@ function readRecord_(entity, id) {
 
 function readAllRecords_(entity, parentId) {
   // Gunakan cache untuk entity data master yang sering dibaca
-  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings'];
+  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk'];
   var path = getFirebasePath_(entity);
   var allData = (cacheable.indexOf(entity) !== -1)
     ? cachedFbGet_(path, 300)
@@ -399,6 +462,62 @@ function readAllRecords_(entity, parentId) {
   });
 
   return records;
+}
+
+function getDashboardStats_() {
+  var unitKerjas = readAllRecords_('unitKerja', '') || [];
+  var jabatans = readAllRecords_('jabatan', '') || [];
+  var abks = readAllRecords_('abk', '') || [];
+
+  var mainOpds = unitKerjas.filter(function (o) { return !o.parentId; });
+  var subOpds = unitKerjas.filter(function (o) { return o.parentId; });
+
+  var opdDisetujui = unitKerjas.filter(function (o) { return o.statusValidasi === 'Disetujui'; }).length;
+  var opdDiajukan = unitKerjas.filter(function (o) { return o.statusValidasi === 'Diajukan'; }).length;
+  var opdRevisi = unitKerjas.filter(function (o) { return o.statusValidasi === 'Revisi'; }).length;
+  var opdDraft = unitKerjas.filter(function (o) { return !o.statusValidasi || o.statusValidasi === 'Draft'; }).length;
+
+  var jpt = 0;
+  var admin = 0;
+  var pengawas = 0;
+  var pelaksana = 0;
+  var fungsional = 0;
+
+  jabatans.forEach(function (jbt) {
+    var jenis = (jbt.jenisJabatan || '').trim();
+    if (jenis === 'Jabatan Pimpinan Tinggi') {
+      jpt++;
+    } else if (jenis === 'Administrator') {
+      admin++;
+    } else if (jenis === 'Pengawas') {
+      pengawas++;
+    } else if (jenis === 'Pelaksana') {
+      pelaksana++;
+    } else if (jenis.indexOf('Fungsional') === 0) {
+      fungsional++;
+    }
+  });
+
+  var anjabSelesai = jabatans.filter(function (jbt) {
+    return jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5;
+  }).length;
+
+  return {
+    totalOpdMain: mainOpds.length,
+    totalOpdSub: subOpds.length,
+    totalJabatan: jabatans.length,
+    totalJPT: jpt,
+    totalAdministrator: admin,
+    totalPengawas: pengawas,
+    totalPelaksana: pelaksana,
+    totalFungsional: fungsional,
+    opdDisetujui: opdDisetujui,
+    opdDiajukan: opdDiajukan,
+    opdRevisi: opdRevisi,
+    opdDraft: opdDraft,
+    anjabSelesai: anjabSelesai,
+    abkSelesai: abks.length
+  };
 }
 
 function updateRecord_(entity, id, data) {
@@ -479,7 +598,7 @@ function saveMultiEntity_(entity, parentId, rows) {
 // =============================================
 
 function getJabatanByUnit_(unitId) {
-  var allJabatan = fbGet_(getFirebasePath_('jabatan'));
+  var allJabatan = cachedFbGet_(getFirebasePath_('jabatan'), 300);
   if (!allJabatan) return [];
 
   return Object.keys(allJabatan)
@@ -497,56 +616,81 @@ function getJabatanByUnit_(unitId) {
 }
 
 function getJabatanFull_(jabatanId) {
-  var jabatan = fbGet_(getFirebasePath_('jabatan', jabatanId));
-  if (!jabatan) return null;
-  jabatan.id = jabatanId;
-
-  // Multi-record entities
   var multiEntities = [
     'tugasPokok', 'bahanKerja', 'perangkatKerja',
     'tanggungJawab', 'wewenang', 'korelasiJabatan',
     'kondisiLingkungan', 'risikoBahaya'
   ];
+  var singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
+  var entities = multiEntities.concat(singleEntities);
 
-  multiEntities.forEach(function (ent) {
-    var data = fbGet_(getFirebasePath_(ent));
-    if (data) {
-      jabatan[ent] = Object.keys(data)
-        .map(function (key) { var d = data[key]; d.id = key; return d; })
-        .filter(function (item) { return item.jabatanId === jabatanId; })
-        .sort(function (a, b) { return (a.nomorUrut || 0) - (b.nomorUrut || 0); });
-    } else {
-      jabatan[ent] = [];
-    }
+  var baseUrl = FIREBASE_URL + '/';
+  var authQuery = '.json?auth=' + FIREBASE_SECRET;
+
+  var requests = [
+    { url: baseUrl + getFirebasePath_('jabatan', jabatanId) + authQuery, method: 'get', muteHttpExceptions: true }
+  ];
+
+  entities.forEach(function(ent) {
+    requests.push({
+      url: baseUrl + getFirebasePath_(ent) + authQuery,
+      method: 'get',
+      muteHttpExceptions: true
+    });
   });
 
-  // Single-record entities
-  var singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
-  singleEntities.forEach(function (ent) {
-    var data = fbGet_(getFirebasePath_(ent));
-    if (data) {
+  var responses = UrlFetchApp.fetchAll(requests);
+
+  // Parse response 0 (jabatan)
+  var jabatanRes = responses[0];
+  if (jabatanRes.getResponseCode() !== 200) return null;
+  var jabatan = JSON.parse(jabatanRes.getContentText());
+  if (!jabatan) return null;
+  jabatan.id = jabatanId;
+
+  // Parse other responses
+  for (var i = 0; i < entities.length; i++) {
+    var ent = entities[i];
+    var res = responses[i + 1];
+    var data = null;
+    if (res.getResponseCode() === 200) {
+      data = JSON.parse(res.getContentText());
+    }
+
+    var isMulti = i < multiEntities.length;
+    if (isMulti) {
+      if (data) {
+        jabatan[ent] = Object.keys(data)
+          .map(function (key) { var d = data[key]; d.id = key; return d; })
+          .filter(function (item) { return item.jabatanId === jabatanId; })
+          .sort(function (a, b) { return (a.nomorUrut || 0) - (b.nomorUrut || 0); });
+      } else {
+        jabatan[ent] = [];
+      }
+    } else {
       var found = null;
-      var keys = Object.keys(data);
-      for (var i = 0; i < keys.length; i++) {
-        if (data[keys[i]].jabatanId === jabatanId) {
-          found = data[keys[i]];
-          found.id = keys[i];
-          break;
+      if (data) {
+        var keys = Object.keys(data);
+        for (var k = 0; k < keys.length; k++) {
+          if (data[keys[k]].jabatanId === jabatanId) {
+            found = data[keys[k]];
+            found.id = keys[k];
+            break;
+          }
         }
       }
       jabatan[ent] = found;
-    } else {
-      jabatan[ent] = null;
     }
-  });
+  }
 
-  // Get hierarchy auto-fill
-  jabatan.hierarchy = getJabatanHierarchy_(jabatanId);
+  // Get hierarchy auto-fill in memory
+  var allJabatanMap = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+  jabatan.hierarchy = getJabatanHierarchy_(jabatanId, allJabatanMap);
 
   return jabatan;
 }
 
-function getJabatanHierarchy_(jabatanId) {
+function getJabatanHierarchy_(jabatanId, allJabatanMap) {
   var hierarchy = {
     jptUtama: '', jptMadya: '', jptPratama: '',
     administrator: '', pengawas: '', pelaksana: '',
@@ -556,9 +700,13 @@ function getJabatanHierarchy_(jabatanId) {
   var currentId = jabatanId;
   var visited = {};
 
+  if (!allJabatanMap) {
+    allJabatanMap = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+  }
+
   while (currentId && !visited[currentId]) {
     visited[currentId] = true;
-    var current = fbGet_(getFirebasePath_('jabatan', currentId));
+    var current = allJabatanMap[currentId];
     if (!current) break;
 
     var jenis = (current.jenisJabatan || '').toLowerCase();
@@ -1148,14 +1296,14 @@ function saveABK_(jabatanId, data) {
   if (!jabatanId) throw new Error("jabatanId wajib diisi");
   data.jabatanId = jabatanId;
   data.updatedAt = new Date().toISOString();
-  fbPut_('abk/' + jabatanId, data);
+  fbPut_(getFirebasePath_('abk', jabatanId), data);
   invalidateCache_('abk');
   return { jabatanId: jabatanId, saved: true };
 }
 
 function getABK_(jabatanId) {
   if (!jabatanId) throw new Error("jabatanId wajib diisi");
-  var data = fbGet_('abk/' + jabatanId);
+  var data = fbGet_(getFirebasePath_('abk', jabatanId));
   if (!data) return null;
   data.jabatanId = jabatanId;
   return data;
@@ -1544,6 +1692,7 @@ function cloneYearData_(fromYear, toYear) {
 
   // Tulis data yang telah dimodifikasi ke folder tahun target
   fbPut_(toYear, sourceData);
+  invalidateAllCaches_();
 
   return {
     success: true,
@@ -1563,6 +1712,7 @@ function deleteYearData_(tahun) {
   }
 
   fbDelete_(tahun);
+  invalidateAllCaches_();
 
   return {
     success: true,
@@ -1593,6 +1743,8 @@ function migrateRootTo2026_() {
       migrated.push(ent);
     }
   });
+  
+  invalidateAllCaches_();
   
   return {
     success: true,

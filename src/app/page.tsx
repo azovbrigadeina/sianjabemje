@@ -31,68 +31,42 @@ export default function Home() {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     setCurrentTimeStr(`Hari ini, ${hours}:${minutes} WIB`);
 
+    const controller = new AbortController();
+
     const fetchStats = async () => {
       try {
-        const [opdsRaw, jabatansRaw, abksRaw] = await Promise.all([
-          api.getUnitKerja(),
-          api.readAllEntity('jabatan', ''),
-          api.readAllEntity('abk', '')
-        ]);
-
-        const opds = (opdsRaw || []) as UnitKerja[];
-        const jabatans = (jabatansRaw || []) as Jabatan[];
-        const abks = (abksRaw || []) as { id: string }[];
-
-        const mainOpds = opds.filter(o => !o.parentId);
-        const subOpds = opds.filter(o => o.parentId);
-        const opdDisetujui = opds.filter(o => o.statusValidasi === 'Disetujui').length;
-
-        // Categorize jabatans
-        let jpt = 0;
-        let admin = 0;
-        let pengawas = 0;
-        let pelaksana = 0;
-        let fungsional = 0;
-
-        jabatans.forEach((jbt) => {
-          const jenis = (jbt.jenisJabatan || '').trim();
-          if (jenis === 'Jabatan Pimpinan Tinggi') {
-            jpt++;
-          } else if (jenis === 'Administrator') {
-            admin++;
-          } else if (jenis === 'Pengawas') {
-            pengawas++;
-          } else if (jenis === 'Pelaksana') {
-            pelaksana++;
-          } else if (jenis.startsWith('Fungsional')) {
-            fungsional++;
-          }
-        });
-
-        // Calculate anjab selesai (ikhtisarJabatan is filled)
-        const anjabSelesai = jabatans.filter(jbt => jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5).length;
+        const data = await api.getDashboardStats(controller.signal);
 
         setStats({
-          totalOpdMain: mainOpds.length,
-          totalOpdSub: subOpds.length,
-          totalJabatan: jabatans.length,
-          totalJPT: jpt,
-          totalAdministrator: admin,
-          totalPengawas: pengawas,
-          totalPelaksana: pelaksana,
-          totalFungsional: fungsional,
-          opdDisetujui,
-          anjabSelesai,
-          abkSelesai: abks.length,
+          totalOpdMain: data.totalOpdMain,
+          totalOpdSub: data.totalOpdSub,
+          totalJabatan: data.totalJabatan,
+          totalJPT: data.totalJPT,
+          totalAdministrator: data.totalAdministrator,
+          totalPengawas: data.totalPengawas,
+          totalPelaksana: data.totalPelaksana,
+          totalFungsional: data.totalFungsional,
+          opdDisetujui: data.opdDisetujui,
+          anjabSelesai: data.anjabSelesai,
+          abkSelesai: data.abkSelesai,
         });
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
         console.error("Gagal memuat data statistik", err);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchStats();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const opdProgressPct = stats.totalOpdMain > 0 ? Math.round((stats.opdDisetujui / stats.totalOpdMain) * 100) : 0;

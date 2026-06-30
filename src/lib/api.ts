@@ -72,6 +72,7 @@ async function apiCall<T = unknown>(
   options: {
     params?: Record<string, string>;
     data?: unknown;
+    signal?: AbortSignal;
   } = {}
 ): Promise<T> {
   if (!API_BASE) {
@@ -112,6 +113,7 @@ async function apiCall<T = unknown>(
     method: isWriteOperation ? 'POST' : 'GET',
     headers: isWriteOperation ? { 'Content-Type': 'text/plain' } : undefined,
     redirect: 'follow',
+    signal: options.signal,
   };
   if (options.data) {
     fetchOpts.body = JSON.stringify(options.data);
@@ -141,6 +143,9 @@ async function apiCall<T = unknown>(
 
       return json.data;
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw err;
+      }
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt === 0) {
         // Tunggu 2 detik sebelum retry
@@ -158,8 +163,8 @@ async function apiCall<T = unknown>(
 
 export const api = {
   // -- Unit Kerja --
-  getUnitKerja: () =>
-    apiCall('readAll', 'unitKerja'),
+  getUnitKerja: (signal?: AbortSignal) =>
+    apiCall('readAll', 'unitKerja', { signal }),
 
   createUnitKerja: (data: unknown) =>
     apiCall('create', 'unitKerja', { data }),
@@ -193,8 +198,26 @@ export const api = {
   createEntity: (entity: string, data: unknown) =>
     apiCall('create', entity, { data }),
 
-  readAllEntity: (entity: string, jabatanId: string) =>
-    apiCall('readAll', entity, { params: { parentId: jabatanId } }),
+  readAllEntity: (entity: string, jabatanId: string, signal?: AbortSignal) =>
+    apiCall('readAll', entity, { params: { parentId: jabatanId }, signal }),
+
+  getDashboardStats: (signal?: AbortSignal) =>
+    apiCall<{
+      totalOpdMain: number;
+      totalOpdSub: number;
+      totalJabatan: number;
+      totalJPT: number;
+      totalAdministrator: number;
+      totalPengawas: number;
+      totalPelaksana: number;
+      totalFungsional: number;
+      opdDisetujui: number;
+      opdDiajukan: number;
+      opdRevisi: number;
+      opdDraft: number;
+      anjabSelesai: number;
+      abkSelesai: number;
+    }>('getDashboardStats', 'dashboard', { signal }),
 
   updateEntity: (entity: string, id: string, data: unknown) =>
     apiCall('update', entity, { data, params: { id } }),

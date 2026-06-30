@@ -41,6 +41,7 @@ const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
   "syaratJabatan.temperamenKerja": "syarat_temperamenKerja",
   "syaratJabatan.minatKerja": "syarat_minatKerja",
   "syaratJabatan.upayaFisik": "syarat_upayaFisik",
+  "syaratJabatan.fungsiPekerjaan": "syarat_fungsiPekerjaan",
   
   "syaratJabatan.kondisiFisikName": "syarat_kondisiFisik",
   "syaratJabatan.kondisiFisik.jenisKelamin": "jenisKelamin",
@@ -51,7 +52,41 @@ const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
   "syaratJabatan.kondisiFisik.penampilan": "penampilan",
   
   "hasilKerja": "hasilKerja",
-  "prestasiKerja": "prestasiKerja"
+  "prestasiKerja": "prestasiKerja",
+
+  "bahanKerja.loop": "bahanKerja",
+  "bahanKerja.no": "no",
+  "bahanKerja.namaBahan": "namaBahan",
+  "bahanKerja.penggunaanDalamTugas": "penggunaanDalamTugas",
+
+  "perangkatKerja.loop": "perangkatKerja",
+  "perangkatKerja.no": "no",
+  "perangkatKerja.namaPerangkat": "namaPerangkat",
+  "perangkatKerja.penggunaanUntukTugas": "penggunaanUntukTugas",
+
+  "tanggungJawab.loop": "tanggungJawab",
+  "tanggungJawab.no": "no",
+  "tanggungJawab.uraian": "uraian",
+
+  "wewenang.loop": "wewenang",
+  "wewenang.no": "no",
+  "wewenang.uraian": "uraian",
+
+  "korelasiJabatan.loop": "korelasiJabatan",
+  "korelasiJabatan.no": "no",
+  "korelasiJabatan.namaJabatanTerkait": "namaJabatanTerkait",
+  "korelasiJabatan.unitKerjaInstansi": "unitKerjaInstansi",
+  "korelasiJabatan.dalamHal": "dalamHal",
+
+  "kondisiLingkungan.loop": "kondisiLingkungan",
+  "kondisiLingkungan.no": "no",
+  "kondisiLingkungan.aspek": "aspek",
+  "kondisiLingkungan.faktor": "faktor",
+
+  "risikoBahaya.loop": "risikoBahaya",
+  "risikoBahaya.no": "no",
+  "risikoBahaya.namaRisiko": "namaRisiko",
+  "risikoBahaya.penyebab": "penyebab"
 };
 
 // Helper to flatten nested object keys
@@ -605,6 +640,29 @@ export default function LaporanPage() {
                 Sesuaikan nama tag di dalam file Word Anda dengan data field sistem. Masukkan nama tag dokumen tanpa tanda kurung kurawal. Contoh: jika data Nama Jabatan di Word ditulis sebagai <code>{`{NM_JABATAN}`}</code>, isi kolom Nama Jabatan dengan <code>NM_JABATAN</code>.
               </p>
 
+              {/* Alert Tips Troubleshooting Word */}
+              <div style={{
+                background: "rgba(59, 130, 246, 0.08)",
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+                padding: "1rem 1.25rem",
+                borderRadius: "8px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem"
+              }}>
+                <span style={{ fontWeight: 600, color: "#60a5fa", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  💡 Tips Troubleshooting Template Kustom
+                </span>
+                <p style={{ fontSize: "0.85rem", opacity: 0.9, lineHeight: 1.5, margin: 0 }}>
+                  Jika tag di file Word Anda tidak berubah menjadi data (tetap berupa <code>{`{tag}`}</code>), hal ini biasanya terjadi karena MS Word memecah teks tag Anda ke dalam beberapa blok format XML internal yang berbeda secara otomatis.
+                </p>
+                <ol style={{ fontSize: "0.82rem", opacity: 0.85, paddingLeft: "1.2rem", margin: "0.25rem 0 0 0" }}>
+                  <li>Hapus tag yang bermasalah tersebut di file Word Anda.</li>
+                  <li>Ketik kembali tag tersebut secara polos di Notepad atau text editor biasa terlebih dahulu (misal: <code>{`{namaJabatan}`}</code>).</li>
+                  <li>Copy tag polos dari Notepad, lalu paste ke dalam file Word Anda (hindari memformat tebal/mewarnai kata di tengah-tengah tag).</li>
+                </ol>
+              </div>
+
               <div className={styles.settingsGrid}>
                 {/* Kategori 1: Data Utama */}
                 <div className={styles.mappingCategory}>
@@ -722,6 +780,24 @@ export default function LaporanPage() {
                       onChange={(e) => handleMappingChange("hierarchy.pengawas", e.target.value)}
                     />
                   </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Pelaksana</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["hierarchy.pelaksana"]}
+                      onChange={(e) => handleMappingChange("hierarchy.pelaksana", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Jabatan Fungsional</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["hierarchy.jabatanFungsional"]}
+                      onChange={(e) => handleMappingChange("hierarchy.jabatanFungsional", e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {/* Kategori 3: Loop Tugas Pokok */}
@@ -779,6 +855,15 @@ export default function LaporanPage() {
                       className={styles.mappingInput}
                       value={flatMappings["tugasPokok.waktuPenyelesaian"]}
                       onChange={(e) => handleMappingChange("tugasPokok.waktuPenyelesaian", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Tag Kolom Waktu Efektif</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["tugasPokok.waktuEfektif"]}
+                      onChange={(e) => handleMappingChange("tugasPokok.waktuEfektif", e.target.value)}
                     />
                   </div>
                 </div>
@@ -840,8 +925,388 @@ export default function LaporanPage() {
                       onChange={(e) => handleMappingChange("syaratJabatan.temperamenKerja", e.target.value)}
                     />
                   </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Minat Kerja</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.minatKerja"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.minatKerja", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Upaya Fisik</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.upayaFisik"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.upayaFisik", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Fungsi Pekerjaan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.fungsiPekerjaan"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.fungsiPekerjaan", e.target.value)}
+                    />
+                  </div>
                 </div>
 
+                {/* Kategori 5: Kondisi Fisik */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Syarat Jabatan - Kondisi Fisik</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Nama Objek Kondisi Fisik</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisikName"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisikName", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Jenis Kelamin</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.jenisKelamin"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.jenisKelamin", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Umur</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.umur"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.umur", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Tinggi Badan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.tinggiBadan"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.tinggiBadan", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Berat Badan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.beratBadan"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.beratBadan", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Postur Badan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.posturBadan"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.posturBadan", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Penampilan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["syaratJabatan.kondisiFisik.penampilan"]}
+                      onChange={(e) => handleMappingChange("syaratJabatan.kondisiFisik.penampilan", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Kategori 6: Hasil & Prestasi Kerja */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Hasil & Prestasi Kerja</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Hasil Kerja (Teks/Uraian)</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["hasilKerja"]}
+                      onChange={(e) => handleMappingChange("hasilKerja", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Prestasi Kerja (Teks/Uraian)</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["prestasiKerja"]}
+                      onChange={(e) => handleMappingChange("prestasiKerja", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Kategori 7: Loop Bahan & Perangkat Kerja */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Tabel Loop Bahan & Perangkat</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Bahan Kerja: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["bahanKerja.loop"]}
+                      onChange={(e) => handleMappingChange("bahanKerja.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Bahan Kerja: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["bahanKerja.no"]}
+                      onChange={(e) => handleMappingChange("bahanKerja.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Bahan Kerja: Nama Bahan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["bahanKerja.namaBahan"]}
+                      onChange={(e) => handleMappingChange("bahanKerja.namaBahan", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Bahan Kerja: Penggunaan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["bahanKerja.penggunaanDalamTugas"]}
+                      onChange={(e) => handleMappingChange("bahanKerja.penggunaanDalamTugas", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Perangkat Kerja: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["perangkatKerja.loop"]}
+                      onChange={(e) => handleMappingChange("perangkatKerja.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Perangkat Kerja: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["perangkatKerja.no"]}
+                      onChange={(e) => handleMappingChange("perangkatKerja.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Perangkat Kerja: Nama Perangkat</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["perangkatKerja.namaPerangkat"]}
+                      onChange={(e) => handleMappingChange("perangkatKerja.namaPerangkat", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Perangkat Kerja: Penggunaan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["perangkatKerja.penggunaanUntukTugas"]}
+                      onChange={(e) => handleMappingChange("perangkatKerja.penggunaanUntukTugas", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Kategori 8: Loop Tanggung Jawab & Wewenang */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Tabel Loop Tanggung Jawab & Wewenang</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Tanggung Jawab: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["tanggungJawab.loop"]}
+                      onChange={(e) => handleMappingChange("tanggungJawab.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Tanggung Jawab: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["tanggungJawab.no"]}
+                      onChange={(e) => handleMappingChange("tanggungJawab.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Tanggung Jawab: Uraian</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["tanggungJawab.uraian"]}
+                      onChange={(e) => handleMappingChange("tanggungJawab.uraian", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Wewenang: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["wewenang.loop"]}
+                      onChange={(e) => handleMappingChange("wewenang.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Wewenang: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["wewenang.no"]}
+                      onChange={(e) => handleMappingChange("wewenang.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Wewenang: Uraian</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["wewenang.uraian"]}
+                      onChange={(e) => handleMappingChange("wewenang.uraian", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Kategori 9: Loop Korelasi Jabatan */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Tabel Loop Korelasi Jabatan</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Korelasi Jabatan: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["korelasiJabatan.loop"]}
+                      onChange={(e) => handleMappingChange("korelasiJabatan.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Korelasi Jabatan: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["korelasiJabatan.no"]}
+                      onChange={(e) => handleMappingChange("korelasiJabatan.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Nama Jabatan Terkait</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["korelasiJabatan.namaJabatanTerkait"]}
+                      onChange={(e) => handleMappingChange("korelasiJabatan.namaJabatanTerkait", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Unit Kerja / Instansi</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["korelasiJabatan.unitKerjaInstansi"]}
+                      onChange={(e) => handleMappingChange("korelasiJabatan.unitKerjaInstansi", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Dalam Hal / Hubungan</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["korelasiJabatan.dalamHal"]}
+                      onChange={(e) => handleMappingChange("korelasiJabatan.dalamHal", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Kategori 10: Loop Kondisi Lingkungan & Risiko Bahaya */}
+                <div className={styles.mappingCategory}>
+                  <div className={styles.categoryTitle}>Tabel Loop Lingkungan & Risiko</div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Lingkungan: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["kondisiLingkungan.loop"]}
+                      onChange={(e) => handleMappingChange("kondisiLingkungan.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Lingkungan: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["kondisiLingkungan.no"]}
+                      onChange={(e) => handleMappingChange("kondisiLingkungan.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Lingkungan: Aspek</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["kondisiLingkungan.aspek"]}
+                      onChange={(e) => handleMappingChange("kondisiLingkungan.aspek", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Lingkungan: Faktor</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["kondisiLingkungan.faktor"]}
+                      onChange={(e) => handleMappingChange("kondisiLingkungan.faktor", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Risiko Bahaya: Nama Loop</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["risikoBahaya.loop"]}
+                      onChange={(e) => handleMappingChange("risikoBahaya.loop", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Risiko Bahaya: Tag Kolom No</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["risikoBahaya.no"]}
+                      onChange={(e) => handleMappingChange("risikoBahaya.no", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Risiko Bahaya: Nama Risiko</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["risikoBahaya.namaRisiko"]}
+                      onChange={(e) => handleMappingChange("risikoBahaya.namaRisiko", e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.mappingRow}>
+                    <span className={styles.mappingLabel}>Risiko Bahaya: Penyebab</span>
+                    <input 
+                      className={styles.mappingInput}
+                      value={flatMappings["risikoBahaya.penyebab"]}
+                      onChange={(e) => handleMappingChange("risikoBahaya.penyebab", e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className={styles.actionRow}>

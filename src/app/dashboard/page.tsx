@@ -20,49 +20,40 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchStats = async () => {
       try {
-        const [opdsRaw, jabatansRaw, abkRaw] = await Promise.all([
-          api.getUnitKerja(),
-          api.readAllEntity('jabatan', ''),
-          api.readAllEntity('abk', '')
-        ]);
-
-        const opds = (opdsRaw || []) as UnitKerja[];
-        const jabatans = (jabatansRaw || []) as any[];
-        const abks = (abkRaw || []) as { id: string }[];
-
-        // Logika Kategorisasi OPD seperti di SiTPP
-        // OPD Utama adalah yang tidak memiliki parentId (Badan, Dinas, Kecamatan, Sekretariat, Inspektorat, Satpol PP)
-        // Sub Unit adalah yang memiliki parentId (Bagian, Puskesmas, Rumah Sakit, UPTD) dan dihitung satu kesatuan dengan OPD Utama untuk rekap
-        const mainOpds = opds.filter(o => !o.parentId);
-        const subOpds = opds.filter(o => o.parentId);
-
-        const opdDisetujui = opds.filter(o => o.statusValidasi === 'Disetujui').length;
-        const opdDiajukan = opds.filter(o => o.statusValidasi === 'Diajukan').length;
-        const opdRevisi = opds.filter(o => o.statusValidasi === 'Revisi').length;
-        const opdDraft = opds.filter(o => !o.statusValidasi || o.statusValidasi === 'Draft').length;
-
-        const anjabSelesai = jabatans.filter(jbt => jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5).length;
+        const data = await api.getDashboardStats(controller.signal);
 
         setStats({
-          totalOpdMain: mainOpds.length,
-          totalOpdSub: subOpds.length,
-          totalJabatan: jabatans.length,
-          anjabSelesai,
-          abkSelesai: abks.length,
-          opdDisetujui,
-          opdDiajukan,
-          opdRevisi,
-          opdDraft
+          totalOpdMain: data.totalOpdMain,
+          totalOpdSub: data.totalOpdSub,
+          totalJabatan: data.totalJabatan,
+          anjabSelesai: data.anjabSelesai,
+          abkSelesai: data.abkSelesai,
+          opdDisetujui: data.opdDisetujui,
+          opdDiajukan: data.opdDiajukan,
+          opdRevisi: data.opdRevisi,
+          opdDraft: data.opdDraft
         });
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
         console.error("Gagal memuat statistik", err);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     };
 
     fetchStats();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   return (
