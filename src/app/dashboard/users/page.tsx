@@ -39,6 +39,18 @@ export default function UsersPage() {
   const [successMsg, setSuccessMsg] = useState("");
   const [showSlavaUkraini, setShowSlavaUkraini] = useState(true);
   const [savingFooter, setSavingFooter] = useState(false);
+  const [showSecretSetting, setShowSecretSetting] = useState(false);
+  const [secretClickCount, setSecretClickCount] = useState(0);
+
+  const handleSecretClick = () => {
+    setSecretClickCount((prev) => {
+      if (prev + 1 >= 5) {
+        setShowSecretSetting(true);
+        return 0;
+      }
+      return prev + 1;
+    });
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -318,44 +330,58 @@ export default function UsersPage() {
 
       {/* Pengaturan Tampilan Card */}
       <div className={`${styles.tableCard} glass-panel`} style={{ padding: "2rem", marginTop: "2rem", maxWidth: "600px" }}>
-        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>⚙️ Pengaturan Tampilan</h2>
+        <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>
+          <span 
+            onClick={handleSecretClick} 
+            style={{ cursor: "default", userSelect: "none" }}
+          >
+            ⚙️
+          </span>{" "}
+          Pengaturan Tampilan
+        </h2>
         <p style={{ fontSize: "0.85rem", opacity: 0.7, marginBottom: "1.5rem" }}>
           Konfigurasi elemen visual aplikasi Sianjab.
         </p>
 
-        <form onSubmit={handleSaveFooter} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <input
-              type="checkbox"
-              id="showSlavaUkraini"
-              checked={showSlavaUkraini}
-              onChange={(e) => setShowSlavaUkraini(e.target.checked)}
+        {showSecretSetting ? (
+          <form onSubmit={handleSaveFooter} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <input
+                type="checkbox"
+                id="showSlavaUkraini"
+                checked={showSlavaUkraini}
+                onChange={(e) => setShowSlavaUkraini(e.target.checked)}
+                style={{
+                  width: "1.2rem",
+                  height: "1.2rem",
+                  cursor: "pointer",
+                }}
+              />
+              <label htmlFor="showSlavaUkraini" style={{ fontWeight: 600, cursor: "pointer", fontSize: "0.9rem" }}>
+                Tampilkan dukungan Ukraina di footer (#slavaukraini 🇮🇩 x 🇺🇦)
+              </label>
+            </div>
+
+            <hr style={{ border: "none", borderTop: "1px solid var(--glass-border)", margin: "0.5rem 0" }} />
+
+            <button
+              type="submit"
+              disabled={savingFooter}
+              className="btn-primary"
               style={{
-                width: "1.2rem",
-                height: "1.2rem",
-                cursor: "pointer",
+                padding: "10px 20px",
+                fontSize: "0.85rem",
+                alignSelf: "flex-end"
               }}
-            />
-            <label htmlFor="showSlavaUkraini" style={{ fontWeight: 600, cursor: "pointer", fontSize: "0.9rem" }}>
-              Tampilkan dukungan Ukraina di footer (#slavaukraini 🇮🇩 x 🇺🇦)
-            </label>
-          </div>
-
-          <hr style={{ border: "none", borderTop: "1px solid var(--glass-border)", margin: "0.5rem 0" }} />
-
-          <button
-            type="submit"
-            disabled={savingFooter}
-            className="btn-primary"
-            style={{
-              padding: "10px 20px",
-              fontSize: "0.85rem",
-              alignSelf: "flex-end"
-            }}
-          >
-            {savingFooter ? "Menyimpan..." : "💾 Simpan Tampilan"}
-          </button>
-        </form>
+            >
+              {savingFooter ? "Menyimpan..." : "💾 Simpan Tampilan"}
+            </button>
+          </form>
+        ) : (
+          <p style={{ fontSize: "0.85rem", opacity: 0.5, fontStyle: "italic" }}>
+            Tidak ada konfigurasi visual aktif saat ini.
+          </p>
+        )}
       </div>
 
       {/* Modal Form */}
