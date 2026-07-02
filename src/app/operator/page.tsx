@@ -27,9 +27,11 @@ export default function OperatorHome() {
 
     const fetchData = async () => {
       try {
-        // Fetch OPD name
-        const opdsRaw = await api.getUnitKerja();
-        const opds = (opdsRaw as UnitKerja[]) || [];
+        // 1 request menggantikan 3 request sequential
+        const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk']);
+        const opds = (bulkData.unitKerja || []) as UnitKerja[];
+        const jabatans = (bulkData.jabatan || []) as Jabatan[];
+        const abks = (bulkData.abk || []) as { id: string }[];
 
         // Also collect sub-unit IDs under this OPD
         const thisOpd = opds.find((o) => o.id === user.unitKerjaId);
@@ -42,16 +44,12 @@ export default function OperatorHome() {
         const allSubIds = opds
           .filter((o) => o.parentId === user.unitKerjaId)
           .map((o) => o.id);
-        const allUnitIds = [user.unitKerjaId, ...allSubIds];
+        const allUnitIdSet = new Set([user.unitKerjaId, ...allSubIds]);
 
-        // Fetch jabatan filtered
-        const jabatansRaw = await api.readAllEntity("jabatan", "");
-        const jabatans = (jabatansRaw as Jabatan[]) || [];
-        const myJabatan = jabatans.filter((j) => allUnitIds.includes(j.unitKerjaId || ""));
+        // Filter jabatan menggunakan Set.has() — O(1) per item
+        const myJabatan = jabatans.filter((j) => allUnitIdSet.has(j.unitKerjaId || ""));
 
-        // Fetch ABK
-        const abkRaw = await api.readAllEntity("abk", "");
-        const abks = (abkRaw as { id: string }[]) || [];
+        // Filter ABK
         const myJabatanIds = new Set(myJabatan.map((j) => j.id));
         const myAbks = abks.filter((a) => myJabatanIds.has(a.id));
 

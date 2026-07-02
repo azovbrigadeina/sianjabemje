@@ -273,6 +273,9 @@ function handleRequest_(e) {
       case 'saveMultiEntity':
         result = saveMultiEntity_(entity, parentId, data);
         break;
+      case 'saveBulkAnjabData':
+        result = saveBulkAnjabData_(parentId, data);
+        break;
       case 'login':
         result = loginUser_(data);
         break;
@@ -301,7 +304,7 @@ function handleRequest_(e) {
         result = generateAnjabWithAI_(params.namaJabatan, params.unitKerja, params.namaOPD);
         break;
       case 'testAiConnection':
-        result = testAiConnection_(data.geminiApiKey);
+        result = testAiConnection_(data);
         break;
 
       case 'syncToSheet':
@@ -337,6 +340,21 @@ function handleRequest_(e) {
       case 'getDeadline':
         result = fbGet_('settings/deadline');
         break;
+
+      // === BULK DATA (read-only) ===
+      // Mengembalikan beberapa entity sekaligus dalam 1 request.
+      // Mengurangi jumlah round-trip dari client ke GAS.
+      // Hanya untuk operasi baca — tidak mengubah data apapun.
+      case 'getBulkData':
+        var bulkEntities = (params.entities || '').split(',');
+        var bulkResult = {};
+        bulkEntities.forEach(function(ent) {
+          var e = ent.trim();
+          if (e) bulkResult[e] = readAllRecords_(e, '');
+        });
+        result = bulkResult;
+        break;
+
       default:
         result = { error: 'Aksi tidak dikenal: ' + action };
     }
@@ -429,10 +447,21 @@ function readRecord_(entity, id) {
 
 function readAllRecords_(entity, parentId) {
   // Gunakan cache untuk entity data master yang sering dibaca
-  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk'];
+  // TTL disesuaikan: entity yang jarang berubah di-cache lebih lama
+  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok'];
+  var cacheEntityTTL = {
+    'unitKerja': 600,          // 10 menit — jarang berubah
+    'referensiJabatan': 1800,  // 30 menit — sangat jarang berubah
+    'jabatan': 300,            // 5 menit
+    'abk': 300,                // 5 menit
+    'tugasPokok': 300,         // 5 menit
+    'users': 300,              // 5 menit
+    'settings': 300            // 5 menit
+  };
   var path = getFirebasePath_(entity);
+  var ttl = cacheEntityTTL[entity] || 300;
   var allData = (cacheable.indexOf(entity) !== -1)
-    ? cachedFbGet_(path, 300)
+    ? cachedFbGet_(path, ttl)
     : fbGet_(path);
   if (!allData) return [];
 
@@ -589,6 +618,148 @@ function saveMultiEntity_(entity, parentId, rows) {
   fbPatch_(getFirebasePath_(entity), patchPayload);
   invalidateCache_(entity);
   return { success: true, count: rows ? rows.length : 0 };
+}
+
+
+// Save all Anjab/ABK draft data in bulk (1 parallel read + 1 parallel write)
+function saveBulkAnjabData_(parentId, payload) {
+  if (!payload) return { success: false, error: 'Payload data kosong' };
+
+  var singleEntities = ['kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja'];
+  var multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
+  var allEntities = singleEntities.concat(multiEntities);
+
+  var baseUrl = FIREBASE_URL + '/';
+  var authQuery = '.json?auth=' + FIREBASE_SECRET;
+
+  // 1. Fetch current data for all tables in parallel to find existing records/keys
+  var readRequests = [];
+  allEntities.forEach(function(ent) {
+    readRequests.push({
+      url: baseUrl + getFirebasePath_(ent) + authQuery,
+      method: 'get',
+      muteHttpExceptions: true
+    });
+  });
+
+  var readResponses = UrlFetchApp.fetchAll(readRequests);
+  var currentData = {};
+  allEntities.forEach(function(ent, index) {
+    var res = readResponses[index];
+    if (res.getResponseCode() === 200) {
+      currentData[ent] = JSON.parse(res.getContentText()) || {};
+    } else {
+      currentData[ent] = {};
+    }
+  });
+
+  // 2. Prepare parallel write requests
+  var writeRequests = [];
+
+  // 2.1. Update Jabatan (ikhtisarJabatan)
+  if (payload.jabatan) {
+    payload.jabatan.updatedAt = new Date().toISOString();
+    writeRequests.push({
+      url: baseUrl + getFirebasePath_('jabatan', parentId) + authQuery,
+      method: 'patch',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload.jabatan),
+      muteHttpExceptions: true
+    });
+  }
+
+  // 2.2. Single Entities
+  singleEntities.forEach(function(ent) {
+    if (payload[ent]) {
+      var itemData = payload[ent];
+      itemData.jabatanId = parentId;
+
+      var existingId = null;
+      var tableData = currentData[ent];
+      if (tableData) {
+        var keys = Object.keys(tableData);
+        for (var i = 0; i < keys.length; i++) {
+          if (tableData[keys[i]].jabatanId === parentId) {
+            existingId = keys[i];
+            break;
+          }
+        }
+      }
+
+      if (existingId) {
+        itemData.updatedAt = new Date().toISOString();
+        writeRequests.push({
+          url: baseUrl + getFirebasePath_(ent, existingId) + authQuery,
+          method: 'patch',
+          contentType: 'application/json',
+          payload: JSON.stringify(itemData),
+          muteHttpExceptions: true
+        });
+      } else {
+        itemData.createdAt = new Date().toISOString();
+        itemData.updatedAt = new Date().toISOString();
+        writeRequests.push({
+          url: baseUrl + getFirebasePath_(ent) + authQuery,
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(itemData),
+          muteHttpExceptions: true
+        });
+      }
+    }
+  });
+
+  // 2.3. Multi Entities
+  multiEntities.forEach(function(ent) {
+    if (payload[ent]) {
+      var newRows = payload[ent];
+      var patchPayload = {};
+
+      // Mark existing ones for deletion
+      var tableData = currentData[ent];
+      if (tableData) {
+        var keys = Object.keys(tableData);
+        for (var i = 0; i < keys.length; i++) {
+          if (tableData[keys[i]].jabatanId === parentId) {
+            patchPayload[keys[i]] = null;
+          }
+        }
+      }
+
+      // Add new rows
+      if (newRows && Array.isArray(newRows)) {
+        newRows.forEach(function(row) {
+          delete row.id;
+          var newId = 'row_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
+          row.jabatanId = parentId;
+          row.createdAt = new Date().toISOString();
+          row.updatedAt = new Date().toISOString();
+          patchPayload[newId] = row;
+        });
+      }
+
+      writeRequests.push({
+        url: baseUrl + getFirebasePath_(ent) + authQuery,
+        method: 'patch',
+        contentType: 'application/json',
+        payload: JSON.stringify(patchPayload),
+        muteHttpExceptions: true
+      });
+    }
+  });
+
+  // 3. Execute all write requests in parallel
+  if (writeRequests.length > 0) {
+    UrlFetchApp.fetchAll(writeRequests);
+  }
+
+  // 4. Invalidate all cache
+  var cacheEntities = ['jabatan'].concat(allEntities);
+  cacheEntities.forEach(function(ent) {
+    invalidateCache_(ent);
+  });
+
+  return { success: true, requestCount: writeRequests.length };
 }
 
 
@@ -1756,12 +1927,7 @@ function migrateRootTo2026_() {
 function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
   // Read custom AI configuration from Firebase /settings/aiConfig if available
   var aiConfig = fbGet_('settings/aiConfig') || {};
-  var apiKey = aiConfig.geminiApiKey || PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
-  var modelName = aiConfig.geminiModel || 'gemini-2.5-flash';
-
-  if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
-    throw new Error("Kunci API Gemini (API Key) belum dikonfigurasi. Silakan masuk ke menu Pengaturan untuk memasukkan API Key.");
-  }
+  var activeProvider = aiConfig.activeProvider || 'gemini';
 
   var prompt = "Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: " + namaJabatan + 
                " yang berada di Unit Kerja: " + unitKerja + 
@@ -1901,145 +2067,256 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
                "- minatKerja hanya boleh berisi kode dari: 1a, 1b, 2a, 2b, 3a, 3b, 4a, 4b, 5a, 5b.\n" +
                "- upayaFisik hanya boleh berisi nilai dari: Berdiri, Berjalan, Duduk, Mengangkat, Membawa, Mendorong, Menarik, Memanjat, Menyimpan imbangan, Menunduk, Berlutut, Membungkuk, Merangkak, Menjangkau, Memegang, Bekerja dengan jari, Meraba, Berbicara, Mendengar, Melihat.";
 
-  var url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+  if (aiConfig.customPromptTemplate && aiConfig.customPromptTemplate.toString().trim() !== "") {
+    prompt = aiConfig.customPromptTemplate
+      .replace(/{namaJabatan}/g, namaJabatan)
+      .replace(/{unitKerja}/g, unitKerja)
+      .replace(/{namaOPD}/g, namaOPD);
+  }
 
-  var payload = {
-    contents: [{
-      parts: [{
-        text: prompt
-      }]
-    }],
-    generationConfig: {
-      responseMimeType: "application/json"
+  if (activeProvider === 'gemini') {
+    var apiKey = aiConfig.geminiApiKey || PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+    var modelName = aiConfig.geminiModel || 'gemini-2.5-flash';
+
+    if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
+      throw new Error("Kunci API Gemini belum dikonfigurasi. Silakan masuk ke menu Pengaturan untuk memasukkan API Key.");
     }
+
+    var url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+    var payload = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }],
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    };
+
+    var options = {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    try {
+      var response = UrlFetchApp.fetch(url, options);
+      var responseText = response.getContentText();
+      var responseJson = JSON.parse(responseText);
+
+      if (responseJson.error) {
+        var err = responseJson.error;
+        var errMsg = err.message || "";
+        var status = err.status || "";
+        var code = err.code || 500;
+
+        if (status === "RESOURCE_EXHAUSTED" || code === 429) {
+          throw new Error("Kuota API Gemini habis (RESOURCE_EXHAUSTED).");
+        } else if (code === 400 && errMsg.indexOf("API key not valid") > -1) {
+          throw new Error("Kunci API Gemini tidak valid.");
+        } else {
+          throw new Error("Eror dari Gemini API (" + code + "): " + errMsg);
+        }
+      }
+
+      if (responseJson.candidates && responseJson.candidates[0].content.parts[0].text) {
+        var textResult = responseJson.candidates[0].content.parts[0].text.trim();
+        if (textResult.indexOf("```json") === 0) {
+          textResult = textResult.substring(7);
+        }
+        if (textResult.lastIndexOf("```") === textResult.length - 3) {
+          textResult = textResult.substring(0, textResult.length - 3);
+        }
+        var parsedData = JSON.parse(textResult.trim());
+        return normalizeAiAnjabDraft_(parsedData);
+      } else {
+        throw new Error("Respons dari Google Gemini tidak berisi draf teks.");
+      }
+    } catch (e) {
+      if (e.message.indexOf("Kunci API Gemini") > -1 || 
+          e.message.indexOf("Kuota API Gemini") > -1 || 
+          e.message.indexOf("Eror dari Gemini API") > -1 ||
+          e.message.indexOf("Respons dari Google Gemini") > -1) {
+        throw e;
+      }
+      throw new Error("Gagal memanggil Gemini API: " + e.message);
+    }
+  } else {
+    var apiKey = "";
+    var modelName = "";
+    var endpoint = "";
+
+    if (activeProvider === 'openai') {
+      apiKey = aiConfig.openaiApiKey || PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY') || '';
+      modelName = aiConfig.openaiModel || 'gpt-4o-mini';
+      endpoint = "https://api.openai.com/v1/chat/completions";
+    } else if (activeProvider === 'deepseek') {
+      apiKey = aiConfig.deepseekApiKey || PropertiesService.getScriptProperties().getProperty('DEEPSEEK_API_KEY') || '';
+      modelName = aiConfig.deepseekModel || 'deepseek-chat';
+      endpoint = "https://api.deepseek.com/v1/chat/completions";
+    } else if (activeProvider === 'groq') {
+      apiKey = aiConfig.groqApiKey || PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
+      modelName = aiConfig.groqModel || 'llama-3.3-70b-versatile';
+      endpoint = "https://api.groq.com/openai/v1/chat/completions";
+    } else if (activeProvider === 'openrouter') {
+      apiKey = aiConfig.openrouterApiKey || PropertiesService.getScriptProperties().getProperty('OPENROUTER_API_KEY') || '';
+      modelName = aiConfig.openrouterModel || 'google/gemini-2.5-flash';
+      endpoint = "https://openrouter.ai/api/v1/chat/completions";
+    } else if (activeProvider === 'openai-compatible') {
+      apiKey = aiConfig.openaiCompatibleApiKey || '';
+      modelName = aiConfig.openaiCompatibleModel || 'gpt-4o-mini';
+      var baseUrl = aiConfig.openaiCompatibleBaseUrl || 'https://api.openai.com/v1';
+      baseUrl = baseUrl.replace(/\/$/, "");
+      endpoint = baseUrl + "/chat/completions";
+    }
+
+    if (!apiKey && activeProvider !== 'openai-compatible') {
+      throw new Error("Kunci API untuk provider " + activeProvider + " belum dikonfigurasi.");
+    }
+
+    return callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt);
+  }
+}
+
+function testAiConnection_(data) {
+  var activeProvider = data.activeProvider || 'gemini';
+  var apiKey = '';
+  var url = '';
+  var headers = {};
+
+  if (activeProvider === 'gemini') {
+    apiKey = data.geminiApiKey;
+    if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
+      return { success: false, error: "Kunci API Gemini belum diisi." };
+    }
+    url = "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey;
+  } else if (activeProvider === 'openai') {
+    apiKey = data.openaiApiKey;
+    if (!apiKey) return { success: false, error: "Kunci API OpenAI belum diisi." };
+    url = "https://api.openai.com/v1/models";
+    headers["Authorization"] = "Bearer " + apiKey;
+  } else if (activeProvider === 'deepseek') {
+    apiKey = data.deepseekApiKey;
+    if (!apiKey) return { success: false, error: "Kunci API DeepSeek belum diisi." };
+    url = "https://api.deepseek.com/v1/models";
+    headers["Authorization"] = "Bearer " + apiKey;
+  } else if (activeProvider === 'groq') {
+    apiKey = data.groqApiKey;
+    if (!apiKey) return { success: false, error: "Kunci API Groq belum diisi." };
+    url = "https://api.groq.com/openai/v1/models";
+    headers["Authorization"] = "Bearer " + apiKey;
+  } else if (activeProvider === 'openrouter') {
+    apiKey = data.openrouterApiKey;
+    if (!apiKey) return { success: false, error: "Kunci API OpenRouter belum diisi." };
+    url = "https://openrouter.ai/api/v1/models";
+    headers["Authorization"] = "Bearer " + apiKey;
+  } else if (activeProvider === 'openai-compatible') {
+    apiKey = data.openaiCompatibleApiKey;
+    var baseUrl = data.openaiCompatibleBaseUrl || '';
+    if (!baseUrl) return { success: false, error: "Base URL API belum diisi." };
+    baseUrl = baseUrl.replace(/\/$/, "");
+    url = baseUrl + "/models";
+    if (apiKey) {
+      headers["Authorization"] = "Bearer " + apiKey;
+    }
+  }
+
+  var options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
   };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseText = response.getContentText();
+    var responseJson = JSON.parse(responseText);
+
+    if (responseJson.error) {
+      var err = responseJson.error;
+      var status = err.status || "";
+      var code = err.code || 500;
+      var errMsg = err.message || "";
+      return { success: false, error: "Eror API (" + code + "): " + errMsg };
+    }
+
+    var availableModels = [];
+    if (activeProvider === 'gemini') {
+      if (responseJson.models) {
+        for (var i = 0; i < responseJson.models.length; i++) {
+          var model = responseJson.models[i];
+          if (model.supportedGenerationMethods && model.supportedGenerationMethods.indexOf("generateContent") > -1) {
+            var cleanName = model.name.replace(/^models\//, "");
+            availableModels.push({ name: cleanName, displayName: model.displayName || cleanName });
+          }
+        }
+      }
+    } else {
+      if (responseJson.data) {
+        for (var i = 0; i < responseJson.data.length; i++) {
+          var m = responseJson.data[i];
+          availableModels.push({ name: m.id, displayName: m.id });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: "Koneksi berhasil! Kunci API aktif dan siap digunakan.",
+      models: availableModels
+    };
+  } catch (e) {
+    return { success: false, error: "Gagal terhubung ke API: " + e.message };
+  }
+}
+
+function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt) {
+  var payload = {
+    model: modelName,
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    response_format: { type: "json_object" }
+  };
+
+  var headers = {
+    "Content-Type": "application/json"
+  };
+  if (apiKey) {
+    headers["Authorization"] = "Bearer " + apiKey;
+  }
 
   var options = {
     method: "post",
-    contentType: "application/json",
+    headers: headers,
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
   try {
-    var response = UrlFetchApp.fetch(url, options);
+    var response = UrlFetchApp.fetch(endpoint, options);
     var responseText = response.getContentText();
     var responseJson = JSON.parse(responseText);
 
-    // Deteksi eror eksplisit dari API Google
     if (responseJson.error) {
-      var err = responseJson.error;
-      var errMsg = err.message || "";
-      var status = err.status || "";
-      var code = err.code || 500;
-
-      if (status === "RESOURCE_EXHAUSTED" || code === 429) {
-        throw new Error("Kuota API Gemini habis (RESOURCE_EXHAUSTED). Silakan tunggu beberapa saat atau hubungkan kunci API dengan limit yang lebih besar.");
-      } else if (code === 400 && errMsg.indexOf("API key not valid") > -1) {
-        throw new Error("Kunci API Gemini tidak valid. Harap periksa kembali pengaturan API Key Anda.");
-      } else {
-        throw new Error("Eror dari Gemini API (" + code + "): " + errMsg);
-      }
+      var errMsg = typeof responseJson.error === 'object' ? (responseJson.error.message || JSON.stringify(responseJson.error)) : responseJson.error;
+      throw new Error("Eror dari API (" + modelName + "): " + errMsg);
     }
 
-    if (responseJson.candidates && responseJson.candidates[0].content.parts[0].text) {
-      var textResult = responseJson.candidates[0].content.parts[0].text.trim();
-
-      if (textResult.indexOf("```json") === 0) {
-        textResult = textResult.substring(7);
-      }
-      if (textResult.lastIndexOf("```") === textResult.length - 3) {
-        textResult = textResult.substring(0, textResult.length - 3);
-      }
-
-      var parsedData = JSON.parse(textResult.trim());
+    if (responseJson.choices && responseJson.choices[0] && responseJson.choices[0].message) {
+      var textResult = responseJson.choices[0].message.content.trim();
+      var parsedData = JSON.parse(textResult);
       return normalizeAiAnjabDraft_(parsedData);
     } else {
-      throw new Error("Respons dari Google Gemini tidak berisi draf teks.");
+      throw new Error("Respons dari API tidak berisi draf teks.");
     }
   } catch (e) {
-    // Bubble up if it's already a descriptive error we threw
-    if (e.message.indexOf("Kunci API Gemini") > -1 || 
-        e.message.indexOf("Kuota API Gemini") > -1 || 
-        e.message.indexOf("Eror dari Gemini API") > -1 ||
-        e.message.indexOf("Respons dari Google Gemini") > -1) {
-      throw e;
-    }
-    throw new Error("Gagal memanggil Gemini API: " + e.message);
-  }
-}
-
-function testAiConnection_(apiKey) {
-  if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
-    return { success: false, error: "Kunci API Gemini belum diisi." };
-  }
-
-  var url = "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey;
-  var options = {
-    method: "get",
-    muteHttpExceptions: true
-  };
-
-  try {
-    var response = UrlFetchApp.fetch(url, options);
-    var responseText = response.getContentText();
-    var responseJson = JSON.parse(responseText);
-
-    if (responseJson.error) {
-      var err = responseJson.error;
-      var status = err.status || "";
-      var code = err.code || 500;
-      var errMsg = err.message || "";
-
-      if (status === "RESOURCE_EXHAUSTED" || code === 429) {
-        return { 
-          success: false, 
-          code: 429, 
-          status: "RESOURCE_EXHAUSTED", 
-          error: "Kuota habis (RESOURCE_EXHAUSTED). Limit harian/menit tercapai." 
-        };
-      } else if (code === 400 && errMsg.indexOf("API key not valid") > -1) {
-        return { 
-          success: false, 
-          code: 400, 
-          status: "INVALID_KEY", 
-          error: "Kunci API tidak valid. Silakan periksa kembali." 
-        };
-      } else {
-        return { 
-          success: false, 
-          code: code, 
-          status: status, 
-          error: "Eror (" + code + "): " + errMsg 
-        };
-      }
-    }
-
-    if (responseJson.models && responseJson.models.length > 0) {
-      var availableModels = [];
-      for (var i = 0; i < responseJson.models.length; i++) {
-        var model = responseJson.models[i];
-        if (model.supportedGenerationMethods && model.supportedGenerationMethods.indexOf("generateContent") > -1) {
-          var cleanName = model.name.replace(/^models\//, "");
-          var displayName = model.displayName || cleanName;
-          
-          availableModels.push({
-            name: cleanName,
-            displayName: displayName
-          });
-        }
-      }
-      
-      return { 
-        success: true, 
-        message: "Koneksi berhasil! Kunci API aktif dan siap digunakan.",
-        models: availableModels
-      };
-    } else {
-      return { success: false, error: "Tidak ada model yang ditemukan untuk kunci API ini." };
-    }
-  } catch (e) {
-    return { success: false, error: "Gagal terhubung ke API Google: " + e.message };
+    throw new Error("Gagal memanggil API (" + modelName + "): " + e.message);
   }
 }
 

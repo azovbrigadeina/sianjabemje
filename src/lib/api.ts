@@ -12,10 +12,12 @@ interface ApiResponse<T = unknown> {
 }
 
 // =============================================
-// CLIENT-SIDE CACHE
+// CLIENT-SIDE CACHE (Memory + SessionStorage)
 // Hanya untuk GET requests. Setiap operasi write
 // (create/update/delete/save) langsung MENGHAPUS
 // SELURUH cache supaya user selalu lihat data terbaru.
+// Cache bertahan saat F5 refresh (sessionStorage),
+// tapi hilang saat tab ditutup.
 // =============================================
 
 interface CacheEntry {
@@ -23,31 +25,75 @@ interface CacheEntry {
   expiry: number;
 }
 
+// In-memory cache (fast primary)
 const API_CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 menit
+const SESSION_CACHE_PREFIX = 'sianjab_api_cache_';
 
-/** Hapus SELURUH cache — dipanggil setiap kali ada operasi write */
+/** Hapus SELURUH cache (memory + sessionStorage) — dipanggil setiap kali ada operasi write */
 function invalidateAllCache() {
   API_CACHE.clear();
-}
-
-/** Ambil dari cache jika masih valid */
-function getFromCache<T>(key: string): T | null {
-  const entry = API_CACHE.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiry) {
-    API_CACHE.delete(key);
-    return null;
+  if (typeof sessionStorage !== 'undefined') {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith(SESSION_CACHE_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => sessionStorage.removeItem(k));
   }
-  return entry.data as T;
 }
 
-/** Simpan ke cache */
+/** Ambil dari cache jika masih valid (memory first, then sessionStorage) */
+function getFromCache<T>(key: string): T | null {
+  // Check memory first (fastest)
+  const memEntry = API_CACHE.get(key);
+  if (memEntry) {
+    if (Date.now() > memEntry.expiry) {
+      API_CACHE.delete(key);
+    } else {
+      return memEntry.data as T;
+    }
+  }
+
+  // Fallback: check sessionStorage (survives F5 refresh)
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(SESSION_CACHE_PREFIX + key);
+      if (raw) {
+        const entry: CacheEntry = JSON.parse(raw);
+        if (Date.now() <= entry.expiry) {
+          // Re-hydrate into memory cache for speed
+          API_CACHE.set(key, entry);
+          return entry.data as T;
+        }
+        sessionStorage.removeItem(SESSION_CACHE_PREFIX + key);
+      }
+    } catch {
+      // Ignore parse errors or quota exceeded
+    }
+  }
+
+  return null;
+}
+
+/** Simpan ke cache (memory + sessionStorage) */
 function setCache(key: string, data: unknown) {
-  API_CACHE.set(key, {
+  const entry: CacheEntry = {
     data,
     expiry: Date.now() + CACHE_TTL_MS,
-  });
+  };
+  API_CACHE.set(key, entry);
+
+  // Persist to sessionStorage (survives F5 refresh)
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.setItem(SESSION_CACHE_PREFIX + key, JSON.stringify(entry));
+    } catch {
+      // Quota exceeded — silently skip, memory cache still works
+    }
+  }
 }
 
 // =============================================
@@ -66,49 +112,20 @@ function getAuthToken(): string {
 // CORE API CALL
 // =============================================
 
-async function apiCall<T = unknown>(
-  action: string,
-  entity: string,
+// Queue hanya untuk WRITE operations (serialize writes, parallelkan reads)
+let writeQueuePromise = Promise.resolve();
+
+// In-flight deduplication untuk GET requests (cegah duplicate fetch yang sama)
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+async function executeActualRequest<T = unknown>(
+  url: string,
+  isWriteOperation: boolean,
   options: {
-    params?: Record<string, string>;
     data?: unknown;
     signal?: AbortSignal;
   } = {}
 ): Promise<T> {
-  if (!API_BASE) {
-    console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
-  }
-
-  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser'];
-  const isWriteOperation = writeActions.includes(action) || !!options.data;
-  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
-  const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
-  if (options.params) {
-    Object.entries(options.params).forEach(([k, v]) => searchParams.set(k, v));
-  }
-
-  // Sertakan auth token untuk semua request kecuali login
-  const authToken = getAuthToken();
-  if (authToken && action !== 'login') {
-    searchParams.set('token', authToken);
-  }
-
-  const url = `${API_BASE}?${searchParams.toString()}`;
-
-  // Cek cache untuk GET request (non-write)
-  if (!isWriteOperation) {
-    const cached = getFromCache<T>(url);
-    if (cached !== null) {
-      return cached;
-    }
-  }
-
-  // Jika ini operasi write → langsung hapus SELURUH cache
-  // supaya setelah save/delete, data yang ditampilkan pasti fresh
-  if (isWriteOperation) {
-    invalidateAllCache();
-  }
-
   const fetchOpts: RequestInit = {
     method: isWriteOperation ? 'POST' : 'GET',
     headers: isWriteOperation ? { 'Content-Type': 'text/plain' } : undefined,
@@ -148,13 +165,93 @@ async function apiCall<T = unknown>(
       }
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt === 0) {
-        // Tunggu 2 detik sebelum retry
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Tunggu 500ms sebelum retry (turun dari 2 detik)
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
   }
 
   throw lastError || new Error('API request failed after retry');
+}
+
+async function apiCall<T = unknown>(
+  action: string,
+  entity: string,
+  options: {
+    params?: Record<string, string>;
+    data?: unknown;
+    signal?: AbortSignal;
+  } = {}
+): Promise<T> {
+  if (!API_BASE) {
+    console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
+  }
+
+  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData'];
+  const isWriteOperation = writeActions.includes(action) || !!options.data;
+  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+  const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
+  if (options.params) {
+    Object.entries(options.params).forEach(([k, v]) => searchParams.set(k, v));
+  }
+
+  // Sertakan auth token untuk semua request kecuali login
+  const authToken = getAuthToken();
+  if (authToken && action !== 'login') {
+    searchParams.set('token', authToken);
+  }
+
+  const url = `${API_BASE}?${searchParams.toString()}`;
+
+  // Cek cache untuk GET request (non-write) — memory + sessionStorage
+  if (!isWriteOperation) {
+    const cached = getFromCache<T>(url);
+    if (cached !== null) {
+      return cached;
+    }
+
+    // Dedup: jika request yang sama sedang in-flight, tunggu hasilnya
+    const inFlight = inFlightRequests.get(url);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+  }
+
+  // Jika ini operasi write → langsung hapus SELURUH cache
+  // supaya setelah save/delete, data yang ditampilkan pasti fresh
+  if (isWriteOperation) {
+    invalidateAllCache();
+  }
+
+  if (isWriteOperation) {
+    // WRITE: serialisasikan (antri satu per satu) untuk mencegah race condition
+    const result = await new Promise<T>((resolve, reject) => {
+      writeQueuePromise = writeQueuePromise.then(async () => {
+        try {
+          const resData = await executeActualRequest<T>(url, true, options);
+          resolve(resData);
+        } catch (err) {
+          reject(err);
+        }
+      }).catch(async () => {
+        try {
+          const resData = await executeActualRequest<T>(url, true, options);
+          resolve(resData);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    return result;
+  } else {
+    // READ: jalankan langsung (paralel), dengan in-flight deduplication
+    const requestPromise = executeActualRequest<T>(url, false, options)
+      .finally(() => {
+        inFlightRequests.delete(url);
+      });
+    inFlightRequests.set(url, requestPromise);
+    return requestPromise;
+  }
 }
 
 // =============================================
@@ -200,6 +297,13 @@ export const api = {
 
   readAllEntity: (entity: string, jabatanId: string, signal?: AbortSignal) =>
     apiCall('readAll', entity, { params: { parentId: jabatanId }, signal }),
+
+  // -- Bulk Data (read-only) --
+  // Fetch beberapa entity sekaligus dalam 1 request ke GAS.
+  // Mengurangi jumlah round-trip secara drastis.
+  getBulkData: <T = Record<string, any[]>>(entities: string[], signal?: AbortSignal) =>
+    apiCall<T>('getBulkData', '', { params: { entities: entities.join(',') }, signal }),
+
 
   getDashboardStats: (signal?: AbortSignal) =>
     apiCall<{
@@ -292,13 +396,13 @@ export const api = {
   getOrgSetting: () =>
     apiCall<{ enabled: boolean } | null>('read', 'settings', { params: { id: 'orgSetting' } }),
 
-  saveAiConfig: (data: { geminiApiKey: string; geminiModel: string }) =>
+  saveAiConfig: (data: any) =>
     apiCall('update', 'settings', { data, params: { id: 'aiConfig' } }),
 
   getAiConfig: () =>
-    apiCall<{ geminiApiKey?: string; geminiModel?: string } | null>('read', 'settings', { params: { id: 'aiConfig' } }),
+    apiCall<any | null>('read', 'settings', { params: { id: 'aiConfig' } }),
 
-  testAiConnection: (data: { geminiApiKey: string; geminiModel: string }) =>
+  testAiConnection: (data: any) =>
     apiCall<{ success: boolean; message?: string; error?: string; code?: number; status?: string; models?: { name: string; displayName: string }[] }>('testAiConnection', '', { data }),
 
   saveFooterSetting: (data: { showSlavaUkraini: boolean }) =>
@@ -317,6 +421,9 @@ export const api = {
   // -- AI Generation --
   generateAnjabWithAI: (namaJabatan: string, unitKerja: string, namaOPD: string) =>
     apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } }),
+
+  saveBulkAnjabData: (jabatanId: string, data: unknown) =>
+    apiCall<any>('saveBulkAnjabData', '', { data, params: { parentId: jabatanId } }),
 
   // -- Security Logs --
   getSecurityLogs: () =>

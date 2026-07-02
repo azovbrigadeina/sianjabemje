@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { UnitKerja, ReferensiJabatan } from "@/lib/types";
@@ -14,6 +14,7 @@ type TreeNode = {
   parentId?: string;
   unitKerjaId?: string;
   urutan?: number;
+  kode?: string;
   children: TreeNode[];
 };
 
@@ -115,17 +116,15 @@ export default function OrganisasiPage() {
       setIsLoading(true);
     }
     try {
-      const [opdsRaw, jabatansRaw, referensiRaw, orgSetting] = await Promise.all([
-        api.getUnitKerja(),
-        api.readAllEntity('jabatan', ''),
-        api.readAllEntity('referensiJabatan', ''),
+      const [bulkData, orgSetting] = await Promise.all([
+        api.getBulkData(['unitKerja', 'jabatan', 'referensiJabatan']),
         api.getOrgSetting().catch(() => null)
       ]);
 
-      const opds = (opdsRaw || []) as UnitKerja[];
+      const opds = (bulkData.unitKerja || []) as UnitKerja[];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jabatans = (jabatansRaw || []) as any[];
-      const referensi = (referensiRaw || []) as ReferensiJabatan[];
+      const jabatans = (bulkData.jabatan || []) as any[];
+      const referensi = (bulkData.referensiJabatan || []) as ReferensiJabatan[];
 
       setRawOpds(opds);
       setRawJabatans(jabatans);
@@ -164,6 +163,7 @@ export default function OrganisasiPage() {
           eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
           parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
           urutan: jbt.urutan || 0,
+          kode: jbt.kodeJabatan || '',
           children: []
         };
       });
@@ -174,9 +174,13 @@ export default function OrganisasiPage() {
       const opdToExternalParentJbt: Record<string, string> = {};
       const jbtToReroute: Record<string, boolean> = {};
 
+      // Build Map untuk O(1) lookup (menggantikan .find() yang O(n) per item)
+      const jabatanById = new Map<string, any>();
+      jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
+
       jabatans.forEach(jbt => {
         if (jbt.parentId && jbt.unitKerjaId) {
-          const parentJbt = jabatans.find((p: any) => p.id === jbt.parentId);
+          const parentJbt = jabatanById.get(jbt.parentId);
           if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
             // Ditemukan cross-unit reporting!
             opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
@@ -256,7 +260,6 @@ export default function OrganisasiPage() {
     // Initial load
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
     setActiveYear(savedYear);
-    loadData();
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -269,7 +272,7 @@ export default function OrganisasiPage() {
     return () => {
       window.removeEventListener("yearChanged", handleYearChanged);
     };
-  }, [loadData]);
+  }, []);
 
   // Trigger reload when activeYear changes
   useEffect(() => {
@@ -381,7 +384,7 @@ export default function OrganisasiPage() {
       setReferensiSearch("");
     } else {
       setModalData({
-        id: node.id, nama: node.label, kode: '',
+        id: node.id, nama: node.label, kode: node.kode || '',
         parentId: node.parentId || '', unitKerjaId: node.unitKerjaId || '',
         jenisJabatan: node.eselon || '', kelasJabatan: node.kelas || 1,
         urutan: node.urutan || 0, targetType: 'jabatan'
@@ -566,7 +569,7 @@ export default function OrganisasiPage() {
     }, []);
   };
 
-  const displayTree = filterTree(treeData, searchQuery);
+  const displayTree = useMemo(() => filterTree(treeData, searchQuery), [treeData, searchQuery]);
 
   // Pagination logic
   const pageSize = 10;
@@ -582,7 +585,7 @@ export default function OrganisasiPage() {
     }
   }, [displayTree, totalPages, currentPage]);
 
-  const paginatedTree = displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedTree = useMemo(() => displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize), [displayTree, currentPage, pageSize]);
 
   // Fungsi Renderer Rekursif
   const renderTreeNodes = (nodes: TreeNode[]) => (

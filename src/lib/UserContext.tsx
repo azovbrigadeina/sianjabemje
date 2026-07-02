@@ -85,7 +85,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const IDLE_LIMIT = 5 * 60 * 1000; // 5 minutes
+    const IDLE_LIMIT = 30 * 60 * 1000; // 30 minutes
     const CHECK_INTERVAL = 10000; // 10 seconds
     const THROTTLE_TIME = 10000; // 10 seconds
 

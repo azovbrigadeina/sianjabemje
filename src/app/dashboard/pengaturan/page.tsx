@@ -6,9 +6,35 @@ import styles from "../opd/page.module.css"; // Reuse card/panel styles
 import formStyles from "../analisis/page.module.css";
 
 export default function PengaturanAIPage() {
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gemini-2.5-flash");
-  const [customModel, setCustomModel] = useState("");
+  const [activeProvider, setActiveProvider] = useState("gemini");
+  
+  // API Keys
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [deepseekApiKey, setDeepseekApiKey] = useState("");
+  const [groqApiKey, setGroqApiKey] = useState("");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [openaiCompatibleApiKey, setOpenaiCompatibleApiKey] = useState("");
+
+  // Selected Model (dropdown value)
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
+  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
+  const [deepseekModel, setDeepseekModel] = useState("deepseek-chat");
+  const [groqModel, setGroqModel] = useState("llama-3.3-70b-versatile");
+  const [openrouterModel, setOpenrouterModel] = useState("google/gemini-2.5-flash");
+
+  // Custom Base URL & Model for OpenAI Compatible
+  const [openaiCompatibleBaseUrl, setOpenaiCompatibleBaseUrl] = useState("https://api.openai.com/v1");
+  const [openaiCompatibleModel, setOpenaiCompatibleModel] = useState("gpt-4o-mini");
+
+  // Custom Model inputs
+  const [geminiCustomModel, setGeminiCustomModel] = useState("");
+  const [openaiCustomModel, setOpenaiCustomModel] = useState("");
+  const [deepseekCustomModel, setDeepseekCustomModel] = useState("");
+  const [groqCustomModel, setGroqCustomModel] = useState("");
+  const [openrouterCustomModel, setOpenrouterCustomModel] = useState("");
+  const [customPromptTemplate, setCustomPromptTemplate] = useState("");
+
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -29,16 +55,67 @@ export default function PengaturanAIPage() {
       try {
         const config = await api.getAiConfig();
         if (config) {
-          setApiKey(config.geminiApiKey || "");
-          const modelVal = config.geminiModel || "gemini-2.5-flash";
-          
-          if (["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"].includes(modelVal)) {
-            setModel(modelVal);
-            setCustomModel("");
+          setActiveProvider(config.activeProvider || "gemini");
+
+          // API Keys
+          setGeminiApiKey(config.geminiApiKey || "");
+          setOpenaiApiKey(config.openaiApiKey || "");
+          setDeepseekApiKey(config.deepseekApiKey || "");
+          setGroqApiKey(config.groqApiKey || "");
+          setOpenrouterApiKey(config.openrouterApiKey || "");
+          setOpenaiCompatibleApiKey(config.openaiCompatibleApiKey || "");
+
+          // Custom OpenAI Compatible settings
+          setOpenaiCompatibleBaseUrl(config.openaiCompatibleBaseUrl || "https://api.openai.com/v1");
+          setOpenaiCompatibleModel(config.openaiCompatibleModel || "gpt-4o-mini");
+
+          // Models mapping
+          const geminiVal = config.geminiModel || "gemini-2.5-flash";
+          if (["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"].includes(geminiVal)) {
+            setGeminiModel(geminiVal);
+            setGeminiCustomModel("");
           } else {
-            setModel("custom");
-            setCustomModel(modelVal);
+            setGeminiModel("custom");
+            setGeminiCustomModel(geminiVal);
           }
+
+          const openaiVal = config.openaiModel || "gpt-4o-mini";
+          if (["gpt-4o-mini", "gpt-4o"].includes(openaiVal)) {
+            setOpenaiModel(openaiVal);
+            setOpenaiCustomModel("");
+          } else {
+            setOpenaiModel("custom");
+            setOpenaiCustomModel(openaiVal);
+          }
+
+          const deepseekVal = config.deepseekModel || "deepseek-chat";
+          if (["deepseek-chat", "deepseek-reasoner"].includes(deepseekVal)) {
+            setDeepseekModel(deepseekVal);
+            setDeepseekCustomModel("");
+          } else {
+            setDeepseekModel("custom");
+            setDeepseekCustomModel(deepseekVal);
+          }
+
+          const groqVal = config.groqModel || "llama-3.3-70b-versatile";
+          if (["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "deepseek-r1-distill-llama-70b"].includes(groqVal)) {
+            setGroqModel(groqVal);
+            setGroqCustomModel("");
+          } else {
+            setGroqModel("custom");
+            setGroqCustomModel(groqVal);
+          }
+
+          const openrouterVal = config.openrouterModel || "google/gemini-2.5-flash";
+          if (["google/gemini-2.5-flash", "google/gemini-2.5-pro", "deepseek/deepseek-chat", "openai/gpt-4o-mini"].includes(openrouterVal)) {
+            setOpenrouterModel(openrouterVal);
+            setOpenrouterCustomModel("");
+            } else {
+              setOpenrouterModel("custom");
+              setOpenrouterCustomModel(openrouterVal);
+            }
+
+            setCustomPromptTemplate(config.customPromptTemplate || "");
         }
       } catch (err) {
         console.error("Gagal memuat konfigurasi AI:", err);
@@ -54,8 +131,18 @@ export default function PengaturanAIPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const getActiveApiKey = () => {
+    if (activeProvider === "gemini") return geminiApiKey;
+    if (activeProvider === "openai") return openaiApiKey;
+    if (activeProvider === "deepseek") return deepseekApiKey;
+    if (activeProvider === "groq") return groqApiKey;
+    if (activeProvider === "openrouter") return openrouterApiKey;
+    return openaiCompatibleApiKey;
+  };
+
   const handleTestConnection = async () => {
-    if (!apiKey.trim()) {
+    const key = getActiveApiKey();
+    if (!key.trim()) {
       alert("Harap masukkan API Key terlebih dahulu.");
       return;
     }
@@ -63,8 +150,20 @@ export default function PengaturanAIPage() {
     setTestStatus({ type: null, message: "" });
     try {
       const res = await api.testAiConnection({
-        geminiApiKey: apiKey.trim(),
-        geminiModel: model === "custom" ? customModel.trim() : model
+        activeProvider,
+        geminiApiKey: geminiApiKey.trim(),
+        openaiApiKey: openaiApiKey.trim(),
+        deepseekApiKey: deepseekApiKey.trim(),
+        groqApiKey: groqApiKey.trim(),
+        openrouterApiKey: openrouterApiKey.trim(),
+        openaiCompatibleApiKey: openaiCompatibleApiKey.trim(),
+        openaiCompatibleBaseUrl: openaiCompatibleBaseUrl.trim(),
+        openaiCompatibleModel: openaiCompatibleModel.trim(),
+        geminiModel: geminiModel === "custom" ? geminiCustomModel.trim() : geminiModel,
+        openaiModel: openaiModel === "custom" ? openaiCustomModel.trim() : openaiModel,
+        deepseekModel: deepseekModel === "custom" ? deepseekCustomModel.trim() : deepseekModel,
+        groqModel: groqModel === "custom" ? groqCustomModel.trim() : groqModel,
+        openrouterModel: openrouterModel === "custom" ? openrouterCustomModel.trim() : openrouterModel,
       });
 
       if (res && res.success) {
@@ -94,17 +193,23 @@ export default function PengaturanAIPage() {
     e.preventDefault();
     setSaving(true);
 
-    const finalModel = model === "custom" ? customModel.trim() : model;
-    if (model === "custom" && !finalModel) {
-      alert("Harap masukkan nama model kustom Anda.");
-      setSaving(false);
-      return;
-    }
-
     try {
       await api.saveAiConfig({
-        geminiApiKey: apiKey.trim(),
-        geminiModel: finalModel
+        activeProvider,
+        geminiApiKey: geminiApiKey.trim(),
+        openaiApiKey: openaiApiKey.trim(),
+        deepseekApiKey: deepseekApiKey.trim(),
+        groqApiKey: groqApiKey.trim(),
+        openrouterApiKey: openrouterApiKey.trim(),
+        openaiCompatibleApiKey: openaiCompatibleApiKey.trim(),
+        openaiCompatibleBaseUrl: openaiCompatibleBaseUrl.trim(),
+        openaiCompatibleModel: openaiCompatibleModel.trim(),
+        geminiModel: geminiModel === "custom" ? geminiCustomModel.trim() : geminiModel,
+        openaiModel: openaiModel === "custom" ? openaiCustomModel.trim() : openaiModel,
+        deepseekModel: deepseekModel === "custom" ? deepseekCustomModel.trim() : deepseekModel,
+        groqModel: groqModel === "custom" ? groqCustomModel.trim() : groqModel,
+        openrouterModel: openrouterModel === "custom" ? openrouterCustomModel.trim() : openrouterModel,
+        customPromptTemplate: customPromptTemplate,
       });
       showToast("✅ Pengaturan AI berhasil disimpan!");
     } catch (err: any) {
@@ -114,6 +219,86 @@ export default function PengaturanAIPage() {
     }
   };
 
+  const setModelForActiveProvider = (modelName: string) => {
+    if (activeProvider === "gemini") {
+      if (["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"].includes(modelName)) {
+        setGeminiModel(modelName);
+      } else {
+        setGeminiModel("custom");
+        setGeminiCustomModel(modelName);
+      }
+    } else if (activeProvider === "openai") {
+      if (["gpt-4o-mini", "gpt-4o"].includes(modelName)) {
+        setOpenaiModel(modelName);
+      } else {
+        setOpenaiModel("custom");
+        setOpenaiCustomModel(modelName);
+      }
+    } else if (activeProvider === "deepseek") {
+      if (["deepseek-chat", "deepseek-reasoner"].includes(modelName)) {
+        setDeepseekModel(modelName);
+      } else {
+        setDeepseekModel("custom");
+        setDeepseekCustomModel(modelName);
+      }
+    } else if (activeProvider === "groq") {
+      if (["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "deepseek-r1-distill-llama-70b"].includes(modelName)) {
+        setGroqModel(modelName);
+      } else {
+        setGroqModel("custom");
+        setGroqCustomModel(modelName);
+      }
+    } else if (activeProvider === "openrouter") {
+      if (["google/gemini-2.5-flash", "google/gemini-2.5-pro", "deepseek/deepseek-chat", "openai/gpt-4o-mini"].includes(modelName)) {
+        setOpenrouterModel(modelName);
+      } else {
+        setOpenrouterModel("custom");
+        setOpenrouterCustomModel(modelName);
+      }
+    } else if (activeProvider === "openai-compatible") {
+      setOpenaiCompatibleModel(modelName);
+    }
+  };
+
+  const getProviderInfo = () => {
+    switch (activeProvider) {
+      case "gemini":
+        return {
+          title: "Informasi Google AI Studio:",
+          desc: <>Buat <strong>Gemini API Key</strong> secara gratis di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>Google AI Studio</a>. Model <strong>Gemini 2.5 Flash</strong> disarankan untuk kecepatan dan kestabilan.</>
+        };
+      case "openai":
+        return {
+          title: "Informasi OpenAI Developer Platform:",
+          desc: <>Dapatkan API Key di <a href="https://platform.openai.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>OpenAI Platform</a>. Model <strong>gpt-4o-mini</strong> sangat hemat biaya dan cepat.</>
+        };
+      case "deepseek":
+        return {
+          title: "Informasi DeepSeek API:",
+          desc: <>Dapatkan API Key di <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>DeepSeek Platform</a>. Model <strong>deepseek-chat</strong> menawarkan performa tinggi dengan harga sangat ekonomis.</>
+        };
+      case "groq":
+        return {
+          title: "Informasi Groq Cloud:",
+          desc: <>Buat API Key di <a href="https://console.groq.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>Groq Cloud Console</a>. Menawarkan pemrosesan instan lewat model open-source seperti Llama 3.</>
+        };
+      case "openrouter":
+        return {
+          title: "Informasi OpenRouter Agregator:",
+          desc: <>Daftar akun di <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>OpenRouter</a>. Anda cukup pakai satu API key ini untuk mengakses ratusan model AI dari berbagai provider.</>
+        };
+      case "openai-compatible":
+        return {
+          title: "Informasi OpenAI Compatible Server:",
+          desc: <>Hubungkan ke server LLM mandiri atau provider API lainnya (seperti Ollama, LM Studio, Together AI, Mistral, dll.) yang mendukung format OpenAI. Masukkan Base URL endpoint dan API key server Anda.</>
+        };
+      default:
+        return { title: "", desc: null };
+    }
+  };
+
+  const providerInfo = getProviderInfo();
+
   return (
     <div className={styles.container}>
       {toast && <div className={styles.toast}>{toast}</div>}
@@ -122,7 +307,7 @@ export default function PengaturanAIPage() {
         <div>
           <h1 className={styles.title}>Pengaturan Model AI</h1>
           <p className={styles.subtitle}>
-            Konfigurasi Kunci API dan Model Generatif Google Gemini untuk Draf Anjab Otomatis.
+            Konfigurasi Kunci API dan Model Generatif multi-provider untuk pembuatan draf Anjab otomatis secara fleksibel.
           </p>
         </div>
       </div>
@@ -135,74 +320,17 @@ export default function PengaturanAIPage() {
         ) : (
           <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
             
-            {/* Info Box */}
-            <div style={{
-              background: "linear-gradient(135deg, hsla(270, 76%, 50%, 0.08) 0%, hsla(200, 80%, 50%, 0.08) 100%)",
-              border: "1px solid hsla(260, 60%, 50%, 0.2)",
-              padding: "1.25rem",
-              borderRadius: "12px",
-              fontSize: "0.875rem",
-              lineHeight: "1.5",
-              color: "var(--foreground)"
-            }}>
-              💡 <strong>Informasi Akun Google Pro:</strong><br />
-              Jika Anda memiliki akun Google Pro atau Google Cloud, Anda dapat membuat <strong>Gemini API Key</strong> secara gratis di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#a855f7", fontWeight: 600, textDecoration: "underline" }}>Google AI Studio</a>. Model <strong>Gemini 1.5 Pro</strong> sangat direkomendasikan untuk menyusun draf Anjab dengan kedalaman materi yang maksimal.
-            </div>
-
-            {/* API Key Input */}
+            {/* Active Provider Selector */}
             <div className={formStyles.formGroup}>
               <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
-                Gemini API Key
-              </label>
-              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                <input
-                  type={showKey ? "text" : "password"}
-                  placeholder="Masukkan AI Studio / Google Cloud API Key (Kosongkan untuk menggunakan bawaan)"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "12px 16px",
-                    paddingRight: "50px",
-                    borderRadius: "10px",
-                    border: "1px solid var(--glass-border)",
-                    background: "var(--glass-bg)",
-                    color: "var(--foreground)",
-                    fontSize: "0.9rem",
-                    outline: "none"
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  style={{
-                    position: "absolute",
-                    right: "12px",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "1.1rem",
-                    color: "var(--foreground)",
-                    opacity: 0.6
-                  }}
-                  title={showKey ? "Sembunyikan Kunci" : "Tampilkan Kunci"}
-                >
-                  {showKey ? "👁️" : "🙈"}
-                </button>
-              </div>
-              <span style={{ fontSize: "0.75rem", opacity: 0.5, marginTop: "0.35rem", display: "block" }}>
-                Kunci ini disimpan dengan aman di database Firebase Anda dan diproses secara langsung oleh server Google Apps Script.
-              </span>
-            </div>
-
-            {/* Model Select */}
-            <div className={formStyles.formGroup}>
-              <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
-                Pilih Model Gemini AI
+                Pilih Provider AI Utama
               </label>
               <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
+                value={activeProvider}
+                onChange={(e) => {
+                  setActiveProvider(e.target.value);
+                  setTestStatus({ type: null, message: "" });
+                }}
                 style={{
                   width: "100%",
                   padding: "12px 16px",
@@ -215,38 +343,627 @@ export default function PengaturanAIPage() {
                   cursor: "pointer"
                 }}
               >
-                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Cepat & Standar)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Cerdas, Detail & Rekomendasi Pro)</option>
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Model Generasi Baru)</option>
-                <option value="custom">Kustom / Masukkan Model Sendiri (misal: gemini-2.5-pro, dll.)</option>
+                <option value="gemini">Google Gemini AI</option>
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="deepseek">DeepSeek AI</option>
+                <option value="groq">Groq Cloud (Llama/Mixtral)</option>
+                <option value="openrouter">OpenRouter (Multi-model Agregator)</option>
+                <option value="openai-compatible">OpenAI Compatible (Custom Base URL)</option>
               </select>
             </div>
 
-            {/* Custom Model Input */}
-            {model === "custom" && (
-              <div className={formStyles.formGroup} style={{ animation: "slideDown 0.2s ease" }}>
-                <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
-                  Nama Model Kustom
-                </label>
-                <input
-                  type="text"
-                  placeholder="Contoh: gemini-2.5-pro atau model masa depan lainnya"
-                  value={customModel}
-                  onChange={(e) => setCustomModel(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "12px 16px",
-                    borderRadius: "10px",
-                    border: "1px solid var(--glass-border)",
-                    background: "var(--glass-bg)",
-                    color: "var(--foreground)",
-                    fontSize: "0.9rem",
-                    outline: "none"
-                  }}
-                  required
-                />
-              </div>
+            {/* Info Box */}
+            <div style={{
+              background: "linear-gradient(135deg, hsla(270, 76%, 50%, 0.08) 0%, hsla(200, 80%, 50%, 0.08) 100%)",
+              border: "1px solid hsla(260, 60%, 50%, 0.2)",
+              padding: "1.25rem",
+              borderRadius: "12px",
+              fontSize: "0.875rem",
+              lineHeight: "1.5",
+              color: "var(--foreground)"
+            }}>
+              💡 <strong>{providerInfo.title}</strong><br />
+              {providerInfo.desc}
+            </div>
+
+            {/* Conditionally Render API Key and Model Selector */}
+            {activeProvider === "gemini" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Gemini API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="Masukkan Gemini API Key (Kosongkan jika ingin pakai default server)"
+                      value={geminiApiKey}
+                      onChange={(e) => setGeminiApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Pilih Model Gemini
+                  </label>
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="custom">Kustom / Model Lainnya</option>
+                  </select>
+                </div>
+
+                {geminiModel === "custom" && (
+                  <div className={formStyles.formGroup}>
+                    <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                      Nama Model Kustom
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: gemini-2.5-pro"
+                      value={geminiCustomModel}
+                      onChange={(e) => setGeminiCustomModel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                )}
+              </>
             )}
+
+            {activeProvider === "openai" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    OpenAI API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="sk-..."
+                      value={openaiApiKey}
+                      onChange={(e) => setOpenaiApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Pilih Model OpenAI
+                  </label>
+                  <select
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="gpt-4o-mini">gpt-4o-mini (Cepat & Hemat)</option>
+                    <option value="gpt-4o">gpt-4o (Cerdas & Komprehensif)</option>
+                    <option value="custom">Kustom / Model Lainnya</option>
+                  </select>
+                </div>
+
+                {openaiModel === "custom" && (
+                  <div className={formStyles.formGroup}>
+                    <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                      Nama Model Kustom
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: o1-mini atau o3-mini"
+                      value={openaiCustomModel}
+                      onChange={(e) => setOpenaiCustomModel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeProvider === "deepseek" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    DeepSeek API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="Masukkan DeepSeek API Key"
+                      value={deepseekApiKey}
+                      onChange={(e) => setDeepseekApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Pilih Model DeepSeek
+                  </label>
+                  <select
+                    value={deepseekModel}
+                    onChange={(e) => setDeepseekModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="deepseek-chat">deepseek-chat (DeepSeek-V3)</option>
+                    <option value="deepseek-reasoner">deepseek-reasoner (DeepSeek-R1)</option>
+                    <option value="custom">Kustom / Model Lainnya</option>
+                  </select>
+                </div>
+
+                {deepseekModel === "custom" && (
+                  <div className={formStyles.formGroup}>
+                    <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                      Nama Model Kustom
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: deepseek-chat"
+                      value={deepseekCustomModel}
+                      onChange={(e) => setDeepseekCustomModel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeProvider === "groq" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Groq API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="gsk-..."
+                      value={groqApiKey}
+                      onChange={(e) => setGroqApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Pilih Model Groq
+                  </label>
+                  <select
+                    value={groqModel}
+                    onChange={(e) => setGroqModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                    <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b</option>
+                    <option value="custom">Kustom / Model Lainnya</option>
+                  </select>
+                </div>
+
+                {groqModel === "custom" && (
+                  <div className={formStyles.formGroup}>
+                    <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                      Nama Model Kustom
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: llama3-8b-8192"
+                      value={groqCustomModel}
+                      onChange={(e) => setGroqCustomModel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeProvider === "openrouter" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    OpenRouter API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="sk-or-v1-..."
+                      value={openrouterApiKey}
+                      onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Pilih Model OpenRouter
+                  </label>
+                  <select
+                    value={openrouterModel}
+                    onChange={(e) => setOpenrouterModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="google/gemini-2.5-flash">google/gemini-2.5-flash</option>
+                    <option value="google/gemini-2.5-pro">google/gemini-2.5-pro</option>
+                    <option value="deepseek/deepseek-chat">deepseek/deepseek-chat</option>
+                    <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
+                    <option value="custom">Kustom / Model Lainnya</option>
+                  </select>
+                </div>
+
+                {openrouterModel === "custom" && (
+                  <div className={formStyles.formGroup}>
+                    <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                      Nama Model Kustom
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: meta-llama/llama-3-8b-instruct:free"
+                      value={openrouterCustomModel}
+                      onChange={(e) => setOpenrouterCustomModel(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeProvider === "openai-compatible" && (
+              <>
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Base URL API
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: https://api.openai.com/v1 atau http://localhost:11434/v1"
+                    value={openaiCompatibleBaseUrl}
+                    onChange={(e) => setOpenaiCompatibleBaseUrl(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none"
+                    }}
+                    required
+                  />
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    API Key
+                  </label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <input
+                      type={showKey ? "text" : "password"}
+                      placeholder="Masukkan API Key (Kosongkan jika server tidak butuh auth)"
+                      value={openaiCompatibleApiKey}
+                      onChange={(e) => setOpenaiCompatibleApiKey(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        paddingRight: "50px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--glass-border)",
+                        background: "var(--glass-bg)",
+                        color: "var(--foreground)",
+                        fontSize: "0.9rem",
+                        outline: "none"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "1.1rem",
+                        color: "var(--foreground)",
+                        opacity: 0.6
+                      }}
+                    >
+                      {showKey ? "👁️" : "🙈"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={formStyles.formGroup}>
+                  <label style={{ fontWeight: 600, marginBottom: "0.5rem", display: "block" }}>
+                    Model AI
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: gpt-4o-mini, llama3, dll."
+                    value={openaiCompatibleModel}
+                    onChange={(e) => setOpenaiCompatibleModel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--glass-border)",
+                      background: "var(--glass-bg)",
+                      color: "var(--foreground)",
+                      fontSize: "0.9rem",
+                      outline: "none"
+                    }}
+                    required
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Custom Prompt Template */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "1rem" }}>
+              <label style={{ fontWeight: 600, color: "var(--foreground)", fontSize: "0.95rem" }}>
+                📝 Template Prompt Kustom untuk Draf AI
+              </label>
+              <span style={{ fontSize: "0.8rem", opacity: 0.6 }}>
+                Gunakan placeholder berikut untuk injeksi data dinamis: <code style={{ background: "rgba(0,0,0,0.1)", padding: "2px 4px", borderRadius: "4px" }}>{`{namaJabatan}`}</code>, <code style={{ background: "rgba(0,0,0,0.1)", padding: "2px 4px", borderRadius: "4px" }}>{`{unitKerja}`}</code>, dan <code style={{ background: "rgba(0,0,0,0.1)", padding: "2px 4px", borderRadius: "4px" }}>{`{namaOPD}`}</code>. Kosongkan untuk menggunakan prompt default sistem.
+              </span>
+              <textarea
+                value={customPromptTemplate}
+                onChange={(e) => setCustomPromptTemplate(e.target.value)}
+                placeholder="Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: {namaJabatan} yang berada di Unit Kerja: {unitKerja} di bawah OPD: {namaOPD}..."
+                rows={12}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--glass-border)",
+                  background: "var(--glass-bg)",
+                  color: "var(--foreground)",
+                  fontSize: "0.9rem",
+                  fontFamily: "monospace",
+                  outline: "none",
+                  resize: "vertical"
+                }}
+              />
+            </div>
 
             <hr style={{ border: "none", borderTop: "1px solid var(--glass-border)", margin: "1rem 0" }} />
 
@@ -302,17 +1019,10 @@ export default function PengaturanAIPage() {
                   🤖 Model Teks Tersedia untuk Kunci API ini:
                 </strong>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                  {testStatus.models.map((m) => (
+                  {testStatus.models.slice(0, 50).map((m) => (
                     <span 
                       key={m.name} 
-                      onClick={() => {
-                        if (["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"].includes(m.name)) {
-                          setModel(m.name);
-                        } else {
-                          setModel("custom");
-                          setCustomModel(m.name);
-                        }
-                      }}
+                      onClick={() => setModelForActiveProvider(m.name)}
                       style={{
                         padding: "4px 10px",
                         background: "hsla(260, 50%, 50%, 0.15)",
@@ -339,7 +1049,7 @@ export default function PengaturanAIPage() {
               <button
                 type="button"
                 onClick={handleTestConnection}
-                disabled={testing || !apiKey.trim()}
+                disabled={testing || !getActiveApiKey().trim()}
                 style={{
                   background: "var(--glass-bg)",
                   border: "1px solid var(--glass-border)",
@@ -350,7 +1060,7 @@ export default function PengaturanAIPage() {
                   fontSize: "0.95rem",
                   cursor: "pointer",
                   transition: "all 0.2s",
-                  opacity: (!apiKey.trim() || testing) ? 0.5 : 1
+                  opacity: (!getActiveApiKey().trim() || testing) ? 0.5 : 1
                 }}
               >
                 {testing ? "🔍 Mengetes..." : "🔍 Tes Koneksi AI"}

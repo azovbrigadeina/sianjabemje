@@ -52,17 +52,12 @@ export default function VerifikasiPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [opdsRaw, jabatansRaw, tugasPokoksRaw, abksRaw] = await Promise.all([
-        api.getUnitKerja(),
-        api.readAllEntity("jabatan", ""),
-        api.readAllEntity("tugasPokok", ""),
-        api.readAllEntity("abk", ""),
-      ]);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'abk']);
 
-      setOpds((opdsRaw || []) as UnitKerja[]);
-      setJabatans((jabatansRaw || []) as Jabatan[]);
-      setTugasPokoks((tugasPokoksRaw || []) as any[]);
-      setAbks((abksRaw || []) as any[]);
+      setOpds((bulkData.unitKerja || []) as UnitKerja[]);
+      setJabatans((bulkData.jabatan || []) as Jabatan[]);
+      setTugasPokoks((bulkData.tugasPokok || []) as any[]);
+      setAbks((bulkData.abk || []) as any[]);
     } catch (err) {
       console.error("Gagal memuat data verifikasi", err);
     } finally {

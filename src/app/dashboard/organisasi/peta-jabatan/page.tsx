@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import type { UnitKerja, Jabatan } from "@/lib/types";
@@ -23,6 +23,7 @@ export default function PetaJabatanPage() {
   const [selectedOpdId, setSelectedOpdId] = useState<string>("");
   const [hierarchy, setHierarchy] = useState<StructuralNode[]>([]);
   const [abkMap, setAbkMap] = useState<Record<string, { totalKebutuhan: number; formasiPembulatan: number }>>({});
+  const [allJabatans, setAllJabatans] = useState<Jabatan[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [toast, setToast] = useState<string | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
@@ -45,20 +46,21 @@ export default function PetaJabatanPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // 1. Fetch initial OPDs and ABK values
+  // 1. Fetch initial OPDs, ABK values, AND all Jabatans in one go
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
       try {
-        const [opdData, abkData] = await Promise.all([
-          api.getUnitKerja() as Promise<UnitKerja[]>,
-          api.readAllEntity('abk', '') as Promise<any[]>
-        ]);
+        const bulkData = await api.getBulkData(['unitKerja', 'abk', 'jabatan']);
+        const opdData = (bulkData.unitKerja || []) as UnitKerja[];
+        const abkData = (bulkData.abk || []) as any[];
+        const jabatanData = (bulkData.jabatan || []) as Jabatan[];
 
         const sortedOpds = [...(opdData || [])].sort((a, b) => 
           (a.nama || '').localeCompare(b.nama || '')
         );
         setOpds(sortedOpds);
+        setAllJabatans(jabatanData || []);
 
         // Map ABK stats
         const tempAbkMap: Record<string, { totalKebutuhan: number; formasiPembulatan: number }> = {};
@@ -205,42 +207,30 @@ export default function PetaJabatanPage() {
     return roots;
   }, []);
 
-  // 2. Fetch Jabatans for selected OPD and generate tree
+  // 2. Build tree from cached jabatans when OPD selection changes (no re-fetch!)
   useEffect(() => {
-    if (!selectedOpdId || opds.length === 0) return;
+    if (!selectedOpdId || opds.length === 0 || allJabatans.length === 0) return;
 
-    const loadOpdHierarchy = async () => {
-      setIsLoading(true);
-      try {
-        const allJabatans = await api.readAllEntity('jabatan', '') as Jabatan[];
-        const targetUnitIds = getDescendantUnitIds(selectedOpdId, opds);
-        const filteredJabatans = allJabatans.filter(j => 
-          j.unitKerjaId && targetUnitIds.includes(j.unitKerjaId)
-        );
+    const targetUnitIds = getDescendantUnitIds(selectedOpdId, opds);
+    const targetIdSet = new Set(targetUnitIds);
+    const filteredJabatans = allJabatans.filter(j => 
+      j.unitKerjaId && targetIdSet.has(j.unitKerjaId)
+    );
 
-        if (filteredJabatans.length === 0) {
-          setHierarchy([]);
-          setExpandedNodes({});
-        } else {
-          const tree = buildHierarchyTree(filteredJabatans);
-          setHierarchy(tree);
-          // Initialize expandedNodes: only roots are expanded by default
-          const initialExpanded: Record<string, boolean> = {};
-          tree.forEach(root => {
-            initialExpanded[root.id] = true;
-          });
-          setExpandedNodes(initialExpanded);
-        }
-      } catch (err) {
-        console.error("Gagal memuat struktur jabatan:", err);
-        showToast("❌ Gagal memuat struktur jabatan");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadOpdHierarchy();
-  }, [selectedOpdId, opds, getDescendantUnitIds, buildHierarchyTree]);
+    if (filteredJabatans.length === 0) {
+      setHierarchy([]);
+      setExpandedNodes({});
+    } else {
+      const tree = buildHierarchyTree(filteredJabatans);
+      setHierarchy(tree);
+      // Initialize expandedNodes: only roots are expanded by default
+      const initialExpanded: Record<string, boolean> = {};
+      tree.forEach(root => {
+        initialExpanded[root.id] = true;
+      });
+      setExpandedNodes(initialExpanded);
+    }
+  }, [selectedOpdId, opds, allJabatans, getDescendantUnitIds, buildHierarchyTree]);
 
   // Zooming Logic
   const handleZoom = (amount: number) => {
@@ -527,6 +517,20 @@ export default function PetaJabatanPage() {
 
   const opdNameLabel = opds.find(o => o.id === selectedOpdId)?.nama || "OPD";
 
+  // Memoize the canvas DOM tree to prevent recursive re-renders when panning/zooming
+  const memoizedTree = useMemo(() => {
+    if (hierarchy.length === 0) return null;
+    return layoutMode === 'horizontal' ? (
+      <div className={styles.treeContainerHorizontal}>
+        {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
+      </div>
+    ) : (
+      <div className={styles.treeContainer}>
+        {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
+      </div>
+    );
+  }, [hierarchy, layoutMode, expandedNodes, showDetails, abkMap]);
+
   return (
     <div className={styles.container}>
       {toast && <div className={styles.toast}>{toast}</div>}
@@ -652,15 +656,7 @@ export default function PetaJabatanPage() {
                 transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`
               }}
             >
-              {layoutMode === 'horizontal' ? (
-                <div className={styles.treeContainerHorizontal}>
-                  {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
-                </div>
-              ) : (
-                <div className={styles.treeContainer}>
-                  {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
-                </div>
-              )}
+              {memoizedTree}
             </div>
           )}
 

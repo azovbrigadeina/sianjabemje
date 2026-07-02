@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import styles from "@/app/dashboard/organisasi/peta-jabatan/page.module.css";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
@@ -169,11 +169,10 @@ export default function OperatorPetaJabatanPage() {
     const loadOpdHierarchy = async () => {
       setIsLoading(true);
       try {
-        const [opdList, allJabatans, abkData] = await Promise.all([
-          api.getUnitKerja() as Promise<UnitKerja[]>,
-          api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
-          api.readAllEntity('abk', '') as Promise<any[]>
-        ]);
+        const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk']);
+        const opdList = (bulkData.unitKerja || []) as UnitKerja[];
+        const allJabatans = (bulkData.jabatan || []) as Jabatan[];
+        const abkData = (bulkData.abk || []) as any[];
 
         // Map ABK stats
         const tempAbkMap: Record<string, { totalKebutuhan: number; formasiPembulatan: number }> = {};
@@ -509,6 +508,20 @@ export default function OperatorPetaJabatanPage() {
     );
   };
 
+  // Memoize the canvas DOM tree to prevent recursive re-renders when panning/zooming
+  const memoizedTree = useMemo(() => {
+    if (hierarchy.length === 0) return null;
+    return layoutMode === 'horizontal' ? (
+      <div className={styles.treeContainerHorizontal}>
+        {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
+      </div>
+    ) : (
+      <div className={styles.treeContainer}>
+        {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
+      </div>
+    );
+  }, [hierarchy, layoutMode, expandedNodes, showDetails, abkMap]);
+
   return (
     <div className={styles.container}>
       {toast && <div className={styles.toast}>{toast}</div>}
@@ -625,15 +638,7 @@ export default function OperatorPetaJabatanPage() {
                 transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`
               }}
             >
-              {layoutMode === 'horizontal' ? (
-                <div className={styles.treeContainerHorizontal}>
-                  {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
-                </div>
-              ) : (
-                <div className={styles.treeContainer}>
-                  {hierarchy.map(rootNode => renderHierarchyNode(rootNode, true))}
-                </div>
-              )}
+              {memoizedTree}
             </div>
           )}
 

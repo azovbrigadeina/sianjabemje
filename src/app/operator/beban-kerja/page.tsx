@@ -78,13 +78,14 @@ export default function OperatorBebanKerjaPage() {
     if (!user?.unitKerjaId) return;
     setIsLoadingTree(true);
     try {
-      const [opdsRaw, jabatansRaw, abks, tugasPokoks, deadlineData] = await Promise.all([
-        api.getUnitKerja() as Promise<UnitKerja[]>,
-        api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
-        api.readAllEntity('abk', '') as Promise<any[]>,
-        api.readAllEntity('tugasPokok', '') as Promise<any[]>,
+      const [bulkData, deadlineData] = await Promise.all([
+        api.getBulkData(['unitKerja', 'jabatan', 'abk']),
         api.getDeadline().catch(() => null)
       ]);
+      const opdsRaw = (bulkData.unitKerja || []) as UnitKerja[];
+      const jabatansRaw = (bulkData.jabatan || []) as Jabatan[];
+      const abks = (bulkData.abk || []) as any[];
+      const tugasPokoks = (bulkData.tugasPokok || []) as any[];
 
       const thisOpd = opdsRaw ? opdsRaw.find(u => u.id === user.unitKerjaId) : null;
       let readOnlyActive = false;

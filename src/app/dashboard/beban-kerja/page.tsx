@@ -73,12 +73,11 @@ export default function BebanKerjaPage() {
   const loadTree = useCallback(async () => {
     setIsLoadingTree(true);
     try {
-      const [opds, jabatans, abks, tugasPokoks] = await Promise.all([
-        api.getUnitKerja() as Promise<UnitKerja[]>,
-        api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
-        api.readAllEntity('abk', '') as Promise<any[]>,
-        api.readAllEntity('tugasPokok', '') as Promise<any[]>
-      ]);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk']);
+      const opds = (bulkData.unitKerja || []) as UnitKerja[];
+      const jabatans = (bulkData.jabatan || []) as Jabatan[];
+      const abks = (bulkData.abk || []) as any[];
+      const tugasPokoks = (bulkData.tugasPokok || []) as any[];
 
       const abkMap: Record<string, boolean> = {};
       if (abks && Array.isArray(abks)) {
@@ -163,7 +162,6 @@ export default function BebanKerjaPage() {
     // Initial load
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
     setActiveYear(savedYear);
-    loadTree();
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -176,7 +174,7 @@ export default function BebanKerjaPage() {
     return () => {
       window.removeEventListener("yearChanged", handleYearChanged);
     };
-  }, [loadTree]);
+  }, []);
 
   // Trigger reload when activeYear changes
   useEffect(() => {

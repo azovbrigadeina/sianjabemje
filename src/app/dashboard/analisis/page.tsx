@@ -4,9 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { downloadTemplateXlsx, parseXlsxForAnjab, parseAnjabAsli } from "@/lib/importXlsx";
 import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan } from "@/lib/types";
-import { exportJabatanToDocx } from "@/lib/exportDocx";
 
 import TabIdentitas from "./components/TabIdentitas";
 import TabTugasPokok from "./components/TabTugasPokok";
@@ -54,6 +52,7 @@ export default function AnalisisPage() {
   const [versionKey, setVersionKey] = useState(0);
   const [activeYear, setActiveYear] = useState<string>("2026");
   const [aiLoading, setAiLoading] = useState(false);
+  const [downloadingWord, setDownloadingWord] = useState(false);
   const [progressStatus, setProgressStatus] = useState<{
     show: boolean;
     title: string;
@@ -88,11 +87,10 @@ export default function AnalisisPage() {
   const loadTree = useCallback(async () => {
     setIsLoadingTree(true);
     try {
-      const [opds, jabatans, tugasPokoks] = await Promise.all([
-        api.getUnitKerja() as Promise<UnitKerja[]>,
-        api.readAllEntity('jabatan', '') as Promise<Jabatan[]>,
-        api.readAllEntity('tugasPokok', '') as Promise<any[]>
-      ]);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan']);
+      const opds = (bulkData.unitKerja || []) as UnitKerja[];
+      const jabatans = (bulkData.jabatan || []) as Jabatan[];
+      const tugasPokoks = (bulkData.tugasPokok || []) as any[];
 
       const tpMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
@@ -172,7 +170,6 @@ export default function AnalisisPage() {
     // Initial load
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
     setActiveYear(savedYear);
-    loadTree();
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -185,7 +182,7 @@ export default function AnalisisPage() {
     return () => {
       window.removeEventListener("yearChanged", handleYearChanged);
     };
-  }, [loadTree]);
+  }, []);
 
   // Trigger reload when activeYear changes
   useEffect(() => {
@@ -220,11 +217,11 @@ export default function AnalisisPage() {
   // EDITOR LOGIC
   const handleTriggerAI = async () => {
     if (!jabatanData) return;
-    if (!confirm(`Yakin ingin menyusun draf dokumen Anjab menggunakan AI (Gemini) untuk jabatan "${jabatanData.namaJabatan}"? Isian form identitas, tugas pokok, dan syarat jabatan saat ini akan ditimpa dengan draf AI.`)) return;
+    if (!confirm(`Yakin ingin menyusun draf dokumen Anjab menggunakan AI untuk jabatan "${jabatanData.namaJabatan}"? Isian form identitas, tugas pokok, dan syarat jabatan saat ini akan ditimpa dengan draf AI.`)) return;
 
     const steps = [
       { text: "Mengidentifikasi data jabatan & unit kerja", status: 'loading' as const },
-      { text: "Mengirim instruksi & prompt ke Gemini AI", status: 'waiting' as const },
+      { text: "Mengirim instruksi & prompt ke Engine AI", status: 'waiting' as const },
       { text: "Memproses & menormalisasi struktur draf", status: 'waiting' as const },
       { text: "Menyimpan data Identitas, Kualifikasi, & Syarat Jabatan", status: 'waiting' as const },
       { text: "Menyimpan data Tugas Pokok & Hasil Kerja", status: 'waiting' as const },
@@ -236,7 +233,7 @@ export default function AnalisisPage() {
 
     setProgressStatus({
       show: true,
-      title: "Gemini AI Draft Builder",
+      title: "AI Draft Builder",
       steps,
       currentStepIndex: 0,
       terminalLogs: [
@@ -269,7 +266,7 @@ export default function AnalisisPage() {
         `${getTimestamp()} SUCCESS: Identifikasi jabatan dan struktur organisasi berhasil.`,
         `${getTimestamp()} INFO: Unit Kerja: ${activeUnit?.label || "Umum"}`,
         `${getTimestamp()} INFO: Induk OPD: ${parentUnitName}`,
-        `${getTimestamp()} INFO: Menghubungi Google Gemini API...`
+        `${getTimestamp()} INFO: Menghubungi API AI...`
       ]);
 
       // Move to step 2
@@ -301,23 +298,8 @@ export default function AnalisisPage() {
       ]);
 
       // Step 4: Identitas, Kualifikasi, Syarat
-      updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Identitas, Kualifikasi, & Syarat Jabatan...`]);
-      
-      await api.updateJabatan(jabatanData.id, {
-        ...jabatanData,
-        ikhtisarJabatan: aiDraft.ikhtisarJabatan
-      });
-      await api.saveSingleEntity('kualifikasi', jabatanData.id, aiDraft.kualifikasi);
-      await api.saveSingleEntity('syaratJabatan', jabatanData.id, aiDraft.syaratJabatan);
-      await new Promise(r => setTimeout(r, 300));
+      updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Mengirim data draf AI secara bulk ke database...`]);
 
-      updateStep(3, 'success', [
-        `${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, & Syarat Jabatan berhasil disimpan.`
-      ]);
-
-      // Step 5: Tugas Pokok & Hasil Kerja
-      updateStep(4, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Tugas Pokok & Hasil Kerja...`]);
-      
       const mappedTasks = (aiDraft.tugasPokok || []).map((tp: any, index: number) => ({
         nomorUrut: tp.nomorUrut || index + 1,
         uraianTugas: tp.uraianTugas,
@@ -327,51 +309,46 @@ export default function AnalisisPage() {
         waktuEfektif: 72000,
         kebutuhanPegawai: Number(((1 * (tp.waktuPenyelesaian || 60)) / 72000).toFixed(4))
       }));
-      await api.saveMultiEntity('tugasPokok', jabatanData.id, mappedTasks);
 
-      if (aiDraft.hasilKerja) {
-        const hasilKerjaData = Array.isArray(aiDraft.hasilKerja)
+      const hasilKerjaData = aiDraft.hasilKerja
+        ? (Array.isArray(aiDraft.hasilKerja)
           ? { uraian: JSON.stringify(aiDraft.hasilKerja) }
           : typeof aiDraft.hasilKerja === 'string'
             ? { uraian: aiDraft.hasilKerja }
-            : aiDraft.hasilKerja;
-        await api.saveSingleEntity('hasilKerja', jabatanData.id, hasilKerjaData);
-      }
-      await new Promise(r => setTimeout(r, 300));
+            : aiDraft.hasilKerja)
+        : null;
 
+      const bulkPayload = {
+        jabatan: {
+          ...jabatanData,
+          ikhtisarJabatan: aiDraft.ikhtisarJabatan
+        },
+        kualifikasi: aiDraft.kualifikasi || {},
+        syaratJabatan: aiDraft.syaratJabatan || {},
+        tugasPokok: mappedTasks,
+        hasilKerja: hasilKerjaData,
+        prestasiKerja: aiDraft.prestasiKerja || {},
+        bahanKerja: (aiDraft.bahanKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        perangkatKerja: (aiDraft.perangkatKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        tanggungJawab: (aiDraft.tanggungJawab || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        wewenang: (aiDraft.wewenang || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        korelasiJabatan: (aiDraft.korelasiJabatan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        kondisiLingkungan: (aiDraft.kondisiLingkungan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        risikoBahaya: (aiDraft.risikoBahaya || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 }))
+      };
+
+      await api.saveBulkAnjabData(jabatanData.id, bulkPayload);
+
+      updateStep(3, 'success', [
+        `${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, & Syarat Jabatan berhasil disimpan.`
+      ]);
+
+      // Step 5: Tugas Pokok & Hasil Kerja
       updateStep(4, 'success', [
-        `${getTimestamp()} SUCCESS: Tugas Pokok (5+ poin) & Hasil Kerja (narasi) berhasil disimpan.`
+        `${getTimestamp()} SUCCESS: Tugas Pokok & Hasil Kerja berhasil disimpan.`
       ]);
 
       // Step 6: Tabel Pendukung
-      updateStep(5, 'loading', [`${getTimestamp()} PROCESS: Menyimpan tabel-tabel data pendukung...`]);
-      
-      if (aiDraft.prestasiKerja) {
-        await api.saveSingleEntity('prestasiKerja', jabatanData.id, aiDraft.prestasiKerja);
-      }
-      if (aiDraft.bahanKerja && aiDraft.bahanKerja.length > 0) {
-        await api.saveMultiEntity('bahanKerja', jabatanData.id, aiDraft.bahanKerja.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.perangkatKerja && aiDraft.perangkatKerja.length > 0) {
-        await api.saveMultiEntity('perangkatKerja', jabatanData.id, aiDraft.perangkatKerja.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.tanggungJawab && aiDraft.tanggungJawab.length > 0) {
-        await api.saveMultiEntity('tanggungJawab', jabatanData.id, aiDraft.tanggungJawab.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.wewenang && aiDraft.wewenang.length > 0) {
-        await api.saveMultiEntity('wewenang', jabatanData.id, aiDraft.wewenang.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.korelasiJabatan && aiDraft.korelasiJabatan.length > 0) {
-        await api.saveMultiEntity('korelasiJabatan', jabatanData.id, aiDraft.korelasiJabatan.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.kondisiLingkungan && aiDraft.kondisiLingkungan.length > 0) {
-        await api.saveMultiEntity('kondisiLingkungan', jabatanData.id, aiDraft.kondisiLingkungan.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      if (aiDraft.risikoBahaya && aiDraft.risikoBahaya.length > 0) {
-        await api.saveMultiEntity('risikoBahaya', jabatanData.id, aiDraft.risikoBahaya.map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })));
-      }
-      await new Promise(r => setTimeout(r, 400));
-
       updateStep(5, 'success', [
         `${getTimestamp()} SUCCESS: Seluruh tabel pendukung (Bahan, Perangkat, TJ, Wewenang) berhasil disimpan.`
       ]);
@@ -393,7 +370,7 @@ export default function AnalisisPage() {
         `${getTimestamp()} FINISH: Seluruh tahapan selesai dengan sukses.`
       ]);
 
-      showToast("✨ Draf Anjab berhasil dipasang oleh Gemini AI!");
+      showToast("✨ Draf Anjab berhasil dipasang oleh Engine AI!");
 
     } catch (e: any) {
       setProgressStatus(prev => {
@@ -723,6 +700,7 @@ export default function AnalisisPage() {
 
     showToast("⏳ Membaca file Excel...");
     try {
+      const { parseXlsxForAnjab } = await import("@/lib/importXlsx");
       const { data: parsedData, logs } = await parseXlsxForAnjab(file);
       await processImportedData(parsedData, logs, "Template Excel");
     } catch (err) {
@@ -737,6 +715,7 @@ export default function AnalisisPage() {
 
     showToast("⏳ Membaca file Excel Anjab Asli...");
     try {
+      const { parseAnjabAsli } = await import("@/lib/importXlsx");
       const { data: parsedData, logs } = await parseAnjabAsli(file);
       await processImportedData(parsedData, logs, "Anjab Asli");
     } catch (err) {
@@ -936,12 +915,15 @@ export default function AnalisisPage() {
                     onClick={handleTriggerAI}
                     disabled={aiLoading}
                     style={{ background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                    title="Susun draf Anjab otomatis dengan Gemini AI"
+                    title="Susun draf Anjab otomatis dengan Engine AI"
                   >
                     <span>✨</span> {aiLoading ? "Memproses AI..." : "Draf AI"}
                   </button>
                   <button 
-                    onClick={() => downloadTemplateXlsx(jabatanData)}
+                    onClick={async () => {
+                      const { downloadTemplateXlsx } = await import("@/lib/importXlsx");
+                      downloadTemplateXlsx(jabatanData);
+                    }}
                     style={{ background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                   >
                     <span>📥</span> Unduh Template
@@ -959,10 +941,23 @@ export default function AnalisisPage() {
                     <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportAnjabAsli} />
                   </label>
                   <button 
-                    onClick={() => exportJabatanToDocx(jabatanData)}
-                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    onClick={async () => {
+                      if (!jabatanData) return;
+                      setDownloadingWord(true);
+                      try {
+                        const { exportJabatanToDocx } = await import("@/lib/exportDocx");
+                        await exportJabatanToDocx(jabatanData);
+                        showToast("✨ Berhasil mengunduh Word");
+                      } catch (err: any) {
+                        alert("Gagal mengunduh Word: " + err.message);
+                      } finally {
+                        setDownloadingWord(false);
+                      }
+                    }}
+                    disabled={downloadingWord}
+                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: downloadingWord ? 0.7 : 1 }}
                   >
-                    <span>📄</span> Unduh Word
+                    <span>📄</span> {downloadingWord ? "Mengunduh..." : "Unduh Word"}
                   </button>
                 </div>
               </div>

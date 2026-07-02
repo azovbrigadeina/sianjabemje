@@ -3,8 +3,6 @@
 import { useState, useEffect } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
-import { exportJabatanToDocx, exportJabatansToDocx } from "@/lib/exportDocx";
-import { exportRekapAbkToXlsx } from "@/lib/importXlsx";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
 
 const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
@@ -235,9 +233,11 @@ export default function LaporanPage() {
           jabatans.map(j => api.getJabatanFull(j.id) as Promise<JabatanFull>)
         );
         
+        const { exportJabatansToDocx } = await import("@/lib/exportDocx");
         await exportJabatansToDocx(`Anjab_Lengkap_${opdName.replace(/[^a-zA-Z0-9]/g, '_')}`, fullJabatans);
       } else {
         const fullJabatan = await api.getJabatanFull(selectedJabatan) as JabatanFull;
+        const { exportJabatanToDocx } = await import("@/lib/exportDocx");
         await exportJabatanToDocx(fullJabatan);
       }
     } catch (err: any) {
@@ -297,6 +297,7 @@ export default function LaporanPage() {
         };
       });
 
+      const { exportRekapAbkToXlsx } = await import("@/lib/importXlsx");
       exportRekapAbkToXlsx(opdName, rows);
     } catch (err: any) {
       alert("Gagal mengunduh rekap ABK: " + err.message);
@@ -607,6 +608,25 @@ export default function LaporanPage() {
                 ) : (
                   <span>⚙️ Template Aktif saat ini: <strong>Bawaan Sistem (template_anjab.docx)</strong></span>
                 )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                <a 
+                  href="/templates/template_anjab.docx" 
+                  download="template_anjab_default.docx"
+                  className={styles.btnDownload}
+                  style={{ textDecoration: 'none', textAlign: 'center', width: 'auto', display: 'inline-block', padding: '8px 16px', fontSize: '0.85rem', color: '#60a5fa', borderColor: 'rgba(96, 165, 250, 0.2)', backgroundColor: 'rgba(96, 165, 250, 0.05)' }}
+                >
+                  📥 Unduh Template Bawaan Sistem
+                </a>
+                <a 
+                  href="/templates/template_kustom_tertag.docx" 
+                  download="template_kustom_tertag.docx"
+                  className={styles.btnDownload}
+                  style={{ textDecoration: 'none', textAlign: 'center', width: 'auto', display: 'inline-block', padding: '8px 16px', fontSize: '0.85rem', color: '#34d399', borderColor: 'rgba(52, 211, 153, 0.2)', backgroundColor: 'rgba(52, 211, 153, 0.05)' }}
+                >
+                  📥 Unduh Template Google Docs Ter-Tagging
+                </a>
               </div>
 
               <div className={styles.uploadRow}>
