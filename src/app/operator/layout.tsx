@@ -76,6 +76,7 @@ export default function OperatorLayout({
     if (pathname.includes('/analisis')) return 'Pengisian Anjab';
     if (pathname.includes('/beban-kerja')) return 'Hitung ABK';
     if (pathname.includes('/validasi')) return 'Kirim Validasi';
+    if (pathname.includes('/laporan')) return 'Cetak Laporan';
     return opdName;
   };
 
@@ -115,6 +116,9 @@ export default function OperatorLayout({
           </Link>
           <Link href="/operator/validasi" className={`${styles.navItem} ${pathname.includes('/validasi') ? styles.active : ''}`}>
             <span className={styles.navIcon}>✅</span> <span className={styles.navText}>Kirim Validasi</span>
+          </Link>
+          <Link href="/operator/laporan" className={`${styles.navItem} ${pathname.includes('/laporan') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>📄</span> <span className={styles.navText}>Cetak Laporan</span>
           </Link>
         </nav>
 

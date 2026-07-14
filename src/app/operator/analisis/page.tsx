@@ -57,6 +57,7 @@ export default function OperatorAnalisisPage() {
   const [lockReason, setLockReason] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
   const [downloadingWord, setDownloadingWord] = useState(false);
+  const [downloadingSiasn, setDownloadingSiasn] = useState(false);
 
   const [progressStatus, setProgressStatus] = useState<{
     show: boolean;
@@ -297,6 +298,90 @@ export default function OperatorAnalisisPage() {
     setMode('tree');
     setActiveJob('');
     setJabatanData(null);
+  };
+
+  const handleResetAnjab = async () => {
+    if (!jabatanData) return;
+    if (isReadOnly) {
+      showToast("❌ Tidak dapat me-reset: Mode Lihat-Saja aktif.");
+      return;
+    }
+    const confirmReset = window.confirm(
+      `Apakah Anda yakin ingin me-reset seluruh isian jabatan "${jabatanData.namaJabatan}"? \n\nTindakan ini akan mengosongkan seluruh data yang diinput manual (Tugas Pokok, Bahan/Perangkat Kerja, Syarat Jabatan, dll) dan menyisakan data bawaan yang terisi otomatis. Tindakan ini tidak dapat dibatalkan.`
+    );
+    if (!confirmReset) return;
+
+    setLoadingEditor(true);
+    try {
+      const bulkPayload = {
+        jabatan: {
+          id: jabatanData.id,
+          unitKerjaId: jabatanData.unitKerjaId,
+          parentId: jabatanData.parentId || "",
+          urutan: jabatanData.urutan || 0,
+          tahun: jabatanData.tahun || "",
+          namaJabatan: jabatanData.namaJabatan,
+          kodeJabatan: jabatanData.kodeJabatan,
+          jenisJabatan: jabatanData.jenisJabatan,
+          kelasJabatan: jabatanData.kelasJabatan,
+          level: jabatanData.level || 0,
+          jptUtama: jabatanData.jptUtama || "",
+          jptMadya: jabatanData.jptMadya || "",
+          jptPratama: jabatanData.jptPratama || "",
+          administrator: jabatanData.administrator || "",
+          pengawas: jabatanData.pengawas || "",
+          pelaksana: jabatanData.pelaksana || "",
+          jabatanFungsional: jabatanData.jabatanFungsional || "",
+          ikhtisarJabatan: ""
+        },
+        kualifikasi: {
+          pendidikanFormal: [],
+          pendidikanPelatihan: [],
+          pengalamanKerja: []
+        },
+        syaratJabatan: {
+          keterampilanKerja: [],
+          bakatKerja: [],
+          temperamenKerja: [],
+          minatKerja: [],
+          upayaFisik: [],
+          kondisiFisik: {
+            jenisKelamin: "-",
+            umur: "-",
+            tinggiBadan: "-",
+            beratBadan: "-",
+            posturBadan: "-",
+            penampilan: "-"
+          },
+          fungsiPekerjaan: []
+        },
+        tugasPokok: [],
+        hasilKerja: { uraian: "" },
+        prestasiKerja: { uraian: "" },
+        bahanKerja: [],
+        perangkatKerja: [],
+        tanggungJawab: [],
+        wewenang: [],
+        korelasiJabatan: [],
+        kondisiLingkungan: [],
+        risikoBahaya: []
+      };
+
+      await api.saveBulkAnjabData(jabatanData.id, bulkPayload);
+
+      localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
+      localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
+
+      const refreshed = await api.getJabatanFull(jabatanData.id) as JabatanFull;
+      setJabatanData(refreshed);
+      setVersionKey(prev => prev + 1);
+
+      showToast("🧹 Seluruh isian berhasil di-reset!");
+    } catch (e: any) {
+      alert("Gagal me-reset isian: " + e.message);
+    } finally {
+      setLoadingEditor(false);
+    }
   };
 
   const handleTriggerAI = async () => {
@@ -945,11 +1030,45 @@ export default function OperatorAnalisisPage() {
             <div className={styles.panelHeaderContent}>
               <span className={styles.jobBadge}>{jabatanData?.jenisJabatan || "Jabatan"}</span>
             </div>
-            <div className={styles.jobTitle}>{jabatanData?.namaJabatan || "— Memuat Jabatan —"}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div className={styles.jobTitle}>{jabatanData?.namaJabatan || "— Memuat Jabatan —"}</div>
+              {jabatanData && !isReadOnly && (
+                <button 
+                  onClick={handleResetAnjab}
+                  disabled={loadingEditor}
+                  style={{ 
+                    background: '#fff3f3', 
+                    color: '#e11d48', 
+                    border: '1px solid #fecdd3', 
+                    padding: '0.4rem 1rem', 
+                    borderRadius: '6px', 
+                    cursor: 'pointer', 
+                    fontWeight: 600, 
+                    fontSize: '0.8rem', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '0.4rem',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Reset seluruh isian manual"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#ffe4e6';
+                    e.currentTarget.style.borderColor = '#fda4af';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff3f3';
+                    e.currentTarget.style.borderColor = '#fecdd3';
+                  }}
+                >
+                  <span>🧹</span> Reset Isian
+                </button>
+              )}
+            </div>
             {jabatanData && (
               <div style={{ fontSize: "0.85rem", opacity: 0.7, marginTop: "0.25rem", display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                 <span>Kode: <span style={{ fontFamily: "monospace" }}>{jabatanData.kodeJabatan}</span></span>
                 <span>{' · '} Kelas: <strong>{jabatanData.kelasJabatan}</strong></span>
+
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
                   <button 
                     onClick={async () => {
@@ -1003,6 +1122,25 @@ export default function OperatorAnalisisPage() {
                   >
                     <span>📄</span> {downloadingWord ? "Mengunduh..." : "Unduh Word"}
                   </button>
+                  <button 
+                    onClick={async () => {
+                      if (!jabatanData) return;
+                      setDownloadingSiasn(true);
+                      try {
+                        const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
+                        exportJabatanToSiasn(jabatanData);
+                        showToast("✨ Berhasil mengekspor SIASN");
+                      } catch (err: any) {
+                        alert("Gagal mengekspor SIASN: " + err.message);
+                      } finally {
+                        setDownloadingSiasn(false);
+                      }
+                    }}
+                    disabled={downloadingSiasn}
+                    style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: downloadingSiasn ? 0.7 : 1 }}
+                  >
+                    <span>📊</span> {downloadingSiasn ? "Mengekspor..." : "Unduh SIASN"}
+                  </button>
                 </div>
               </div>
             )}
@@ -1035,10 +1173,10 @@ export default function OperatorAnalisisPage() {
                     onSaveKualifikasi={handleSaveKualifikasi} onSaveHasilKerja={handleSaveHasilKerja} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "bahan" && (
-                  <TabBahanPerangkat jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
+                  <TabBahanPerangkat key={`bahan-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "korelasi" && (
-                  <TabKorelasiLingkungan jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
+                  <TabKorelasiLingkungan key={`korelasi-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSave={handleSaveMultiRows} loading={loadingEditor} readOnly={isReadOnly} />
                 )}
                 {activeTab === "syarat" && (
                   <TabSyaratJabatan key={`syarat-${jabatanData.id}-${versionKey}`} jabatan={jabatanData} onSaveSyarat={handleSaveSyarat}

@@ -169,6 +169,13 @@ Your task is to draft a compliant, logical, and detailed Anjab/ABK profile in In
 You MUST output raw JSON matching the exact schema provided. Do not include markdown wraps (like \`\`\`json).
 
 SCHEMA RULES:
+- Setiap 'uraianTugas' dalam 'tugasPokok' WAJIB mengandung unsur Bagaimana cara mengerjakan (How) (contoh: 'Sesuai dengan peraturan perundangan yang berlaku', 'Sesuai dengan tugas dan fungsi jabatan', 'Berdasarkan rencana kerja yang ditetapkan') DAN unsur Dalam rangka apa/tujuan (Why) (contoh: 'agar diperoleh kinerja yang diharapkan', 'untuk ketepatan dan kelancaran pelaksanaan tugas', 'demi kelancaran tugas jabatan') yang disesuaikan secara logis dengan level jabatannya.
+- Uraian tugas WAJIB disesuaikan dengan Level Jabatan yang dideteksi dari nama jabatan:
+  1. Jabatan Pimpinan Tinggi (Eselon I/II) (Fokus: Strategi, kepemimpinan, kebijakan, pengambilan keputusan). Kata kerja utama: Merumuskan, Mengambil (keputusan strategis), Memimpin, Mengkoordinasikan, Mengevaluasi (dan mengendalikan). Contoh: 'Merumuskan kebijakan strategis bidang...'
+  2. Jabatan Administrator (Eselon III) (Fokus: Manajemen operasional, perencanaan, pengawasan menengah). Kata kerja utama: Merencanakan, Mengatur, Mengawasi, Mengkoordinasikan, Melaporkan.
+  3. Jabatan Pengawas (Eselon IV) (Fokus: Pengawasan langsung, pembinaan, penjaminan kualitas). Kata kerja utama: Mengawasi, Membina, Memantau, Menilai, Mengendalikan.
+  4. Jabatan Pelaksana (Fokus: Pelaksanaan teknis, operasional sehari-hari, tugas konkret). Kata kerja utama: Melaksanakan, Menyusun, Mengolah, Menyelesaikan, Mendokumentasikan. Contoh: 'Melaksanakan verifikasi data sesuai prosedur...'
+  5. Jabatan Fungsional (Fokus: Keahlian teknis/profesional, analisis mendalam, kompetensi khusus). Kata kerja utama: Menganalisis, Menyusun (laporan/rekomendasi), Melakukan (penelitian/pemeriksaan/pengembangan), Memberikan (rekomendasi/konsultasi), Mengembangkan (metode/sistem/standar).
 - bakatKerja elements MUST only be chosen from: ["G", "V", "N", "S", "P", "Q", "K", "F", "E", "C", "M"]
 - temperamenKerja elements MUST only be chosen from: ["DCP", "FIF", "INFLU", "SJC", "MVC", "DEPL", "REPCON", "PUS", "STS", "VARCH"]
 - minatKerja elements MUST only be chosen from: ["1a", "1b", "2a", "2b", "3a", "3b", "4a", "4b", "5a", "5b"]

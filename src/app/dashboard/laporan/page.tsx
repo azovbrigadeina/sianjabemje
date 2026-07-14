@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
@@ -33,6 +33,11 @@ const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
   "tugasPokok.jumlahHasil": "jumlahHasil",
   "tugasPokok.waktuPenyelesaian": "waktuPenyelesaian",
   "tugasPokok.waktuEfektif": "waktuEfektif",
+  "tugasPokok.kebutuhanPegawai": "kebutuhanPegawai",
+  "totalWaktuEfektif": "totalWaktuEfektif",
+  "totalKebutuhanPegawai": "totalKebutuhanPegawai",
+  "jumlahPegawaiOrang": "jumlahPegawaiOrang",
+  "wke": "wke",
   
   "syaratJabatan.keterampilanKerja": "syarat_keterampilanKerja",
   "syaratJabatan.bakatKerja": "syarat_bakatKerja",
@@ -140,6 +145,14 @@ export default function LaporanPage() {
   const [downloadingAbk, setDownloadingAbk] = useState<boolean>(false);
 
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // ABK & Jabatan lists & states for interactive panel
+  const [abks, setAbks] = useState<any[]>([]);
+  const [loadingJabatans, setLoadingJabatans] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showBulkModal, setShowBulkModal] = useState<boolean>(false);
+  const [bulkEmptyJobs, setBulkEmptyJobs] = useState<Jabatan[]>([]);
+  const [bulkReadyJobs, setBulkReadyJobs] = useState<Jabatan[]>([]);
 
   // Template Settings State
   const [activeTab, setActiveTab] = useState<"file" | "mappings" | "deadline">("file");
@@ -202,46 +215,120 @@ export default function LaporanPage() {
     loadInitialData();
   }, []);
 
-  // Fetch Jabatans whenever selectedOpd1 changes
+  // Fetch Jabatans & ABK whenever selectedOpd1 changes
   useEffect(() => {
     if (!selectedOpd1) return;
-    const loadJabatans = async () => {
+    const loadJabatansAndAbk = async () => {
+      setLoadingJabatans(true);
       try {
-        const data = await api.getJabatanByUnit(selectedOpd1) as Jabatan[];
-        setJabatans(data);
-        setSelectedJabatan("all"); // Default to all jabatans
+        const [jabs, bulkData] = await Promise.all([
+          api.getJabatanByUnit(selectedOpd1) as Promise<Jabatan[]>,
+          api.getBulkData(['abk']).catch(() => ({ abk: [] }))
+        ]);
+        setJabatans(jabs);
+        setAbks((bulkData.abk || []) as any[]);
       } catch (err) {
-        console.error("Gagal memuat daftar jabatan:", err);
+        console.error("Gagal memuat daftar jabatan dan ABK:", err);
+      } finally {
+        setLoadingJabatans(false);
       }
     };
-    loadJabatans();
+    loadJabatansAndAbk();
   }, [selectedOpd1]);
 
-  const handleDownloadAnjab = async () => {
-    if (!selectedOpd1) return;
+  const abkMap = useMemo(() => {
+    const map = new Map<string, any>();
+    abks.forEach(a => {
+      if (a.id) map.set(a.id, a);
+    });
+    return map;
+  }, [abks]);
+
+  const filteredJabatans = useMemo(() => {
+    return jabatans.filter(j => 
+      j.namaJabatan.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (j.kodeJabatan && j.kodeJabatan.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [jabatans, searchQuery]);
+
+  const handleDownloadSingle = async (jabatan: Jabatan, abkData: any) => {
+    if (!abkData || !abkData.rows || abkData.rows.length === 0) {
+      alert(`Maaf, data Analisis Beban Kerja (ABK) untuk jabatan "${jabatan.namaJabatan}" belum diisi. Silakan lengkapi data ABK terlebih dahulu sebelum mencetak.`);
+      return;
+    }
     setDownloadingAnjab(true);
     try {
-      const opdName = opds.find(o => o.id === selectedOpd1)?.nama || "OPD";
-      if (selectedJabatan === "all") {
-        if (jabatans.length === 0) {
-          alert("Tidak ada jabatan pada OPD ini.");
-          setDownloadingAnjab(false);
-          return;
-        }
-        
-        const fullJabatans = await Promise.all(
-          jabatans.map(j => api.getJabatanFull(j.id) as Promise<JabatanFull>)
-        );
-        
-        const { exportJabatansToDocx } = await import("@/lib/exportDocx");
-        await exportJabatansToDocx(`Anjab_Lengkap_${opdName.replace(/[^a-zA-Z0-9]/g, '_')}`, fullJabatans);
-      } else {
-        const fullJabatan = await api.getJabatanFull(selectedJabatan) as JabatanFull;
-        const { exportJabatanToDocx } = await import("@/lib/exportDocx");
-        await exportJabatanToDocx(fullJabatan);
-      }
+      const fullJabatan = await api.getJabatanFull(jabatan.id) as JabatanFull;
+      const { exportJabatanToDocx } = await import("@/lib/exportDocx");
+      await exportJabatanToDocx(fullJabatan, abkData);
     } catch (err: any) {
       alert("Gagal mengunduh laporan Anjab: " + err.message);
+    } finally {
+      setDownloadingAnjab(false);
+    }
+  };
+
+  const handleDownloadSiasn = async (jabatan: Jabatan, abkData: any) => {
+    if (!abkData || !abkData.rows || abkData.rows.length === 0) {
+      alert(`Maaf, data Analisis Beban Kerja (ABK) untuk jabatan "${jabatan.namaJabatan}" belum diisi. Silakan lengkapi data ABK terlebih dahulu sebelum mengekspor.`);
+      return;
+    }
+    setDownloadingAnjab(true);
+    try {
+      const fullJabatan = await api.getJabatanFull(jabatan.id) as JabatanFull;
+      const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
+      exportJabatanToSiasn(fullJabatan, abkData);
+    } catch (err: any) {
+      alert("Gagal mengekspor SIASN: " + err.message);
+    } finally {
+      setDownloadingAnjab(false);
+    }
+  };
+
+  const handleDownloadBulk = () => {
+    if (jabatans.length === 0) {
+      alert("Tidak ada jabatan pada OPD ini.");
+      return;
+    }
+
+    const ready: Jabatan[] = [];
+    const empty: Jabatan[] = [];
+    jabatans.forEach(j => {
+      const abk = abkMap.get(j.id);
+      if (abk && abk.rows && abk.rows.length > 0) {
+        ready.push(j);
+      } else {
+        empty.push(j);
+      }
+    });
+
+    if (empty.length > 0) {
+      setBulkEmptyJobs(empty);
+      setBulkReadyJobs(ready);
+      setShowBulkModal(true);
+    } else {
+      triggerBulkDownload(ready);
+    }
+  };
+
+  const triggerBulkDownload = async (jobsToDownload: Jabatan[]) => {
+    if (jobsToDownload.length === 0) {
+      alert("Tidak ada jabatan yang siap dicetak.");
+      return;
+    }
+    setDownloadingAnjab(true);
+    setShowBulkModal(false);
+    try {
+      const opdName = opds.find(o => o.id === selectedOpd1)?.nama || "OPD";
+      const fullJabatans = await Promise.all(
+        jobsToDownload.map(j => api.getJabatanFull(j.id) as Promise<JabatanFull>)
+      );
+      const abkList = jobsToDownload.map(j => abkMap.get(j.id));
+      
+      const { exportJabatansToDocx } = await import("@/lib/exportDocx");
+      await exportJabatansToDocx(`Anjab_Lengkap_${opdName.replace(/[^a-zA-Z0-9]/g, '_')}`, fullJabatans, abkList);
+    } catch (err: any) {
+      alert("Gagal mengunduh bulk Anjab: " + err.message);
     } finally {
       setDownloadingAnjab(false);
     }
@@ -450,49 +537,6 @@ export default function LaporanPage() {
 
       <div className={styles.grid}>
         
-        {/* Card 1: Dokumen Informasi Jabatan */}
-        <div className={`${styles.reportCard} glass-panel`}>
-          <div className={styles.cardHeader}>
-            <div className={styles.iconWrapper}>📑</div>
-            <div className={styles.reportTitle}>Dokumen Informasi Jabatan</div>
-          </div>
-          <p className={styles.reportDesc}>
-            Mencetak formulir Informasi Jabatan secara lengkap beserta uraian tugas, syarat, dan korelasi untuk satu jabatan spesifik atau seluruh jabatan di OPD (Bulk).
-          </p>
-          <div className={styles.formGroup}>
-            <label>Pilih OPD</label>
-            <select 
-              className={styles.selectInput} 
-              value={selectedOpd1} 
-              onChange={(e) => setSelectedOpd1(e.target.value)}
-            >
-              {opds.map(opd => (
-                <option key={opd.id} value={opd.id}>{opd.nama}</option>
-              ))}
-            </select>
-          </div>
-          <div className={styles.formGroup}>
-            <label>Pilih Jabatan</label>
-            <select 
-              className={styles.selectInput} 
-              value={selectedJabatan} 
-              onChange={(e) => setSelectedJabatan(e.target.value)}
-            >
-              <option value="all">[Semua Jabatan - Cetak Bulk]</option>
-              {jabatans.map(j => (
-                <option key={j.id} value={j.id}>{j.namaJabatan}</option>
-              ))}
-            </select>
-          </div>
-          <button 
-            className={styles.btnDownload} 
-            onClick={handleDownloadAnjab}
-            disabled={downloadingAnjab}
-          >
-            {downloadingAnjab ? "Mengunduh..." : "Unduh Word (.docx)"}
-          </button>
-        </div>
-
         {/* Card 2: Peta Jabatan Instansi */}
         <div className={`${styles.reportCard} glass-panel`}>
           <div className={styles.cardHeader}>
@@ -568,6 +612,179 @@ export default function LaporanPage() {
         </div>
 
       </div>
+
+      {/* Panel Daftar Jabatan Interaktif */}
+      <div className={`${styles.fullWidthPanel} glass-panel`}>
+        <div className={styles.panelHeader}>
+          <div className={styles.panelTitle}>
+            <span>📑</span> Cetak Dokumen Informasi Jabatan
+          </div>
+          <div>
+            <button 
+              className={styles.btnBulk} 
+              onClick={handleDownloadBulk}
+              disabled={downloadingAnjab || jabatans.length === 0}
+            >
+              <span>📥</span> {downloadingAnjab ? "Mengunduh..." : "Cetak Bulk (.docx)"}
+            </button>
+          </div>
+        </div>
+
+        <p style={{ fontSize: "0.85rem", opacity: 0.7, margin: 0, lineHeight: 1.5 }}>
+          Mencetak formulir Informasi Jabatan secara lengkap beserta uraian tugas, syarat, dan korelasi untuk satu jabatan spesifik atau seluruh jabatan di OPD (Bulk). Dokumen hanya bisa diunduh jika data ABK telah diisi.
+        </p>
+
+        <div className={styles.panelToolbar}>
+          <div className={styles.formGroup} style={{ flex: 1, maxWidth: '300px' }}>
+            <label>Pilih OPD</label>
+            <select 
+              className={styles.selectInput} 
+              value={selectedOpd1} 
+              onChange={(e) => setSelectedOpd1(e.target.value)}
+            >
+              {opds.map(opd => (
+                <option key={opd.id} value={opd.id}>{opd.nama}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.formGroup} style={{ flex: 1, maxWidth: '300px' }}>
+            <label>Cari Jabatan</label>
+            <input 
+              type="text"
+              placeholder="Cari nama jabatan..."
+              className={styles.searchBox}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {loadingJabatans ? (
+          <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>Memuat daftar jabatan...</div>
+        ) : filteredJabatans.length === 0 ? (
+          <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>Tidak ada jabatan ditemukan.</div>
+        ) : (
+          <div className={styles.tableWrapper}>
+            <table className={styles.jobTable}>
+              <thead>
+                <tr>
+                  <th style={{ width: '60px' }}>No</th>
+                  <th>Nama Jabatan</th>
+                  <th>Jenis Jabatan</th>
+                  <th style={{ width: '130px' }}>Kelas Jabatan</th>
+                  <th style={{ width: '220px' }}>Status ABK</th>
+                  <th style={{ width: '260px', textAlign: 'center' }}>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredJabatans.map((j, idx) => {
+                  const abk = abkMap.get(j.id);
+                  const isAbkFilled = abk && abk.rows && abk.rows.length > 0;
+                  
+                  // Status validasi OPD
+                  const currentOpd = opds.find(o => o.id === selectedOpd1);
+                  const isOpdApproved = currentOpd?.statusValidasi === 'Disetujui';
+
+                  return (
+                    <tr key={j.id}>
+                      <td>{idx + 1}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{j.namaJabatan}</div>
+                        <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '2px' }}>{j.kodeJabatan || '-'}</div>
+                      </td>
+                      <td>{j.jenisJabatan}</td>
+                      <td>Kelas {j.kelasJabatan}</td>
+                      <td>
+                        {isAbkFilled ? (
+                          isOpdApproved ? (
+                            <span className={`${styles.badge} ${styles.badgeSuccess}`}>
+                              Bisa Dicetak ✅
+                            </span>
+                          ) : (
+                            <span className={`${styles.badge} ${styles.badgeWarning}`}>
+                              ⚠️ Preview (Belum Validasi)
+                            </span>
+                          )
+                        ) : (
+                          <span className={`${styles.badge} ${styles.badgeDanger}`}>
+                            ❌ ABK Kosong
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                          <button 
+                            className={`${styles.btnAction} ${isAbkFilled ? styles.btnActionPrimary : styles.btnActionDisabled}`}
+                            onClick={() => handleDownloadSingle(j, abk)}
+                            disabled={downloadingAnjab}
+                            title={isAbkFilled ? "Unduh file Word" : "Lengkapi ABK terlebih dahulu untuk mengunduh"}
+                          >
+                            📄 {downloadingAnjab ? "..." : "Word"}
+                          </button>
+                          <button 
+                            className={`${styles.btnAction} ${isAbkFilled ? styles.btnActionPrimary : styles.btnActionDisabled}`}
+                            onClick={() => handleDownloadSiasn(j, abk)}
+                            disabled={downloadingAnjab}
+                            title={isAbkFilled ? "Unduh file SIASN Excel" : "Lengkapi ABK terlebih dahulu untuk mengekspor"}
+                            style={{ background: 'hsla(142.1, 76.2%, 36.3%, 0.1)', color: 'hsl(142.1, 76.2%, 36.3%)', borderColor: 'hsla(142.1, 76.2%, 36.3%, 0.2)' }}
+                          >
+                            📊 {downloadingAnjab ? "..." : "SIASN"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Bulk Download Modal */}
+      {showBulkModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              Konfirmasi Cetak Bulk
+            </div>
+            <div className={styles.modalBody}>
+              <p>Terdapat <strong>{bulkEmptyJobs.length} jabatan</strong> yang belum mengisi data ABK (sehingga tidak bisa dicetak).</p>
+              <p>Hanya <strong>{bulkReadyJobs.length} jabatan</strong> yang siap dicetak.</p>
+              <div style={{ marginTop: '1rem' }}>
+                <strong>Daftar jabatan yang belum mengisi ABK:</strong>
+                <ul className={styles.modalList}>
+                  {bulkEmptyJobs.slice(0, 5).map(j => (
+                    <li key={j.id}>{j.namaJabatan}</li>
+                  ))}
+                  {bulkEmptyJobs.length > 5 && (
+                    <li style={{ color: 'var(--foreground)', opacity: 0.5, listStyle: 'none' }}>...dan {bulkEmptyJobs.length - 5} jabatan lainnya.</li>
+                  )}
+                </ul>
+              </div>
+              <p style={{ marginTop: '1.25rem' }}>Apakah Anda ingin melanjutkan pengunduhan bulk untuk <strong>{bulkReadyJobs.length} jabatan</strong> yang sudah siap saja?</p>
+            </div>
+            <div className={styles.modalFooter}>
+              <button 
+                className="btn-secondary" 
+                onClick={() => setShowBulkModal(false)}
+                style={{ padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--foreground)', marginRight: '8px' }}
+              >
+                Batal
+              </button>
+              <button 
+                className="btn-primary" 
+                onClick={() => triggerBulkDownload(bulkReadyJobs)}
+                disabled={bulkReadyJobs.length === 0}
+                style={{ padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                Ya, Unduh {bulkReadyJobs.length} Jabatan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Advanced Settings: Template & Tag Manager (Admin Only) */}
       <div className={`${styles.settingsSection} glass-panel`}>

@@ -333,6 +333,26 @@ export default function VerifikasiPage() {
     };
   }, [selectedOpdJobs]);
 
+  const unitBreakdown = useMemo(() => {
+    let opd = 0;
+    let kecamatan = 0;
+    let subUnit = 0;
+
+    opds.forEach((u) => {
+      if (!u.parentId) {
+        if (u.nama.toLowerCase().includes("kecamatan")) {
+          kecamatan++;
+        } else {
+          opd++;
+        }
+      } else {
+        subUnit++;
+      }
+    });
+
+    return { opd, kecamatan, subUnit };
+  }, [opds]);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -349,6 +369,11 @@ export default function VerifikasiPage() {
           <div className={styles.statInfo}>
             <span className={styles.statLabel}>Total Unit Kerja</span>
             <span className={styles.statValue}>{isLoading ? "..." : opds.length}</span>
+            {!isLoading && (
+              <span style={{ fontSize: "0.75rem", opacity: 0.7, marginTop: "4px" }}>
+                {unitBreakdown.opd} OPD • {unitBreakdown.kecamatan} Kecamatan • {unitBreakdown.subUnit} Sub Unit
+              </span>
+            )}
           </div>
         </div>
 

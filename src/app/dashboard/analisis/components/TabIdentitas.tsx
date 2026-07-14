@@ -76,7 +76,57 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
   useEffect(() => {
     if (jabatan) {
       const opdCode = jabatan.unitKerjaId ? (jabatan.unitKerjaId.length % 90) + 10 : 14; 
-      const levelCode = jabatan.level !== undefined ? jabatan.level : 2;
+      
+      let levelCode = 2;
+      if (jabatan.level !== undefined && jabatan.level !== null && jabatan.level !== 0) {
+        levelCode = jabatan.level;
+      } else {
+        const h = jabatan.hierarchy as Record<string, string> | undefined;
+        if (h) {
+          let count = 0;
+          if (h.jptUtama) count++;
+          if (h.jptMadya) count++;
+          if (h.jptPratama) count++;
+          if (h.administrator) count++;
+          if (h.pengawas) count++;
+          if (h.pelaksana) count++;
+          if (h.jabatanFungsional) count++;
+          if (count > 0) {
+            levelCode = count;
+          } else {
+            let path: TreeNode[] = [];
+            const findPath = (nodes: TreeNode[], currentPath: TreeNode[]): boolean => {
+              for (const n of nodes) {
+                if (n.id === jabatan.id) {
+                  path = currentPath;
+                  return true;
+                }
+                if (findPath(n.children, [...currentPath, n])) return true;
+              }
+              return false;
+            };
+            findPath(treeData || [], []);
+            const jbtAncestors = path.filter(n => n.type === 'JABATAN');
+            levelCode = jbtAncestors.length + 1;
+          }
+        } else {
+          let path: TreeNode[] = [];
+          const findPath = (nodes: TreeNode[], currentPath: TreeNode[]): boolean => {
+            for (const n of nodes) {
+              if (n.id === jabatan.id) {
+                path = currentPath;
+                return true;
+              }
+              if (findPath(n.children, [...currentPath, n])) return true;
+            }
+            return false;
+          };
+          findPath(treeData || [], []);
+          const jbtAncestors = path.filter(n => n.type === 'JABATAN');
+          levelCode = jbtAncestors.length + 1;
+        }
+      }
+
       const subCode = form.jenisJabatan === "Administrator" ? 1 : 
                       form.jenisJabatan === "Pengawas" ? 2 : 
                       form.jenisJabatan === "Pelaksana" ? 3 : 0;
@@ -98,7 +148,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
          setForm(prev => ({ ...prev, kodeJabatan: generatedKode }));
       }
     }
-  }, [jabatan, form.jenisJabatan]);
+  }, [jabatan, form.jenisJabatan, treeData]);
 
   const hierarchy = jabatan?.hierarchy as Record<string, string> | undefined;
 

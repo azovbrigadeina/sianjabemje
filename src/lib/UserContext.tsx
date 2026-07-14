@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { api } from "./api";
 
 export interface SessionUser {
   id: string;
@@ -52,6 +53,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
+      // Warm up GAS backend
+      api.warmUpGas();
+
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         setUserState(JSON.parse(stored));

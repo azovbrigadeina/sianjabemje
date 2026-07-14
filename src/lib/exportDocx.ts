@@ -16,7 +16,7 @@ const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
 };
 
 // Map Sianjab data to template placeholder keys based on custom user mappings
-const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}) => {
+const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}, abkData?: any) => {
   const result: Record<string, any> = {};
 
   const getValue = (fieldKey: string, defaultValue: any) => {
@@ -26,11 +26,29 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {})
   // Base fields
   result[getValue('namaJabatan', 'namaJabatan')] = jabatan.namaJabatan || "-";
 
-  // Generate hierarchical code if kodeJabatan is empty or is the database ID (starts with jbt_)
+  // Generate hierarchical code if kodeJabatan is empty, is database ID, or contains null
   let displayKode = jabatan.kodeJabatan || "";
-  if (!displayKode || displayKode.startsWith("jbt_") || displayKode === "-") {
+  if (!displayKode || displayKode.startsWith("jbt_") || displayKode === "-" || displayKode.includes("null")) {
     const opdCode = jabatan.unitKerjaId ? (jabatan.unitKerjaId.replace(/[^0-9]/g, '').slice(-2) || ((jabatan.unitKerjaId.length % 90) + 10).toString()) : "14";
-    const levelCode = jabatan.level !== undefined ? jabatan.level : 2;
+    
+    let levelCode = 2;
+    if (jabatan.level !== undefined && jabatan.level !== null && jabatan.level !== 0) {
+      levelCode = jabatan.level;
+    } else if (jabatan.hierarchy) {
+      const h = jabatan.hierarchy;
+      let count = 0;
+      if (h.jptUtama) count++;
+      if (h.jptMadya) count++;
+      if (h.jptPratama) count++;
+      if (h.administrator) count++;
+      if (h.pengawas) count++;
+      if (h.pelaksana) count++;
+      if (h.jabatanFungsional) count++;
+      if (count > 0) {
+        levelCode = count;
+      }
+    }
+
     const subCode = jabatan.jenisJabatan === "Administrator" ? 1 : 
                     jabatan.jenisJabatan === "Pengawas" ? 2 : 
                     jabatan.jenisJabatan === "Pelaksana" ? 3 : 0;
@@ -269,7 +287,56 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {})
     });
   };
 
-  mapLoopArray(jabatan.tugasPokok || [], mappings.tugasPokok, 'tugasPokok');
+  // Custom mapping for tugasPokok with ABK injection
+  const abkRows = abkData?.rows || [];
+  const wke = abkData?.wke || 1250;
+  const tpMapping = mappings.tugasPokok || {};
+  const tugasPokokLoopKey = tpMapping.loop || 'tugasPokok';
+  
+  let sumWaktuEfektif = 0;
+  let sumKebutuhan = 0;
+
+  result[tugasPokokLoopKey] = (jabatan.tugasPokok || []).map((tp, idx) => {
+    const row: Record<string, any> = {};
+    row[tpMapping.no || 'no'] = idx + 1;
+    row[tpMapping.uraianTugas || 'uraianTugas'] = tp.uraianTugas || "-";
+    row[tpMapping.hasilKerja || 'hasilKerja'] = tp.hasilKerja || "-";
+    row[tpMapping.jumlahHasil || 'jumlahHasil'] = tp.jumlahHasil !== undefined ? tp.jumlahHasil : (tp as any).jumlahHasil || 0;
+    row[tpMapping.waktuPenyelesaian || 'waktuPenyelesaian'] = tp.waktuPenyelesaian !== undefined ? tp.waktuPenyelesaian : (tp as any).waktuPenyelesaian || 0;
+    
+    // Inject ABK fields
+    const abkRow = abkRows[idx];
+    const waktu = abkRow ? abkRow.waktu : (tp.waktuPenyelesaian || 0);
+    const volume = abkRow ? abkRow.volume : (tp.jumlahHasil || 0);
+    const waktuEfektif = waktu * volume;
+    const kebutuhanPegawai = wke > 0 ? (waktuEfektif / wke) : 0;
+    
+    sumWaktuEfektif += waktuEfektif;
+    sumKebutuhan += kebutuhanPegawai;
+    
+    const formattedKebutuhan = kebutuhanPegawai.toLocaleString('id-ID', { 
+      minimumFractionDigits: 3, 
+      maximumFractionDigits: 4 
+    });
+    const formattedWaktuEfektif = waktuEfektif.toLocaleString('id-ID');
+    
+    row[tpMapping.waktuEfektif || 'waktuEfektif'] = formattedWaktuEfektif;
+    row[tpMapping.kebutuhanPegawai || 'kebutuhanPegawai'] = formattedKebutuhan;
+    
+    return row;
+  });
+
+  // Summary ABK
+  result[mappings.totalWaktuEfektif || 'totalWaktuEfektif'] = sumWaktuEfektif.toLocaleString('id-ID');
+  result[mappings.totalKebutuhanPegawai || 'totalKebutuhanPegawai'] = sumKebutuhan.toLocaleString('id-ID', {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 4
+  });
+  const pembulatan = Math.ceil(sumKebutuhan);
+  result[mappings.pembulatanFormasi || 'pembulatanFormasi'] = pembulatan;
+  result[mappings.jumlahPegawaiOrang || 'jumlahPegawaiOrang'] = `${pembulatan.toLocaleString('id-ID')} Orang`;
+  result[mappings.wke || 'wke'] = wke;
+
   mapLoopArray(jabatan.bahanKerja || [], mappings.bahanKerja, 'bahanKerja');
   mapLoopArray(jabatan.perangkatKerja || [], mappings.perangkatKerja, 'perangkatKerja');
   mapLoopArray(jabatan.tanggungJawab || [], mappings.tanggungJawab, 'tanggungJawab');
@@ -282,7 +349,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {})
 };
 
 // Main Export Logic
-export const exportJabatanToDocx = async (jabatan: JabatanFull) => {
+export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any) => {
   try {
     let arrayBuffer: ArrayBuffer;
     
@@ -304,7 +371,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull) => {
     const mappings = await api.getTagMappings().catch(() => null) || {};
 
     // 3. Transform data using mappings
-    const renderData = transformData(jabatan, mappings);
+    const renderData = transformData(jabatan, mappings, abkData);
 
     // 4. Initialize pizzip and docxtemplater with dot-notation parser
     const zip = new PizZip(arrayBuffer);
@@ -352,13 +419,11 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull) => {
 };
 
 // Bulk Export (Generates a combined document with multiple sections or individual downloads depending on browser performance)
-export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[]) => {
-  // If exporting bulk, we run individual downloads sequentially or combined. 
-  // Standard docxtemplater does not merge documents out-of-the-box. 
-  // The best way in standard frontend JS without commercial add-ons is downloading individual files,
-  // or downloading them sequentially so they download as separate files.
-  for (const jabatan of jabatans) {
-    await exportJabatanToDocx(jabatan);
+export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[], abkList?: any[]) => {
+  for (let i = 0; i < jabatans.length; i++) {
+    const jabatan = jabatans[i];
+    const abkData = abkList ? abkList.find(a => a.id === jabatan.id) : undefined;
+    await exportJabatanToDocx(jabatan, abkData);
     // Simple delay to prevent simultaneous download prompt blocking
     await new Promise(resolve => setTimeout(resolve, 800));
   }

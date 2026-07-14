@@ -39,22 +39,27 @@ function putLargeCache_(key, data, ttlSeconds) {
     var serialized = JSON.stringify(data);
     var chunkSize = 90000; // 90KB safe limit (max 100KB)
     var len = serialized.length;
+    var ttl = ttlSeconds || 300;
     
     removeLargeCache_(key);
 
     if (len < chunkSize) {
-      scriptCache_.put(key, serialized, ttlSeconds || 300);
-      scriptCache_.put(key + '_chunks', '1', ttlSeconds || 300);
+      var simpleCache = {};
+      simpleCache[key] = serialized;
+      simpleCache[key + '_chunks'] = '1';
+      scriptCache_.putAll(simpleCache, ttl);
       return;
     }
 
     var numChunks = Math.ceil(len / chunkSize);
+    var cacheData = {};
     for (var i = 0; i < numChunks; i++) {
       var start = i * chunkSize;
       var chunk = serialized.substring(start, start + chunkSize);
-      scriptCache_.put(key + '_' + i, chunk, ttlSeconds || 300);
+      cacheData[key + '_' + i] = chunk;
     }
-    scriptCache_.put(key + '_chunks', numChunks.toString(), ttlSeconds || 300);
+    cacheData[key + '_chunks'] = numChunks.toString();
+    scriptCache_.putAll(cacheData, ttl);
   } catch (e) {
     Logger.log('Error putting large cache for ' + key + ': ' + e.message);
   }
@@ -80,9 +85,14 @@ function getLargeCache_(key) {
       return null;
     }
 
+    var chunkKeys = [];
+    for (var i = 0; i < numChunks; i++) {
+      chunkKeys.push(key + '_' + i);
+    }
+    var chunksMap = scriptCache_.getAll(chunkKeys);
     var serialized = '';
     for (var i = 0; i < numChunks; i++) {
-      var chunk = scriptCache_.get(key + '_' + i);
+      var chunk = chunksMap[key + '_' + i];
       if (!chunk) {
         return null;
       }
@@ -147,7 +157,7 @@ function invalidateAllCaches_() {
 // =============================================
 
 // Action yang diizinkan TANPA token (public endpoints)
-var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'getSptSpreadsheetData'];
+var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'getSptSpreadsheetData', 'ping'];
 
 function validateToken_(token) {
   if (!token) return false;
@@ -236,6 +246,12 @@ function handleRequest_(e) {
     var result;
 
     switch (action) {
+      case 'ping':
+        result = 'pong';
+        break;
+      case 'benchmark':
+        result = runBenchmark_();
+        break;
       case 'create':
         result = createRecord_(entity, data);
         break;
@@ -347,12 +363,7 @@ function handleRequest_(e) {
       // Hanya untuk operasi baca — tidak mengubah data apapun.
       case 'getBulkData':
         var bulkEntities = (params.entities || '').split(',');
-        var bulkResult = {};
-        bulkEntities.forEach(function(ent) {
-          var e = ent.trim();
-          if (e) bulkResult[e] = readAllRecords_(e, '');
-        });
-        result = bulkResult;
+        result = readMultipleEntities_(bulkEntities);
         break;
 
       default:
@@ -494,9 +505,10 @@ function readAllRecords_(entity, parentId) {
 }
 
 function getDashboardStats_() {
-  var unitKerjas = readAllRecords_('unitKerja', '') || [];
-  var jabatans = readAllRecords_('jabatan', '') || [];
-  var abks = readAllRecords_('abk', '') || [];
+  var bulk = readMultipleEntities_(['unitKerja', 'jabatan', 'abk']);
+  var unitKerjas = bulk.unitKerja || [];
+  var jabatans = bulk.jabatan || [];
+  var abks = bulk.abk || [];
 
   var mainOpds = unitKerjas.filter(function (o) { return !o.parentId; });
   var subOpds = unitKerjas.filter(function (o) { return o.parentId; });
@@ -2062,6 +2074,13 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
                "- WAJIB menghasilkan MINIMAL 5 entri/item untuk tugasPokok, hasilKerja (di root JSON), bahanKerja, perangkatKerja, tanggungJawab, dan wewenang.\n" +
                "- Dalam tugasPokok, kolom hasilKerja harus diisi dengan nama SATUAN singkat saja (misalnya 'Dokumen', 'Berkas', 'Laporan', 'Kegiatan', 'Data', dll).\n" +
                "- Nilai hasilKerja (array di root JSON yang merepresentasikan 7. Hasil Kerja) harus berupa list dari NARASI DESKRIPTIF singkat hasil kerja (bukan satuan/kata tunggal) yang jumlahnya SAMA PERSIS dengan jumlah tugasPokok (berurutan 1-ke-1, minimal 5 item).\n" +
+               "- Setiap 'uraianTugas' dalam 'tugasPokok' WAJIB mengandung unsur Bagaimana cara mengerjakan (How) (contoh: 'Sesuai dengan peraturan perundangan yang berlaku', 'Sesuai dengan tugas dan fungsi jabatan', 'Berdasarkan rencana kerja yang ditetapkan') DAN unsur Dalam rangka apa/tujuan (Why) (contoh: 'agar diperoleh kinerja yang diharapkan', 'untuk ketepatan dan kelancaran pelaksanaan tugas', 'demi kelancaran tugas jabatan') yang disesuaikan secara logis dengan level jabatannya.\n" +
+               "- Uraian tugas WAJIB disesuaikan dengan Level Jabatan yang dideteksi dari nama jabatan:\n" +
+               "  1. Jabatan Pimpinan Tinggi (Eselon I/II) (Fokus: Strategi, kepemimpinan, kebijakan, pengambilan keputusan). Kata kerja utama: Merumuskan, Mengambil (keputusan strategis), Memimpin, Mengkoordinasikan, Mengevaluasi (dan mengendalikan). Contoh: 'Merumuskan kebijakan strategis bidang...'\n" +
+               "  2. Jabatan Administrator (Eselon III) (Fokus: Manajemen operasional, perencanaan, pengawasan menengah). Kata kerja utama: Merencanakan, Mengatur, Mengawasi, Mengkoordinasikan, Melaporkan.\n" +
+               "  3. Jabatan Pengawas (Eselon IV) (Fokus: Pengawasan langsung, pembinaan, penjaminan kualitas). Kata kerja utama: Mengawasi, Membina, Memantau, Menilai, Mengendalikan.\n" +
+               "  4. Jabatan Pelaksana (Fokus: Pelaksanaan teknis, operasional sehari-hari, tugas konkret). Kata kerja utama: Melaksanakan, Menyusun, Mengolah, Menyelesaikan, Mendokumentasikan. Contoh: 'Melaksanakan verifikasi data sesuai prosedur...'\n" +
+               "  5. Jabatan Fungsional (Fokus: Keahlian teknis/profesional, analisis mendalam, kompetensi khusus). Kata kerja utama: Menganalisis, Menyusun (laporan/rekomendasi), Melakukan (penelitian/pemeriksaan/pengembangan), Memberikan (rekomendasi/konsultasi), Mengembangkan (metode/sistem/standar).\n" +
                "- bakatKerja hanya boleh berisi kode dari: G, V, N, S, P, Q, K, F, E, C, M.\n" +
                "- temperamenKerja hanya boleh berisi kode dari: D, F, I, J, M, P, R, S, T, V.\n" +
                "- minatKerja hanya boleh berisi kode dari: 1a, 1b, 2a, 2b, 3a, 3b, 4a, 4b, 5a, 5b.\n" +
@@ -2687,6 +2706,132 @@ function getMockAiAnjab_(namaJabatan, unitKerja, namaOPD) {
       }
     };
   }
+}
+
+function readMultipleEntities_(entities) {
+  var result = {};
+  var misses = [];
+  var requests = [];
+  
+  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok'];
+  var cacheEntityTTL = {
+    'unitKerja': 600,          // 10 menit
+    'referensiJabatan': 1800,  // 30 menit
+    'jabatan': 300,            // 5 menit
+    'abk': 300,                // 5 menit
+    'tugasPokok': 300,         // 5 menit
+    'users': 300,              // 5 menit
+    'settings': 300            // 5 menit
+  };
+
+  entities.forEach(function(ent) {
+    var e = ent.trim();
+    if (!e) return;
+    
+    var path = getFirebasePath_(e);
+    var cacheKey = 'fb_' + path.replace(/\//g, '_');
+    var isCacheable = cacheable.indexOf(e) !== -1;
+    var cached = isCacheable ? getLargeCache_(cacheKey) : null;
+    
+    if (cached !== null && cached !== undefined) {
+      var records = Object.keys(cached).map(function (key) {
+        var item = cached[key];
+        item.id = key;
+        if (e === 'users') delete item.password;
+        return item;
+      });
+      records.sort(function (a, b) {
+        if (e === 'security_logs') {
+          var timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          var timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timeB - timeA;
+        }
+        return (a.nomorUrut || 0) - (b.nomorUrut || 0);
+      });
+      result[e] = records;
+    } else {
+      misses.push({ entity: e, path: path, cacheKey: cacheKey, isCacheable: isCacheable });
+      var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
+      requests.push({ url: url, method: 'get', muteHttpExceptions: true });
+    }
+  });
+
+  if (requests.length > 0) {
+    var responses = UrlFetchApp.fetchAll(requests);
+    for (var i = 0; i < requests.length; i++) {
+      var miss = misses[i];
+      var res = responses[i];
+      var allData = {};
+      if (res.getResponseCode() === 200) {
+        var text = res.getContentText();
+        if (text && text !== 'null') {
+          allData = JSON.parse(text);
+        }
+      }
+      
+      if (miss.isCacheable && allData && Object.keys(allData).length > 0) {
+        var ttl = cacheEntityTTL[miss.entity] || 300;
+        putLargeCache_(miss.cacheKey, allData, ttl);
+      }
+      
+      var records = Object.keys(allData).map(function (key) {
+        var item = allData[key];
+        item.id = key;
+        if (miss.entity === 'users') delete item.password;
+        return item;
+      });
+      records.sort(function (a, b) {
+        if (miss.entity === 'security_logs') {
+          var timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          var timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return timeB - timeA;
+        }
+        return (a.nomorUrut || 0) - (b.nomorUrut || 0);
+      });
+      
+      result[miss.entity] = records;
+    }
+  }
+  
+  return result;
+}
+
+function runBenchmark_() {
+  var report = [];
+  
+  // 1. Firebase Direct Reads
+  var start = Date.now();
+  var u = fbGet_('2026/unitKerja');
+  var d1 = Date.now() - start;
+  report.push("Firebase Get 2026/unitKerja: " + d1 + "ms (Size: " + (u ? JSON.stringify(u).length : 0) + ")");
+  
+  start = Date.now();
+  var j = fbGet_('2026/jabatan');
+  var d2 = Date.now() - start;
+  report.push("Firebase Get 2026/jabatan: " + d2 + "ms (Size: " + (j ? JSON.stringify(j).length : 0) + ")");
+  
+  // 2. Cache test
+  var cacheKey = 'fb_2026_jabatan';
+  start = Date.now();
+  var cached = getLargeCache_(cacheKey);
+  var d3 = Date.now() - start;
+  report.push("Cache Get 2026_jabatan: " + d3 + "ms (Hit: " + (cached !== null) + ")");
+  
+  // 3. Put to cache if null
+  if (!cached && j) {
+    start = Date.now();
+    putLargeCache_(cacheKey, j, 300);
+    var d4 = Date.now() - start;
+    report.push("Cache Put 2026_jabatan: " + d4 + "ms");
+    
+    // Read again to verify
+    start = Date.now();
+    var cached2 = getLargeCache_(cacheKey);
+    var d5 = Date.now() - start;
+    report.push("Cache Get 2026_jabatan (post-put): " + d5 + "ms (Hit: " + (cached2 !== null) + ")");
+  }
+  
+  return report;
 }
 
 

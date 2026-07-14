@@ -29,6 +29,7 @@ export default function PublicOrganisasiPage() {
   const [isTreeLoading, setIsTreeLoading] = useState<boolean>(false);
   const [toast, setToast] = useState<string | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [showContact, setShowContact] = useState<boolean>(false);
 
   // Canvas zoom and pan controls
   const [zoom, setZoom] = useState<number>(0.9);
@@ -471,7 +472,7 @@ export default function PublicOrganisasiPage() {
           <div className={styles.navLinks}>
             <Link href="/">Beranda</Link>
             <Link href="/organisasi">Struktur Organisasi</Link>
-            <a href="#">Analisis</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); setShowContact(true); }}>Kontak Kami</a>
           </div>
         </nav>
 
@@ -594,6 +595,53 @@ export default function PublicOrganisasiPage() {
       {toast && (
         <div className={styles.toast}>
           <span>{toast}</span>
+        </div>
+      )}
+
+      {showContact && (
+        <div className={styles.contactOverlay} onClick={() => setShowContact(false)}>
+          <div className={styles.contactCard} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.closeBtn} onClick={() => setShowContact(false)} aria-label="Tutup">
+              ✕
+            </button>
+            <div className={styles.contactHeader}>
+              <h2 className={styles.contactHeaderTitle}>Hubungi Kami</h2>
+              <p className={styles.contactHeaderSubtitle}>
+                Bagian Organisasi Sekretariat Daerah Kabupaten Muaro Jambi
+              </p>
+            </div>
+            <div className={styles.contactBody}>
+              <div className={styles.infoItem}>
+                <span className={styles.infoIcon}>📧</span>
+                <div className={styles.infoText}>
+                  <span className={styles.infoLabel}>Email</span>
+                  <a href="mailto:bagormuarojambi@gmail.com" className={styles.infoVal}>
+                    bagormuarojambi@gmail.com
+                  </a>
+                  <a href="mailto:bagormuarojambi@gmail.com" className={styles.actionLink}>
+                    Kirim Email →
+                  </a>
+                </div>
+              </div>
+              <div className={styles.infoItem}>
+                <span className={styles.infoIcon}>📍</span>
+                <div className={styles.infoText}>
+                  <span className={styles.infoLabel}>Alamat Kantor</span>
+                  <span className={styles.infoVal}>
+                    Komplek Perkantoran Bukit Cinto Kenang, Kecamatan Sekernan, Kabupaten Muaro Jambi, Jambi 36381
+                  </span>
+                  <a 
+                    href="https://www.google.com/maps/search/?api=1&query=Komplek+Perkantoran+Bukit+Cinto+Kenang,+Kecamatan+Sekernan,+Kabupaten+Muaro+Jambi,+Jambi+36381"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.actionLink}
+                  >
+                    Buka di Google Maps →
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </>
