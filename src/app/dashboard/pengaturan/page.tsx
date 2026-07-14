@@ -5,8 +5,28 @@ import { api } from "@/lib/api";
 import styles from "../opd/page.module.css"; // Reuse card/panel styles
 import formStyles from "../analisis/page.module.css";
 
+interface SavedApiKey {
+  id: string;
+  provider: string;
+  key: string;
+  label: string;
+  createdAt: string;
+  baseUrl?: string;
+  model?: string;
+}
+
 export default function PengaturanAIPage() {
   const [activeProvider, setActiveProvider] = useState("gemini");
+  
+  // Saved API Keys History
+  const [savedKeys, setSavedKeys] = useState<SavedApiKey[]>([]);
+
+  const saveKeysToStorage = (keys: SavedApiKey[]) => {
+    setSavedKeys(keys);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("sianjab_saved_api_keys", JSON.stringify(keys));
+    }
+  };
   
   // API Keys
   const [geminiApiKey, setGeminiApiKey] = useState("");
@@ -51,11 +71,30 @@ export default function PengaturanAIPage() {
   });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("sianjab_saved_api_keys");
+        if (stored) {
+          setSavedKeys(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error("Gagal membaca saved API keys dari localStorage", e);
+      }
+    }
+
     const fetchConfig = async () => {
       try {
         const config = await api.getAiConfig();
         if (config) {
           setActiveProvider(config.activeProvider || "gemini");
+
+          // Load savedKeys from database config, fallback to LocalStorage (already set)
+          if (config.savedKeys && Array.isArray(config.savedKeys) && config.savedKeys.length > 0) {
+            setSavedKeys(config.savedKeys);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("sianjab_saved_api_keys", JSON.stringify(config.savedKeys));
+            }
+          }
 
           // API Keys
           setGeminiApiKey(config.geminiApiKey || "");
@@ -129,6 +168,166 @@ export default function PengaturanAIPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const renderSavedKeysSection = (
+    provider: string, 
+    currentKey: string, 
+    setKeyFn: (val: string) => void
+  ) => {
+    const providerKeys = savedKeys.filter(k => k.provider === provider);
+    
+    const handleSaveCurrent = () => {
+      if (!currentKey.trim()) return;
+      const label = prompt("Masukkan nama/label untuk kunci API ini:", `Kunci ${provider.toUpperCase()} Baru`);
+      if (label === null) return; // User cancelled
+      const trimmedLabel = label.trim() || `Kunci ${provider.toUpperCase()}`;
+      
+      const isAlreadySaved = providerKeys.some(k => k.key === currentKey.trim() && (provider !== "openai-compatible" || k.baseUrl === openaiCompatibleBaseUrl.trim()));
+      if (isAlreadySaved) {
+        if (!confirm("Kunci API ini sudah ada di daftar. Tetap simpan dengan label baru?")) {
+          return;
+        }
+      }
+      
+      const newKeyItem: SavedApiKey = {
+        id: Date.now().toString(),
+        provider,
+        key: currentKey.trim(),
+        label: trimmedLabel,
+        createdAt: new Date().toLocaleDateString("id-ID"),
+        ...(provider === "openai-compatible" ? {
+          baseUrl: openaiCompatibleBaseUrl.trim(),
+          model: openaiCompatibleModel.trim()
+        } : {
+          model: provider === "gemini" ? (geminiModel === "custom" ? geminiCustomModel : geminiModel) :
+                 provider === "openai" ? (openaiModel === "custom" ? openaiCustomModel : openaiModel) :
+                 provider === "deepseek" ? (deepseekModel === "custom" ? deepseekCustomModel : deepseekModel) :
+                 provider === "groq" ? (groqModel === "custom" ? groqCustomModel : groqModel) :
+                 provider === "openrouter" ? (openrouterModel === "custom" ? openrouterCustomModel : openrouterModel) : ""
+        })
+      };
+      
+      const updated = [...savedKeys, newKeyItem];
+      saveKeysToStorage(updated);
+      showToast(`✅ Berhasil menyimpan kunci: "${trimmedLabel}"`);
+    };
+
+    const handleDelete = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!confirm("Apakah Anda yakin ingin menghapus kunci tersimpan ini?")) return;
+      const updated = savedKeys.filter(k => k.id !== id);
+      saveKeysToStorage(updated);
+      showToast("❌ Kunci tersimpan berhasil dihapus.");
+    };
+
+    const maskKey = (key: string) => {
+      if (!key) return "";
+      if (key.length <= 8) return "••••••••";
+      return `${key.substring(0, 6)}••••${key.substring(key.length - 4)}`;
+    };
+
+    return (
+      <div style={{
+        marginTop: "0.75rem",
+        background: "var(--glass-bg)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "10px",
+        padding: "0.75rem 1rem",
+        fontSize: "0.85rem"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <span style={{ fontWeight: 600, color: "var(--foreground)", opacity: 0.8 }} title="Perubahan riwayat kunci akan disimpan permanen ke database setelah Anda klik 'Simpan Konfigurasi' di bawah">
+            🔑 Riwayat & Kunci Tersimpan ({providerKeys.length}) <span style={{ fontSize: '0.75rem', fontWeight: 'normal', opacity: 0.5 }}>(Cloud Sync)</span>
+          </span>
+          {currentKey.trim() && (
+            <button
+              type="button"
+              onClick={handleSaveCurrent}
+              style={{
+                background: "hsla(270, 70%, 50%, 0.15)",
+                border: "1px solid hsla(270, 70%, 50%, 0.3)",
+                color: "var(--foreground)",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+            >
+              💾 Simpan Kunci Aktif
+            </button>
+          )}
+        </div>
+
+        {providerKeys.length === 0 ? (
+          <div style={{ color: "var(--foreground)", opacity: 0.5, fontStyle: "italic", fontSize: "0.8rem", padding: "4px 0" }}>
+            Belum ada kunci tersimpan. Masukkan kunci di atas lalu klik "Simpan Kunci Aktif" dan klik "Simpan Konfigurasi" di bawah untuk merekam ke cloud.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.5rem" }}>
+            {providerKeys.map((item) => {
+              const isActive = currentKey.trim() === item.key && (provider !== "openai-compatible" || item.baseUrl === openaiCompatibleBaseUrl.trim());
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setKeyFn(item.key);
+                    if (item.provider === "openai-compatible") {
+                      if (item.baseUrl) setOpenaiCompatibleBaseUrl(item.baseUrl);
+                      if (item.model) setOpenaiCompatibleModel(item.model);
+                    } else if (item.model) {
+                      setModelForActiveProvider(item.model);
+                    }
+                    showToast(`🔑 Menggunakan kunci: "${item.label}"`);
+                  }}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    background: isActive ? "hsla(270, 60%, 50%, 0.1)" : "rgba(0,0,0,0.05)",
+                    border: isActive ? "1px solid hsla(270, 60%, 50%, 0.3)" : "1px solid var(--glass-border)",
+                    cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                    <span style={{ fontWeight: 600, color: isActive ? "#a855f7" : "var(--foreground)" }}>
+                      {item.label} {isActive && "⭐️"}
+                    </span>
+                    <span style={{ fontSize: "0.75rem", fontFamily: "monospace", opacity: 0.6 }}>
+                      {item.baseUrl ? `${item.baseUrl} • ` : ""}{maskKey(item.key)} • {item.createdAt}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDelete(item.id, e)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#ef4444",
+                      cursor: "pointer",
+                      fontSize: "0.95rem",
+                      padding: "4px 8px",
+                      opacity: 0.7,
+                      borderRadius: "4px"
+                    }}
+                    title="Hapus Kunci"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const getActiveApiKey = () => {
@@ -210,6 +409,7 @@ export default function PengaturanAIPage() {
         groqModel: groqModel === "custom" ? groqCustomModel.trim() : groqModel,
         openrouterModel: openrouterModel === "custom" ? openrouterCustomModel.trim() : openrouterModel,
         customPromptTemplate: customPromptTemplate,
+        savedKeys: savedKeys,
       });
       showToast("✅ Pengaturan AI berhasil disimpan!");
     } catch (err: any) {
@@ -408,6 +608,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("gemini", geminiApiKey, setGeminiApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
@@ -504,6 +705,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("openai", openaiApiKey, setOpenaiApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
@@ -599,6 +801,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("deepseek", deepseekApiKey, setDeepseekApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
@@ -694,6 +897,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("groq", groqApiKey, setGroqApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
@@ -790,6 +994,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("openrouter", openrouterApiKey, setOpenrouterApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
@@ -910,6 +1115,7 @@ export default function PengaturanAIPage() {
                       {showKey ? "👁️" : "🙈"}
                     </button>
                   </div>
+                  {renderSavedKeysSection("openai-compatible", openaiCompatibleApiKey, setOpenaiCompatibleApiKey)}
                 </div>
 
                 <div className={formStyles.formGroup}>
