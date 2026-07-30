@@ -21,6 +21,7 @@ export default function OperatorLayout({
   const { user, logout, isLoading } = useUser();
   const [opdName, setOpdName] = useState<string>("OPD");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [colorTheme, setColorTheme] = useState<"theme1" | "theme2">("theme1");
 
   // Load saved theme or default to light mode
   useEffect(() => {
@@ -28,7 +29,30 @@ export default function OperatorLayout({
     const initialTheme = savedTheme || "light";
     setTheme(initialTheme);
     document.documentElement.setAttribute("data-theme", initialTheme);
-  }, []);
+
+    // Load saved color theme
+    const savedColorTheme = localStorage.getItem("color-theme") as "theme1" | "theme2" | null;
+    const initialColorTheme = savedColorTheme || "theme1";
+    setColorTheme(initialColorTheme);
+    document.documentElement.setAttribute("data-color-theme", initialColorTheme);
+
+    // Sync color theme from database if user is logged in
+    const syncColorTheme = async () => {
+      try {
+        const res = await api.getThemeSetting();
+        if (res && res.colorTheme) {
+          setColorTheme(res.colorTheme);
+          localStorage.setItem("color-theme", res.colorTheme);
+          document.documentElement.setAttribute("data-color-theme", res.colorTheme);
+        }
+      } catch (err) {
+        console.error("Gagal sinkronisasi tema warna dari database:", err);
+      }
+    };
+    if (user) {
+      syncColorTheme();
+    }
+  }, [user]);
 
   const toggleTheme = () => {
     const nextTheme = theme === "light" ? "dark" : "light";

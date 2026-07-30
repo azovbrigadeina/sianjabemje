@@ -20,6 +20,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className={`${outfit.variable}`}>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var t = localStorage.getItem('theme') || 'light';
+                document.documentElement.setAttribute('data-theme', t);
+                var c = localStorage.getItem('color-theme') || 'theme1';
+                document.documentElement.setAttribute('data-color-theme', c);
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
       <body>
         <UserProvider>{children}</UserProvider>
       </body>

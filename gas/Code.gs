@@ -1665,6 +1665,27 @@ function syncFromSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var batchUpdates = {};
   
+  // Ambil data eksisting dari Firebase untuk pencegahan duplikat nama
+  var existingUnits = fbGet_(getFirebasePath_('unitKerja')) || {};
+  var existingJbts = fbGet_(getFirebasePath_('jabatan')) || {};
+
+  var unitByName = {};
+  Object.keys(existingUnits).forEach(function(k) {
+    var u = existingUnits[k];
+    if (u && u.nama) {
+      unitByName[u.nama.toString().trim().toLowerCase()] = k;
+    }
+  });
+
+  var jbtByKey = {};
+  Object.keys(existingJbts).forEach(function(k) {
+    var j = existingJbts[k];
+    if (j && j.namaJabatan) {
+      var key = (j.unitKerjaId || '') + '_' + j.namaJabatan.toString().trim().toLowerCase();
+      jbtByKey[key] = k;
+    }
+  });
+
   // 1. Proses Sheet "Unit Kerja"
   var sheetUnit = ss.getSheetByName('Unit Kerja');
   var newOpdCount = 0;
@@ -1682,25 +1703,36 @@ function syncFromSheet_() {
         nama: nama,
         kode: (row[2] || '').toString().trim(),
         parentId: (row[3] || '').toString().trim() || null,
-        tahun: (row[4] || '').toString().trim() || '2026',
+        tahun: (row[4] || '').toString().trim() || CURRENT_TAHUN,
         urutan: parseInt(row[5]) || 0,
         updatedAt: new Date().toISOString()
       };
       
       if (!id || id.toString().trim() === "") {
-        id = Utilities.getUuid();
-        opdPayload.createdAt = new Date().toISOString();
-        sheetUnit.getRange(i + 1, 1).setValue(id);
-        newOpdCount++;
-        batchUpdates['unitKerja/' + id] = opdPayload;
+        var namaKey = nama.toLowerCase();
+        if (unitByName[namaKey]) {
+          id = unitByName[namaKey];
+          sheetUnit.getRange(i + 1, 1).setValue(id);
+          updatedOpdCount++;
+        } else {
+          id = Utilities.getUuid();
+          opdPayload.createdAt = new Date().toISOString();
+          sheetUnit.getRange(i + 1, 1).setValue(id);
+          newOpdCount++;
+        }
       } else {
         updatedOpdCount++;
-        batchUpdates['unitKerja/' + id + '/nama'] = opdPayload.nama;
-        batchUpdates['unitKerja/' + id + '/kode'] = opdPayload.kode;
-        batchUpdates['unitKerja/' + id + '/parentId'] = opdPayload.parentId;
-        batchUpdates['unitKerja/' + id + '/tahun'] = opdPayload.tahun;
-        batchUpdates['unitKerja/' + id + '/urutan'] = opdPayload.urutan;
-        batchUpdates['unitKerja/' + id + '/updatedAt'] = opdPayload.updatedAt;
+      }
+
+      var basePath = getFirebasePath_('unitKerja', id);
+      batchUpdates[basePath + '/nama'] = opdPayload.nama;
+      batchUpdates[basePath + '/kode'] = opdPayload.kode;
+      batchUpdates[basePath + '/parentId'] = opdPayload.parentId;
+      batchUpdates[basePath + '/tahun'] = opdPayload.tahun;
+      batchUpdates[basePath + '/urutan'] = opdPayload.urutan;
+      batchUpdates[basePath + '/updatedAt'] = opdPayload.updatedAt;
+      if (opdPayload.createdAt) {
+        batchUpdates[basePath + '/createdAt'] = opdPayload.createdAt;
       }
     }
   }
@@ -1718,31 +1750,41 @@ function syncFromSheet_() {
       var namaJ = (rowJ[1] || '').toString().trim();
       if (!namaJ) continue; 
       
+      var unitKerjaId = (rowJ[5] || '').toString().trim() || null;
       var jbtPayload = {
         namaJabatan: namaJ,
         kodeJabatan: (rowJ[2] || '').toString().trim(),
         jenisJabatan: (rowJ[3] || '').toString().trim() || 'Pelaksana',
         kelasJabatan: parseInt(rowJ[4]) || 1,
-        unitKerjaId: (rowJ[5] || '').toString().trim() || null,
+        unitKerjaId: unitKerjaId,
         parentId: (rowJ[6] || '').toString().trim() || null,
         urutan: parseInt(rowJ[7]) || 0,
         updatedAt: new Date().toISOString()
       };
       
       if (!idJ || idJ.toString().trim() === "") {
-        idJ = Utilities.getUuid();
-        jbtPayload.createdAt = new Date().toISOString();
-        sheetJbt.getRange(j + 1, 1).setValue(idJ);
-        newJbtCount++;
+        var jbtKey = (unitKerjaId || '') + '_' + namaJ.toLowerCase();
+        if (jbtByKey[jbtKey]) {
+          idJ = jbtByKey[jbtKey];
+          sheetJbt.getRange(j + 1, 1).setValue(idJ);
+          updatedJbtCount++;
+        } else {
+          idJ = Utilities.getUuid();
+          jbtPayload.createdAt = new Date().toISOString();
+          sheetJbt.getRange(j + 1, 1).setValue(idJ);
+          newJbtCount++;
+        }
       } else {
         updatedJbtCount++;
       }
-      batchUpdates['jabatan/' + idJ] = jbtPayload;
+      batchUpdates[getFirebasePath_('jabatan', idJ)] = jbtPayload;
     }
   }
 
   if (Object.keys(batchUpdates).length > 0) {
     fbPatch_('', batchUpdates);
+    invalidateCache_('unitKerja');
+    invalidateCache_('jabatan');
   }
 
   syncToSheet_();

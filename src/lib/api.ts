@@ -233,7 +233,7 @@ async function apiCall<T = unknown>(
     console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
   }
 
-  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData'];
+  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData', 'syncFromSheet', 'syncToSheet'];
   const isWriteOperation = writeActions.includes(action) || !!options.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
   const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
@@ -456,6 +456,12 @@ export const api = {
 
   getFooterSetting: () =>
     apiCall<{ showSlavaUkraini: boolean } | null>('read', 'settings', { params: { id: 'footerSetting' } }),
+
+  saveThemeSetting: (data: { colorTheme: 'theme1' | 'theme2' }) =>
+    apiCall('update', 'settings', { data, params: { id: 'themeSetting' } }),
+
+  getThemeSetting: () =>
+    apiCall<{ colorTheme: 'theme1' | 'theme2' } | null>('read', 'settings', { params: { id: 'themeSetting' } }),
 
   // -- Year Cloning and Deletion --
   cloneYear: (fromYear: string, toYear: string) =>

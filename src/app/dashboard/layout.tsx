@@ -7,6 +7,7 @@ import styles from "./layout.module.css";
 import { useUser } from "@/lib/UserContext";
 import Footer from "@/components/Footer";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { api } from "@/lib/api";
 
 
 export default function DashboardLayout({
@@ -19,6 +20,7 @@ export default function DashboardLayout({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user, logout, isLoading } = useUser();
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [colorTheme, setColorTheme] = useState<"theme1" | "theme2">("theme1");
   const [selectedYear, setSelectedYear] = useState<string>("2026");
 
   // Load saved theme or default to light mode
@@ -28,10 +30,33 @@ export default function DashboardLayout({
     setTheme(initialTheme);
     document.documentElement.setAttribute("data-theme", initialTheme);
     
+    // Load saved color theme
+    const savedColorTheme = localStorage.getItem("color-theme") as "theme1" | "theme2" | null;
+    const initialColorTheme = savedColorTheme || "theme1";
+    setColorTheme(initialColorTheme);
+    document.documentElement.setAttribute("data-color-theme", initialColorTheme);
+
+    // Sync color theme from database if user is logged in
+    const syncColorTheme = async () => {
+      try {
+        const res = await api.getThemeSetting();
+        if (res && res.colorTheme) {
+          setColorTheme(res.colorTheme);
+          localStorage.setItem("color-theme", res.colorTheme);
+          document.documentElement.setAttribute("data-color-theme", res.colorTheme);
+        }
+      } catch (err) {
+        console.error("Gagal sinkronisasi tema warna dari database:", err);
+      }
+    };
+    if (user) {
+      syncColorTheme();
+    }
+
     // Load saved year
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
     setSelectedYear(savedYear);
-  }, []);
+  }, [user]);
 
   const handleYearChange = (newYear: string) => {
     setSelectedYear(newYear);
@@ -46,6 +71,17 @@ export default function DashboardLayout({
     setTheme(nextTheme);
     localStorage.setItem("theme", nextTheme);
     document.documentElement.setAttribute("data-theme", nextTheme);
+  };
+
+  const handleColorThemeChange = async (newTheme: "theme1" | "theme2") => {
+    setColorTheme(newTheme);
+    localStorage.setItem("color-theme", newTheme);
+    document.documentElement.setAttribute("data-color-theme", newTheme);
+    try {
+      await api.saveThemeSetting({ colorTheme: newTheme });
+    } catch (err) {
+      console.error("Gagal menyimpan tema warna ke database:", err);
+    }
   };
 
   // Guard: if not authenticated or not admin, redirect
@@ -197,6 +233,15 @@ export default function DashboardLayout({
               <option value="2026">Tahun 2026</option>
               <option value="2027">Tahun 2027</option>
               <option value="2028">Tahun 2028</option>
+            </select>
+            <select
+              className={styles.themeSelect}
+              value={colorTheme}
+              onChange={(e) => handleColorThemeChange(e.target.value as "theme1" | "theme2")}
+              title="Pilih Tema Warna"
+            >
+              <option value="theme1">🎨 Tema 1</option>
+              <option value="theme2">🎨 Tema 2</option>
             </select>
             <button
               onClick={toggleTheme}

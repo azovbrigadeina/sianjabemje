@@ -2,6 +2,7 @@
   --background: #f8fafc;
   --foreground: #0f172a;
   
+  /* Fallback: Theme 1 Light */
   --primary: 256, 65%, 50%; /* Vibrant purple-indigo */
   --primary-hover: 256, 65%, 45%;
   --secondary: 199, 89%, 48%; /* Vibrant cyan-blue */
@@ -37,6 +38,31 @@
   --glass-bg: rgba(20, 20, 25, 0.5);
   --glass-border: rgba(255, 255, 255, 0.08);
   --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* --- COLOR THEME DEFINITIONS --- */
+/* Theme 1 - Classic (Purple to Cyan-Blue) */
+[data-color-theme="theme1"] {
+  --primary: 256, 65%, 50%;
+  --primary-hover: 256, 65%, 45%;
+  --secondary: 199, 89%, 48%;
+}
+[data-theme="dark"][data-color-theme="theme1"] {
+  --primary: 256, 75%, 65%;
+  --primary-hover: 256, 75%, 60%;
+  --secondary: 199, 89%, 60%;
+}
+
+/* Theme 2 - Blue & Yellow (Neutral name, Ukraine flag inspired) */
+[data-color-theme="theme2"] {
+  --primary: 212, 90%, 46%;       /* Elegant Royal Blue */
+  --primary-hover: 212, 90%, 38%;
+  --secondary: 46, 95%, 48%;       /* Elegant Golden Yellow */
+}
+[data-theme="dark"][data-color-theme="theme2"] {
+  --primary: 212, 90%, 58%;       /* Glowing Azure Blue */
+  --primary-hover: 212, 90%, 50%;
+  --secondary: 46, 95%, 52%;       /* Glowing Golden Yellow */
 }
 
 
