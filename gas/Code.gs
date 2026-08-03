@@ -13,6 +13,7 @@ function onOpen() {
   ui.createMenu('⚙️ Menu Sianjab')
       .addItem('📥 Langkah 1: Impor dari Web (Update Sheet)', 'syncToSheet_')
       .addItem('📤 Langkah 3: Ekspor ke Web (Update Web)', 'syncFromSheet_')
+      .addItem('📤🧹 Langkah 3: Ekspor ke Web (Sync Bersih & Hapus Data Hilang)', 'syncFromSheetClean_')
       .addToUi();
 }
 
@@ -327,7 +328,8 @@ function handleRequest_(e) {
         result = syncToSheet_();
         break;
       case 'syncFromSheet':
-        result = syncFromSheet_();
+        var isClean = (params.clean === true || params.clean === 'true' || params.deleteMissing === true || params.deleteMissing === 'true');
+        result = syncFromSheet_(isClean);
         break;
       case 'getSptSpreadsheetData':
         result = getSptSpreadsheetData_();
@@ -1107,10 +1109,10 @@ function updateUser_(id, data) {
 function exportForSitpp_() {
   Logger.log('[EXPORT] === exportForSitpp_ STARTED ===');
   
-  // Baca data root sebagai base/fallback
-  var allUnit = fbGet_('unitKerja') || {};
-  var allJabatan = fbGet_('jabatan') || {};
-  var allABK = fbGet_('abk') || {};
+  // Scanned yearly data (bebas dari residu data legacy root)
+  var allUnit = {};
+  var allJabatan = {};
+  var allABK = {};
   
   // Daftar tahun untuk discan dan digabungkan (yearly data)
   var years = ['2025', '2026', '2027', '2028', '2029', '2030'];
@@ -1661,9 +1663,24 @@ function syncToSheet_() {
   };
 }
 
-function syncFromSheet_() {
+function syncFromSheetClean_() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    '⚠️ Konfirmasi Sync Bersih',
+    'PERHATIAN:\nData Unit Kerja atau Jabatan yang sudah Anda hapus dari Google Sheet akan DIHAPUS PERMANEN dari Web (Firebase)!\n\nApakah Anda yakin ingin melanjutkan?',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp === ui.Button.YES) {
+    var res = syncFromSheet_(true);
+    ui.alert('✅ Sync Bersih Selesai', res.message, ui.ButtonSet.OK);
+  }
+}
+
+function syncFromSheet_(deleteMissing) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var batchUpdates = {};
+  var processedUnitIds = {};
+  var processedJbtIds = {};
   
   // Ambil data eksisting dari Firebase untuk pencegahan duplikat nama
   var existingUnits = fbGet_(getFirebasePath_('unitKerja')) || {};
@@ -1724,6 +1741,8 @@ function syncFromSheet_() {
         updatedOpdCount++;
       }
 
+      processedUnitIds[id] = true;
+
       var basePath = getFirebasePath_('unitKerja', id);
       batchUpdates[basePath + '/nama'] = opdPayload.nama;
       batchUpdates[basePath + '/kode'] = opdPayload.kode;
@@ -1744,23 +1763,23 @@ function syncFromSheet_() {
   
   if (sheetJbt) {
     var jData = sheetJbt.getDataRange().getValues();
+    var parsedJList = [];
+    var headIdByUnit = {};    // unitKerjaId -> idJ of Kepala UPTD / Pimpinan Utama
+    var subHeadIdByUnit = {}; // unitKerjaId -> idJ of Kasubbag TU / Kepala Subbagian
+
+    // Pass 1: Parse rows, ensure ID, resolve UnitKerja ID, and detect Head/SubHead per Unit Kerja
     for (var j = 1; j < jData.length; j++) {
       var rowJ = jData[j];
       var idJ = (rowJ[0] || '').toString().trim();
       var namaJ = (rowJ[1] || '').toString().trim();
       if (!namaJ) continue; 
       
-      var unitKerjaId = (rowJ[5] || '').toString().trim() || null;
-      var jbtPayload = {
-        namaJabatan: namaJ,
-        kodeJabatan: (rowJ[2] || '').toString().trim(),
-        jenisJabatan: (rowJ[3] || '').toString().trim() || 'Pelaksana',
-        kelasJabatan: parseInt(rowJ[4]) || 1,
-        unitKerjaId: unitKerjaId,
-        parentId: (rowJ[6] || '').toString().trim() || null,
-        urutan: parseInt(rowJ[7]) || 0,
-        updatedAt: new Date().toISOString()
-      };
+      var rawUnit = (rowJ[5] || '').toString().trim();
+      var unitKerjaId = rawUnit;
+      if (unitKerjaId && !existingUnits[unitKerjaId] && unitByName[unitKerjaId.toLowerCase()]) {
+        unitKerjaId = unitByName[unitKerjaId.toLowerCase()];
+      }
+      unitKerjaId = unitKerjaId || null;
       
       if (!idJ || idJ.toString().trim() === "") {
         var jbtKey = (unitKerjaId || '') + '_' + namaJ.toLowerCase();
@@ -1770,15 +1789,123 @@ function syncFromSheet_() {
           updatedJbtCount++;
         } else {
           idJ = Utilities.getUuid();
-          jbtPayload.createdAt = new Date().toISOString();
           sheetJbt.getRange(j + 1, 1).setValue(idJ);
           newJbtCount++;
         }
       } else {
         updatedJbtCount++;
       }
-      batchUpdates[getFirebasePath_('jabatan', idJ)] = jbtPayload;
+
+      var parentId = (rowJ[6] || '').toString().trim() || null;
+      var jenisJbt = (rowJ[3] || '').toString().trim() || 'Pelaksana';
+      var namaLower = namaJ.toLowerCase();
+
+      // Detection of Head & SubHead / Middle Leaders per Unit
+      var isHead = (
+        namaLower.indexOf('direktur') !== -1 ||
+        namaLower.indexOf('kepala uptd') !== -1 ||
+        namaLower.indexOf('kepala puskesmas') !== -1 ||
+        namaLower.indexOf('kepala dinas') !== -1 ||
+        namaLower.indexOf('kepala badan') !== -1 ||
+        namaLower.indexOf('kepala kantor') !== -1 ||
+        namaLower.indexOf('camat') !== -1 ||
+        namaLower.indexOf('lurah') !== -1 ||
+        (jenisJbt === 'Pimpinan Tinggi') ||
+        (jenisJbt === 'Pengawas' && namaLower.indexOf('kepala sub') === -1 && namaLower.indexOf('kasi') === -1 && namaLower.indexOf('kabid') === -1 && namaLower.indexOf('kabag') === -1)
+      );
+
+      var isMiddleLead = (
+        namaLower.indexOf('kepala bidang') !== -1 || namaLower.indexOf('kabid') !== -1 ||
+        namaLower.indexOf('kepala bagian') !== -1 || namaLower.indexOf('kabag') !== -1 ||
+        namaLower.indexOf('kepala sub') !== -1 || namaLower.indexOf('kasubbag') !== -1 || namaLower.indexOf('kasubbid') !== -1 ||
+        namaLower.indexOf('kepala seksi') !== -1 || namaLower.indexOf('kasi') !== -1 ||
+        namaLower.indexOf('sekretaris') !== -1
+      );
+
+      parsedJList.push({
+        id: idJ,
+        nama: namaJ,
+        kode: (rowJ[2] || '').toString().trim(),
+        jenis: jenisJbt,
+        kelas: parseInt(rowJ[4]) || 1,
+        unitKerjaId: unitKerjaId,
+        parentId: parentId,
+        urutan: parseInt(rowJ[7]) || 0,
+        isHead: isHead,
+        isMiddleLead: isMiddleLead
+      });
     }
+
+    // Pass 2: Apply Sequential Smart Auto-Parenting per Unit
+    var currentHeadByUnit = {};
+    var currentMiddleByUnit = {};
+
+    for (var k = 0; k < parsedJList.length; k++) {
+      var item = parsedJList[k];
+      var uId = item.unitKerjaId;
+      var finalParentId = item.parentId;
+
+      if (uId) {
+        if (item.isHead) {
+          currentHeadByUnit[uId] = item.id;
+          currentMiddleByUnit[uId] = null;
+          finalParentId = item.parentId || null;
+        } else if (item.isMiddleLead) {
+          if (!finalParentId) {
+            // Middle leaders (Kabid, Kasubbag, Kasi, Kabag) report to Head or parent Middle leader
+            finalParentId = currentMiddleByUnit[uId] || currentHeadByUnit[uId] || null;
+          }
+          currentMiddleByUnit[uId] = item.id;
+        } else {
+          // Pelaksana or Fungsional
+          if (!finalParentId) {
+            var isFungsional = (item.jenis.toLowerCase().indexOf('fungsional') !== -1);
+            if (isFungsional) {
+              // Fungsional (Dokter, Apoteker, Perawat, dll.) -> Langsung di bawah Direktur / Kepala Unit
+              finalParentId = currentHeadByUnit[uId] || currentMiddleByUnit[uId] || null;
+            } else {
+              // Pelaksana (Pengolah Data, Pengadministrasi, Operator, dll.) -> Di bawah Kabid / Kasi / Kasubbag terdekat
+              finalParentId = currentMiddleByUnit[uId] || currentHeadByUnit[uId] || null;
+            }
+          }
+        }
+      }
+
+      processedJbtIds[item.id] = true;
+
+      var jbtPayload = {
+        namaJabatan: item.nama,
+        kodeJabatan: item.kode,
+        jenisJabatan: item.jenis,
+        kelasJabatan: item.kelas,
+        unitKerjaId: item.unitKerjaId,
+        parentId: finalParentId,
+        urutan: item.urutan,
+        updatedAt: new Date().toISOString()
+      };
+
+      batchUpdates[getFirebasePath_('jabatan', item.id)] = jbtPayload;
+    }
+  }
+
+  // JIKA deleteMissing = true, hapus record di Firebase yang tidak ada di Sheet
+  var deletedUnitsCount = 0;
+  var deletedJbtsCount = 0;
+
+  if (deleteMissing) {
+    Object.keys(existingUnits).forEach(function(uId) {
+      if (!processedUnitIds[uId]) {
+        batchUpdates[getFirebasePath_('unitKerja', uId)] = null;
+        deletedUnitsCount++;
+      }
+    });
+
+    Object.keys(existingJbts).forEach(function(jId) {
+      if (!processedJbtIds[jId]) {
+        batchUpdates[getFirebasePath_('jabatan', jId)] = null;
+        deletedJbtsCount++;
+      }
+    });
   }
 
   if (Object.keys(batchUpdates).length > 0) {
@@ -1789,9 +1916,16 @@ function syncFromSheet_() {
 
   syncToSheet_();
 
+  var msg = "Berhasil diimpor dari Sheet.";
+  if (deleteMissing && (deletedUnitsCount > 0 || deletedJbtsCount > 0)) {
+    msg += " [Sync Bersih: " + deletedUnitsCount + " Unit Kerja & " + deletedJbtsCount + " Jabatan dihapus di Web].";
+  } else {
+    msg += " Update massal " + Object.keys(batchUpdates).length + " data.";
+  }
+
   return {
     success: true,
-    message: "Berhasil diimpor dari Sheet. Update massal " + Object.keys(batchUpdates).length + " data."
+    message: msg
   };
 }
 

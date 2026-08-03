@@ -293,12 +293,15 @@ export default function OrganisasiPage() {
     setIsSyncing(false);
   };
 
-  const handleSyncFromSheet = async () => {
-    if (!confirm("Tarik data dari Google Sheet? Baris tanpa ID akan dibuatkan ID baru di Sheet.")) return;
+  const handleSyncFromSheet = async (clean: boolean = false) => {
+    const promptMsg = clean
+      ? "⚠️ PERHATIAN SYNC BERSIH:\nData yang sudah Anda hapus dari Google Sheet akan DIHAPUS PERMANEN dari Website (Firebase)!\n\nApakah Anda yakin ingin melanjutkan Sync Bersih?"
+      : "Tarik data dari Google Sheet? Baris tanpa ID akan dibuatkan ID baru di Sheet.";
+    if (!confirm(promptMsg)) return;
     setIsSyncing(true);
     try {
-      await api.syncFromSheet();
-      showToast("✅ Data berhasil ditarik dari Google Sheet!");
+      const res = await api.syncFromSheet(clean);
+      showToast("✅ " + (res?.message || "Data berhasil ditarik dari Google Sheet!"));
       await loadData();
     } catch (error) {
       alert("Gagal tarik dari Sheet: " + error);
@@ -677,8 +680,11 @@ export default function OrganisasiPage() {
           <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Langkah 1 (Awal): Ekspor data mutakhir dari Website ke Google Sheet sebelum diedit. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
             📤 Ekspor ke Sheet
           </button>
-          <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Langkah 3 (Terakhir): Impor hasil edit dari Google Sheet ke Website. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
+          <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(false)} disabled={isSyncing} title="Langkah 3: Impor hasil edit dari Google Sheet ke Website (Tambah/Update saja).">
             📥 Impor dari Sheet
+          </button>
+          <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(true)} disabled={isSyncing} title="Impor & Hapus data di Website jika barisnya telah dihapus dari Google Sheet (Sync Bersih)." style={{ borderColor: '#ef4444', color: '#ef4444' }}>
+            📥🧹 Sync Bersih
           </button>
           <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
             {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}

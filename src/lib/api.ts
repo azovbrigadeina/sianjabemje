@@ -407,8 +407,8 @@ export const api = {
   syncToSheet: () =>
     apiCall<{success: boolean, message: string}>('syncToSheet', ''),
 
-  syncFromSheet: () =>
-    apiCall<{success: boolean, message: string}>('syncFromSheet', ''),
+  syncFromSheet: (clean?: boolean) =>
+    apiCall<{success: boolean, message: string}>('syncFromSheet', '', { params: clean ? { clean: 'true' } : undefined }),
 
   // -- ABK --
   saveABK: (jabatanId: string, data: unknown) =>
