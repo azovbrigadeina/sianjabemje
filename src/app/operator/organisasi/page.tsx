@@ -679,11 +679,11 @@ export default function OperatorOrganisasiPage() {
         </div>
         {orgEditEnabled && (
           <div className={styles.actions}>
-            <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Baca data dari Google Sheet ke Website">
-              📥 Impor dari Sheet
-            </button>
-            <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Tulis data dari Website ke Google Sheet">
+            <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Langkah 1 (Awal): Ekspor data mutakhir dari Website ke Google Sheet sebelum diedit. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
               📤 Ekspor ke Sheet
+            </button>
+            <button className={styles.btnSecondary} onClick={handleSyncFromSheet} disabled={isSyncing} title="Langkah 3 (Terakhir): Impor hasil edit dari Google Sheet ke Website. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
+              📥 Impor dari Sheet
             </button>
             <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
               {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
@@ -986,6 +986,11 @@ export default function OperatorOrganisasiPage() {
                             .filter(j => j.id !== modalData.id) // cegah set diri sendiri
                             .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId)) // batasi di OPD operator
                             .filter(j => {
+                              const jenis = (j.jenisJabatan || '').toLowerCase().trim();
+                              if (jenis.includes('pelaksana') || jenis.includes('fungsional')) return false;
+                              return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
+                            })
+                            .filter(j => {
                               const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
                               return label.toLowerCase().includes(parentSearch.toLowerCase());
@@ -1023,6 +1028,11 @@ export default function OperatorOrganisasiPage() {
                           {rawJabatans
                             .filter(j => j.id !== modalData.id)
                             .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId))
+                            .filter(j => {
+                              const jenis = (j.jenisJabatan || '').toLowerCase().trim();
+                              if (jenis.includes('pelaksana') || jenis.includes('fungsional')) return false;
+                              return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
+                            })
                             .filter(j => {
                               const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;

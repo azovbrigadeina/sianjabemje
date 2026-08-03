@@ -11,8 +11,8 @@ function testAuth() {
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('⚙️ Menu Sianjab')
-      .addItem('📥 Impor dari Web (Menimpa Sheet)', 'syncToSheet_')
-      .addItem('📤 Ekspor ke Web (Menimpa Web)', 'syncFromSheet_')
+      .addItem('📥 Langkah 1: Impor dari Web (Update Sheet)', 'syncToSheet_')
+      .addItem('📤 Langkah 3: Ekspor ke Web (Update Web)', 'syncFromSheet_')
       .addToUi();
 }
 
