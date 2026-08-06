@@ -63,6 +63,7 @@ export default function BebanKerjaPage() {
   const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('jam');
   const [wke, setWke] = useState(1250);
   const [anjabStatus, setAnjabStatus] = useState<'none' | 'partial' | 'done'>('none');
+  const [anjabTasks, setAnjabTasks] = useState<{ uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[]>([]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -209,6 +210,12 @@ export default function BebanKerjaPage() {
   // Open ABK Editor
   const openEditor = async (node: TreeNode, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (!node.anjabTerisi) {
+      alert(`⚠️ Pengisian ABK Terkunci: Dokumen Analisis Jabatan (Anjab) untuk jabatan "${node.label}" belum diisi.\n\nSilakan lengkapi Uraian Tugas Pokok pada menu Pengisian Anjab terlebih dahulu.`);
+      return;
+    }
+
     setActiveJob(node.id);
     setActiveJobData(node);
     setMode('editor');
@@ -221,13 +228,21 @@ export default function BebanKerjaPage() {
       ]);
 
       const tugasPokok = fullData?.tugasPokok || [];
+      setAnjabTasks(tugasPokok);
       setAnjabStatus(tugasPokok.length > 0 ? 'done' : 'none');
+
+      if (tugasPokok.length === 0) {
+        alert(`⚠️ Pengisian ABK Terkunci: Dokumen Analisis Jabatan (Anjab - Uraian Tugas) untuk jabatan "${node.label}" masih kosong.\n\nSilakan isi Anjab terlebih dahulu sebelum mengisi ABK.`);
+        setMode('tree');
+        setLoadingEditor(false);
+        return;
+      }
 
       if (abkData && abkData.rows && abkData.rows.length > 0) {
         setAbkRows(abkData.rows);
         setWaktuSatuan(abkData.waktuSatuan || 'jam');
         setWke(abkData.wke || (abkData.waktuSatuan === 'menit' ? 72000 : 1250));
-      } else if (tugasPokok.length > 0) {
+      } else {
         const initRows: ABKRow[] = tugasPokok.map(t => ({
           tugas: t.uraianTugas || '',
           satuan: t.hasilKerja || '',
@@ -237,13 +252,10 @@ export default function BebanKerjaPage() {
         setAbkRows(initRows);
         setWaktuSatuan('jam');
         setWke(1250);
-      } else {
-        setAbkRows([]);
-        setWaktuSatuan('jam');
-        setWke(1250);
       }
     } catch (err) {
       showToast("❌ Gagal memuat data beban kerja");
+      setMode('tree');
     }
     setLoadingEditor(false);
   };
@@ -255,7 +267,20 @@ export default function BebanKerjaPage() {
   };
 
   const handleAddRow = () => {
-    setAbkRows([...abkRows, { tugas: '', satuan: '', waktu: 0, volume: 0 }]);
+    if (anjabTasks.length === 0) {
+      showToast("⚠️ Tidak ada Uraian Tugas dari Anjab yang tersedia.");
+      return;
+    }
+    const defaultTask = anjabTasks[0];
+    setAbkRows([
+      ...abkRows,
+      {
+        tugas: defaultTask.uraianTugas || '',
+        satuan: defaultTask.hasilKerja || '',
+        waktu: defaultTask.waktuPenyelesaian || 0,
+        volume: defaultTask.jumlahHasil || 0
+      }
+    ]);
   };
 
   const handleDeleteRow = (index: number) => {
@@ -321,7 +346,7 @@ export default function BebanKerjaPage() {
 
   // TREE RENDERING
   const renderTreeNodes = (nodes: TreeNode[]) => (
-    <ul style={{ listStyle: 'none', paddingLeft: '24px', margin: 0 }}>
+    <ul>
       {nodes.map(node => {
         const isExpanded = expandedNodes[node.id];
         const hasChildren = node.children.length > 0;
@@ -339,19 +364,17 @@ export default function BebanKerjaPage() {
 
         if (node.type === 'OPD') {
           return (
-            <li key={node.id} className={treeStyles.treeNodeWrapper} style={{ position: 'relative', margin: '4px 0' }}>
-              <div className={`${treeStyles.treeNode} ${treeStyles.treeNodeOpd}`} onClick={(e) => toggleNode(node.id, e)}>
-                 <div className={treeStyles.treeNodeContent}>
-                   <div className={treeStyles.treeToggle}>
-                     {hasChildren && <span className={isExpanded ? treeStyles.expanded : ''}>▶</span>}
-                   </div>
-                   <div className={treeStyles.opdIcon}>🏛️</div>
-                   <div className={treeStyles.treeInfo}>
-                     <div className={treeStyles.treeTitleRow}>
-                       <span className={treeStyles.titleOpd}>{node.label}</span>
-                       {node.parentId && <span className={treeStyles.badgeOpdSub}>Sub-Unit</span>}
-                     </div>
-                   </div>
+            <li key={node.id} className={treeStyles.treeNode}>
+              <div className={`${treeStyles.treeNodeContent} ${treeStyles.treeNodeContentOpd}`} onClick={(e) => toggleNode(node.id, e)}>
+                 <div className={treeStyles.treeToggle}>
+                   {hasChildren ? (
+                     <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▶</span>
+                   ) : <span></span>}
+                 </div>
+                 <div className={treeStyles.treeIcon}>🏛️</div>
+                 <div className={treeStyles.treeTitleRow}>
+                   <span className={treeStyles.titleLabel}>{node.label}</span>
+                   {node.parentId && <span className={treeStyles.badgeOpdSub}>Sub-Unit</span>}
                  </div>
               </div>
               {isExpanded && hasChildren && renderTreeNodes(node.children)}
@@ -360,41 +383,39 @@ export default function BebanKerjaPage() {
         }
 
         return (
-          <li key={node.id} className={treeStyles.treeNodeWrapper} style={{ position: 'relative', margin: '4px 0' }}>
-            <div className={`${treeStyles.treeNode} ${treeStyles.treeNodeJabatan} ${highlightClass}`} onClick={(e) => toggleNode(node.id, e)}>
-               <div className={treeStyles.treeNodeContent}>
-                 <div className={treeStyles.treeToggle}>
-                   {hasChildren && <span className={isExpanded ? treeStyles.expanded : ''}>▶</span>}
-                 </div>
-                 <div className={treeStyles.treeInfo}>
-                   <div className={treeStyles.treeTitleRow}>
-                     <span className={treeStyles.titleJabatan}>{node.label}</span>
-                   </div>
-                     <div className={treeStyles.treeBadges}>
-                       {node.anjabTerisi ? (
-                         <span className={treeStyles.badgeSuccess} title="Anjab Terisi">✅ Anjab Terisi</span>
-                       ) : (
-                         <span className={treeStyles.badgeWarning} title="Anjab Kosong">⚠️ Anjab Kosong</span>
-                       )}
-                       {node.abkTerisi ? (
-                         <span className={treeStyles.badgeSuccess} title="ABK Terisi">✅ ABK Terisi</span>
-                       ) : (
-                         <span className={treeStyles.badgeWarning} title="ABK Kosong">⚠️ ABK Kosong</span>
-                       )}
-                       
-                       <span className={`${treeStyles.badgeEselon} ${eselonClass}`}>
-                       <span className={treeStyles.badgeIcon}>{icon}</span>
-                       {node.eselon || 'Jabatan'}
-                     </span>
-                     {node.kelas && (
-                       <span className={treeStyles.badgeKelas}>Kls {node.kelas}</span>
-                     )}
-                     <div className={treeStyles.treeActions}>
-                        <button type="button" className={`${treeStyles.actionBtn} ${treeStyles.actionBtnPrimary}`} title="Isi ABK" onClickCapture={(e) => openEditor(node, e)}>
-                           ⚖️ Isi ABK
-                        </button>
-                     </div>
-                   </div>
+          <li key={node.id} className={treeStyles.treeNode}>
+            <div className={`${treeStyles.treeNodeContent} ${highlightClass}`} onClick={(e) => toggleNode(node.id, e)}>
+               <div className={treeStyles.treeToggle}>
+                 {hasChildren ? (
+                   <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▶</span>
+                 ) : <span></span>}
+               </div>
+               <div className={treeStyles.treeTitleRow}>
+                 <span className={treeStyles.titleLabel}>{node.label}</span>
+               </div>
+               <div className={treeStyles.rightSection}>
+                 {node.anjabTerisi ? (
+                   <span className={treeStyles.badgeSuccess} title="Anjab Terisi">✅ Anjab Terisi</span>
+                 ) : (
+                   <span className={treeStyles.badgeWarning} title="Anjab Kosong">⚠️ Anjab Kosong</span>
+                 )}
+                 {node.abkTerisi ? (
+                   <span className={treeStyles.badgeSuccess} title="ABK Terisi">✅ ABK Terisi</span>
+                 ) : (
+                   <span className={treeStyles.badgeWarning} title="ABK Kosong">⚠️ ABK Kosong</span>
+                 )}
+                 
+                 <span className={`${treeStyles.badgeEselon} ${eselonClass}`}>
+                   <span className={treeStyles.badgeIcon}>{icon}</span>
+                   {node.eselon || 'Jabatan'}
+                 </span>
+                 {node.kelas && (
+                   <span className={treeStyles.badgeKelas}>Kls {node.kelas}</span>
+                 )}
+                 <div className={treeStyles.treeActions}>
+                    <button type="button" className={`${treeStyles.actionBtn} ${treeStyles.actionBtnPrimary}`} title="Isi ABK" onClickCapture={(e) => openEditor(node, e)}>
+                       ⚖️ Isi ABK
+                    </button>
                  </div>
                </div>
             </div>
@@ -591,9 +612,43 @@ export default function BebanKerjaPage() {
                             <tr key={idx}>
                               <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                               <td>
-                                <input type="text" className={styles.editableInput} value={row.tugas}
-                                  onChange={(e) => handleUpdateRow(idx, 'tugas', e.target.value)}
-                                  style={{ textAlign: 'left' }} />
+                                {anjabTasks.length > 0 ? (
+                                  <select
+                                    className={styles.editableInput}
+                                    value={row.tugas}
+                                    onChange={(e) => {
+                                      const selectedTugas = e.target.value;
+                                      const matchingTask = anjabTasks.find(t => t.uraianTugas === selectedTugas);
+                                      if (matchingTask) {
+                                        const newRows = [...abkRows];
+                                        newRows[idx] = {
+                                          tugas: matchingTask.uraianTugas,
+                                          satuan: matchingTask.hasilKerja || row.satuan,
+                                          waktu: matchingTask.waktuPenyelesaian || row.waktu,
+                                          volume: matchingTask.jumlahHasil || row.volume
+                                        };
+                                        setAbkRows(newRows);
+                                      } else {
+                                        handleUpdateRow(idx, 'tugas', selectedTugas);
+                                      }
+                                    }}
+                                    style={{ textAlign: 'left', width: '100%' }}
+                                  >
+                                    <option value="" disabled>-- Pilih Uraian Tugas dari Anjab --</option>
+                                    {anjabTasks.map((t, tIdx) => (
+                                      <option key={tIdx} value={t.uraianTugas}>
+                                        {t.uraianTugas}
+                                      </option>
+                                    ))}
+                                    {row.tugas && !anjabTasks.some(t => t.uraianTugas === row.tugas) && (
+                                      <option value={row.tugas}>{row.tugas}</option>
+                                    )}
+                                  </select>
+                                ) : (
+                                  <input type="text" className={styles.editableInput} value={row.tugas}
+                                    onChange={(e) => handleUpdateRow(idx, 'tugas', e.target.value)}
+                                    style={{ textAlign: 'left' }} />
+                                )}
                               </td>
                               <td><input type="text" className={styles.editableInput} value={row.satuan}
                                 onChange={(e) => handleUpdateRow(idx, 'satuan', e.target.value)} /></td>

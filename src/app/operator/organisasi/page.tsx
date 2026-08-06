@@ -273,9 +273,21 @@ export default function OperatorOrganisasiPage() {
     return ids;
   };
 
-  const allowedOpdIds = user?.unitKerjaId
-    ? treeData.flatMap(node => getSubOpdIds(node))
-    : [];
+  const allowedOpdIds = useMemo(() => {
+    return user?.unitKerjaId
+      ? treeData.flatMap(node => getSubOpdIds(node))
+      : [];
+  }, [user?.unitKerjaId, treeData]);
+
+  const allowedOpdSet = useMemo(() => {
+    return new Set(allowedOpdIds);
+  }, [allowedOpdIds]);
+
+  const opdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    rawOpds.forEach(o => map.set(o.id, o.nama || o.id));
+    return map;
+  }, [rawOpds]);
 
   const handleSyncToSheet = async () => {
     if (!orgEditEnabled) return;
@@ -785,7 +797,7 @@ export default function OperatorOrganisasiPage() {
                       onChange={(e) => setModalData({...modalData, parentId: e.target.value})}>
                       <option value="">-- Tidak ada (Ini adalah OPD Induk Utama) --</option>
                       {rawOpds
-                        .filter(o => o.id !== modalData.id && allowedOpdIds.includes(o.id))
+                        .filter(o => o.id !== modalData.id && allowedOpdSet.has(o.id))
                         .sort((a,b) => (a.nama||'').localeCompare(b.nama||''))
                         .map(o => (
                           <option key={o.id} value={o.id}>{o.nama}</option>
@@ -990,20 +1002,20 @@ export default function OperatorOrganisasiPage() {
                           </div>
                           {rawJabatans
                             .filter(j => j.id !== modalData.id) // cegah set diri sendiri
-                            .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId)) // batasi di OPD operator
+                            .filter(j => j.unitKerjaId && allowedOpdSet.has(j.unitKerjaId)) // batasi di OPD operator
                             .filter(j => {
                               const jenis = (j.jenisJabatan || '').toLowerCase().trim();
                               if (jenis.includes('pelaksana') || jenis.includes('fungsional')) return false;
                               return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
                             })
                             .filter(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId) || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
                               return label.toLowerCase().includes(parentSearch.toLowerCase());
                             })
                             .sort((a, b) => (a.namaJabatan || '').localeCompare(b.namaJabatan || ''))
                             .map(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId) || j.unitKerjaId : "";
                               const isSelected = j.id === modalData.parentId;
                               return (
                                 <div
@@ -1033,14 +1045,14 @@ export default function OperatorOrganisasiPage() {
                             })}
                           {rawJabatans
                             .filter(j => j.id !== modalData.id)
-                            .filter(j => j.unitKerjaId && allowedOpdIds.includes(j.unitKerjaId))
+                            .filter(j => j.unitKerjaId && allowedOpdSet.has(j.unitKerjaId))
                             .filter(j => {
                               const jenis = (j.jenisJabatan || '').toLowerCase().trim();
                               if (jenis.includes('pelaksana') || jenis.includes('fungsional')) return false;
                               return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
                             })
                             .filter(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId) || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
                               return label.toLowerCase().includes(parentSearch.toLowerCase());
                             }).length === 0 && (
@@ -1061,7 +1073,7 @@ export default function OperatorOrganisasiPage() {
                       onChange={(e) => setModalData({...modalData, unitKerjaId: e.target.value})}>
                       <option value="">-- Pilih Unit --</option>
                       {rawOpds
-                        .filter(opd => allowedOpdIds.includes(opd.id))
+                        .filter(opd => allowedOpdSet.has(opd.id))
                         .map(opd => (
                           <option key={opd.id} value={opd.id}>{opd.nama}</option>
                         ))}

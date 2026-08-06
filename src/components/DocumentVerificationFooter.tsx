@@ -4,12 +4,17 @@ import { VerificationRecord } from '@/lib/verification';
 
 interface Props {
   record: VerificationRecord;
+  token?: string;
 }
 
-export const DocumentVerificationFooter: React.FC<Props> = ({ record }) => {
-  const verifyUrl = typeof window !== 'undefined' 
-    ? `${window.location.origin}/verify/${record.code}`
-    : `https://sianjab.muarojambikab.go.id/verify/${record.code}`;
+export const DocumentVerificationFooter: React.FC<Props> = ({ record, token }) => {
+  const origin = typeof window !== 'undefined' 
+    ? window.location.origin
+    : 'https://sianjab.muarojambikab.go.id';
+
+  const verifyUrl = token 
+    ? `${origin}/verify?code=${record.code}&d=${token}`
+    : `${origin}/verify?code=${record.code}`;
 
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(verifyUrl)}`;
 

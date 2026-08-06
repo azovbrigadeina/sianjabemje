@@ -52,10 +52,9 @@ export default function PublicOrganisasiPage() {
     const loadInitialData = async () => {
       setIsLoading(true);
       try {
-        const [opdData, abkData] = await Promise.all([
-          api.getUnitKerja() as Promise<UnitKerja[]>,
-          api.readAllEntity('abk', '') as Promise<any[]>
-        ]);
+        const bulk = await api.getBulkData(['unitKerja', 'abk']);
+        const opdData = (bulk.unitKerja || []) as UnitKerja[];
+        const abkData = (bulk.abk || []) as any[];
 
         const sortedOpds = [...(opdData || [])].sort((a, b) => 
           (a.nama || '').localeCompare(b.nama || '')

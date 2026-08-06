@@ -174,22 +174,28 @@ export default function LaporanPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const data = await api.getUnitKerja() as UnitKerja[];
-        setOpds(data);
-        if (data.length > 0) {
-          setSelectedOpd1(data[0].id);
-          setSelectedOpd2(data[0].id);
-          setSelectedOpd3(data[0].id);
+        const [data, customTemplate, customMappings, deadlineData] = await Promise.all([
+          api.getUnitKerja() as Promise<UnitKerja[]>,
+          api.getTemplate().catch(() => null),
+          api.getTagMappings().catch(() => null),
+          api.getDeadline().catch(() => null),
+        ]);
+
+        if (data && Array.isArray(data)) {
+          setOpds(data);
+          if (data.length > 0) {
+            setSelectedOpd1(data[0].id);
+            setSelectedOpd2(data[0].id);
+            setSelectedOpd3(data[0].id);
+          }
         }
 
         // Fetch custom template settings
-        const customTemplate = await api.getTemplate().catch(() => null);
         if (customTemplate && customTemplate.filename) {
           setCustomTemplateName(customTemplate.filename);
         }
 
         // Fetch custom tag mappings
-        const customMappings = await api.getTagMappings().catch(() => null);
         if (customMappings) {
           const flat = flattenObject(customMappings);
           setFlatMappings(prev => ({
@@ -199,7 +205,6 @@ export default function LaporanPage() {
         }
 
         // Fetch deadline settings
-        const deadlineData = await api.getDeadline().catch(() => null);
         if (deadlineData) {
           setDeadlineDate(deadlineData.deadline || "");
           setDeadlineEnabled(!!deadlineData.enabled);

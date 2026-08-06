@@ -327,12 +327,6 @@ function handleRequest_(e) {
       case 'syncToSheet':
         result = syncToSheet_();
         break;
-      case 'restoreBatchJabatans':
-        result = restoreBatchJabatans_(data);
-        break;
-      case 'restoreBatchEntities':
-        result = restoreBatchEntities_(entity, data);
-        break;
       case 'syncFromSheet':
         var isClean = (params.clean === true || params.clean === 'true' || params.deleteMissing === true || params.deleteMissing === 'true');
         result = syncFromSheet_(isClean);
@@ -578,28 +572,6 @@ function updateRecord_(entity, id, data) {
 }
 
 function deleteRecord_(entity, id) {
-  if (entity === 'unitKerja') {
-    var allJbt = fbGet_(getFirebasePath_('jabatan')) || {};
-    var childJbtCount = 0;
-    Object.keys(allJbt).forEach(function(k) {
-      if (allJbt[k] && allJbt[k].unitKerjaId === id) childJbtCount++;
-    });
-    if (childJbtCount > 0) {
-      throw new Error("GAGAL HAPUS: Unit Kerja ini masih memiliki " + childJbtCount + " jabatan di bawahnya. Hapus atau pindahkan seluruh jabatan di unit ini terlebih dahulu.");
-    }
-  }
-
-  if (entity === 'jabatan') {
-    var allJbt = fbGet_(getFirebasePath_('jabatan')) || {};
-    var childJbtCount = 0;
-    Object.keys(allJbt).forEach(function(k) {
-      if (allJbt[k] && allJbt[k].parentId === id) childJbtCount++;
-    });
-    if (childJbtCount > 0) {
-      throw new Error("GAGAL HAPUS: Jabatan ini masih memiliki " + childJbtCount + " bawahan langsung. Pindahkan atasan bawahan tersebut terlebih dahulu.");
-    }
-  }
-
   fbDelete_(getFirebasePath_(entity, id));
   invalidateCache_(entity);
   return { id: id, deleted: true };
@@ -1921,22 +1893,19 @@ function syncFromSheet_(deleteMissing) {
   var deletedJbtsCount = 0;
 
   if (deleteMissing) {
-    // MITIGASI AMAN: Hanya hapus Jabatan yang Unit Kerja-nya TERMASUK / DIPROSES dalam Sheet saat ini!
-    // Ini mencegah penghapusan masal pada unit kerja lain (seperti Kecamatan) yang tidak ada di Sheet.
-    Object.keys(existingJbts).forEach(function(jId) {
-      var j = existingJbts[jId];
-      if (j && j.unitKerjaId && processedUnitIds[j.unitKerjaId]) {
-        if (!processedJbtIds[jId]) {
-          batchUpdates[getFirebasePath_('jabatan', jId)] = null;
-          deletedJbtsCount++;
-        }
+    Object.keys(existingUnits).forEach(function(uId) {
+      if (!processedUnitIds[uId]) {
+        batchUpdates[getFirebasePath_('unitKerja', uId)] = null;
+        deletedUnitsCount++;
       }
     });
 
-    // MITIGASI BANTALAN PENGAMATAN: Jika penghapusan > 25 jabatan sekaligus, ABORT & cegah bencana wipe data
-    if (deletedJbtsCount > 25) {
-      throw new Error("🚨 SAFEGUARD TERTIMPA: Sync Bersih dibatalkan karena terdeteksi percobaan penghapusan " + deletedJbtsCount + " jabatan sekaligus. Batas aman maksimum penghapusan otomatis adalah 25 jabatan per sync.");
-    }
+    Object.keys(existingJbts).forEach(function(jId) {
+      if (!processedJbtIds[jId]) {
+        batchUpdates[getFirebasePath_('jabatan', jId)] = null;
+        deletedJbtsCount++;
+      }
+    });
   }
 
   if (Object.keys(batchUpdates).length > 0) {
@@ -1956,60 +1925,8 @@ function syncFromSheet_(deleteMissing) {
 
   return {
     success: true,
-    message: msg,
-    newOpd: newOpdCount,
-    updatedOpd: updatedOpdCount,
-    newJbt: newJbtCount,
-    updatedJbt: updatedJbtCount,
-    deletedUnits: deletedUnitsCount,
-    deletedJbts: deletedJbtsCount
+    message: msg
   };
-}
-
-function restoreBatchJabatans_(items) {
-  if (!items || !Array.isArray(items)) {
-    return { success: false, error: 'Invalid items array' };
-  }
-  var batchUpdates = {};
-  items.forEach(function(item) {
-    if (item && item.id) {
-      var id = item.id;
-      var patchItem = {};
-      Object.keys(item).forEach(function(k) {
-        if (k !== 'id') patchItem[k] = item[k];
-      });
-      patchItem.updatedAt = new Date().toISOString();
-      batchUpdates[getFirebasePath_('jabatan', id)] = patchItem;
-    }
-  });
-  if (Object.keys(batchUpdates).length > 0) {
-    fbPatch_('', batchUpdates);
-    invalidateCache_('jabatan');
-  }
-  return { success: true, count: Object.keys(batchUpdates).length };
-}
-
-function restoreBatchEntities_(entity, items) {
-  if (!items || !Array.isArray(items) || !entity) {
-    return { success: false, error: 'Invalid parameters' };
-  }
-  var batchUpdates = {};
-  items.forEach(function(item) {
-    if (item && item.id) {
-      var id = item.id;
-      var patchItem = {};
-      Object.keys(item).forEach(function(k) {
-        if (k !== 'id') patchItem[k] = item[k];
-      });
-      patchItem.updatedAt = new Date().toISOString();
-      batchUpdates[getFirebasePath_(entity, id)] = patchItem;
-    }
-  });
-  if (Object.keys(batchUpdates).length > 0) {
-    fbPatch_('', batchUpdates);
-    invalidateCache_(entity);
-  }
-  return { success: true, count: Object.keys(batchUpdates).length };
 }
 
 function getSptSpreadsheetData_() {

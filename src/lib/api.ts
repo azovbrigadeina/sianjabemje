@@ -172,11 +172,21 @@ async function executeActualRequest<T = unknown>(
     signal?: AbortSignal;
   } = {}
 ): Promise<T> {
+  const timeoutMs = 30000; // 30 detik timeout default
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let signalToUse = options.signal;
+
+  if (!signalToUse) {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(new Error('Server tidak merespons dalam 30 detik (Timeout)')), timeoutMs);
+    signalToUse = controller.signal;
+  }
+
   const fetchOpts: RequestInit = {
     method: isWriteOperation ? 'POST' : 'GET',
     headers: isWriteOperation ? { 'Content-Type': 'text/plain' } : undefined,
     redirect: 'follow',
-    signal: options.signal,
+    signal: signalToUse,
   };
   if (options.data) {
     fetchOpts.body = JSON.stringify(options.data);
@@ -184,40 +194,46 @@ async function executeActualRequest<T = unknown>(
 
   // Fetch with 1x retry on failure
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(url, fetchOpts);
-      const json: ApiResponse<T> = await res.json();
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, fetchOpts);
+        const json: ApiResponse<T> = await res.json();
 
-      if (!json.success) {
-        throw new Error(json.error || 'API request failed');
-      }
+        if (!json.success) {
+          throw new Error(json.error || 'API request failed');
+        }
 
-      // Simpan ke cache jika ini GET request
-      if (!isWriteOperation) {
-        await setCache(url, json.data);
-      }
+        // Simpan ke cache jika ini GET request
+        if (!isWriteOperation) {
+          await setCache(url, json.data);
+        }
 
-      // Setelah write berhasil, hapus cache lagi untuk memastikan
-      // GET berikutnya ambil data segar dari server
-      if (isWriteOperation) {
-        await invalidateAllCache();
-      }
+        // Setelah write berhasil, hapus cache lagi untuk memastikan
+        // GET berikutnya ambil data segar dari server
+        if (isWriteOperation) {
+          await invalidateAllCache();
+        }
 
-      return json.data;
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw err;
-      }
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt === 0) {
-        // Tunggu 500ms sebelum retry (turun dari 2 detik)
-        await new Promise(resolve => setTimeout(resolve, 500));
+        return json.data;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new Error('Request Timeout: Backend GAS tidak merespons dalam 30 detik.');
+        }
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt === 0) {
+          // Tunggu 500ms sebelum retry
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
     }
-  }
 
-  throw lastError || new Error('API request failed after retry');
+    throw lastError || new Error('API request failed after retry');
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function apiCall<T = unknown>(

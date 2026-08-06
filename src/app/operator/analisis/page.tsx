@@ -873,7 +873,7 @@ export default function OperatorAnalisisPage() {
 
   // TREE RENDERING
   const renderTreeNodes = (nodes: TreeNode[]) => (
-    <ul style={{ listStyle: 'none', paddingLeft: '24px', margin: 0 }}>
+    <ul>
       {nodes.map(node => {
         const isExpanded = expandedNodes[node.id];
         const hasChildren = node.children.length > 0;
@@ -891,19 +891,17 @@ export default function OperatorAnalisisPage() {
 
         if (node.type === 'OPD') {
           return (
-            <li key={node.id} className={treeStyles.treeNodeWrapper} style={{ position: 'relative', margin: '4px 0' }}>
-              <div className={`${treeStyles.treeNode} ${treeStyles.treeNodeOpd}`} onClick={(e) => toggleNode(node.id, e)}>
-                 <div className={treeStyles.treeNodeContent}>
-                   <div className={treeStyles.treeToggle}>
-                     {hasChildren && <span className={isExpanded ? treeStyles.expanded : ''}>▶</span>}
-                   </div>
-                   <div className={treeStyles.opdIcon}>🏛️</div>
-                   <div className={treeStyles.treeInfo}>
-                     <div className={treeStyles.treeTitleRow}>
-                       <span className={treeStyles.titleOpd}>{node.label}</span>
-                       {node.parentId && <span className={treeStyles.badgeOpdSub}>Sub-Unit</span>}
-                     </div>
-                   </div>
+            <li key={node.id} className={treeStyles.treeNode}>
+              <div className={`${treeStyles.treeNodeContent} ${treeStyles.treeNodeContentOpd}`} onClick={(e) => toggleNode(node.id, e)}>
+                 <div className={treeStyles.treeToggle}>
+                   {hasChildren ? (
+                     <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▶</span>
+                   ) : <span></span>}
+                 </div>
+                 <div className={treeStyles.treeIcon}>🏛️</div>
+                 <div className={treeStyles.treeTitleRow}>
+                   <span className={treeStyles.titleLabel}>{node.label}</span>
+                   {node.parentId && <span className={treeStyles.badgeOpdSub}>Sub-Unit</span>}
                  </div>
               </div>
               {isExpanded && hasChildren && renderTreeNodes(node.children)}
@@ -912,38 +910,33 @@ export default function OperatorAnalisisPage() {
         }
 
         return (
-          <li key={node.id} className={treeStyles.treeNodeWrapper} style={{ position: 'relative', margin: '4px 0' }}>
-            <div className={`${treeStyles.treeNode} ${treeStyles.treeNodeJabatan} ${highlightClass}`} onClick={(e) => toggleNode(node.id, e)}>
-               <div className={treeStyles.treeNodeContent}>
-                 <div className={treeStyles.treeToggle}>
-                   {hasChildren && <span className={isExpanded ? treeStyles.expanded : ''}>▶</span>}
-                 </div>
-                 <div className={treeStyles.treeInfo}>
-                   <div className={treeStyles.treeTitleRow}>
-                     <span className={treeStyles.titleJabatan}>{node.label}</span>
-                   </div>
-                    <div className={treeStyles.treeBadges}>
-                      {node.anjabTerisi ? (
-                        <span className={treeStyles.badgeSuccess} title="Anjab Terisi">✅ Anjab Terisi</span>
-                      ) : (
-                        <span className={treeStyles.badgeWarning} title="Anjab Kosong">⚠️ Anjab Kosong</span>
-                      )}
-                     {/* Placeholder untuk Tanda Validasi Admin */}
-                     {false && <span className={treeStyles.badgeSuccess} title="Sudah Divalidasi Admin">✔️ Valid</span>}
-                     
-                     <span className={`${treeStyles.badgeEselon} ${eselonClass}`}>
-                       <span className={treeStyles.badgeIcon}>{icon}</span>
-                       {node.eselon || 'Jabatan'}
-                     </span>
-                     {node.kelas && (
-                       <span className={treeStyles.badgeKelas}>Kls {node.kelas}</span>
-                     )}
-                     <div className={treeStyles.treeActions}>
-                        <button type="button" className={`${treeStyles.actionBtn} ${treeStyles.actionBtnPrimary}`} title="Isi Anjab" onClickCapture={(e) => openEditor(node, e)}>
-                           📝 Isi Anjab
-                        </button>
-                     </div>
-                   </div>
+          <li key={node.id} className={treeStyles.treeNode}>
+            <div className={`${treeStyles.treeNodeContent} ${highlightClass}`} onClick={(e) => toggleNode(node.id, e)}>
+               <div className={treeStyles.treeToggle}>
+                 {hasChildren ? (
+                   <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▶</span>
+                 ) : <span></span>}
+               </div>
+               <div className={treeStyles.treeTitleRow}>
+                 <span className={treeStyles.titleLabel}>{node.label}</span>
+               </div>
+               <div className={treeStyles.rightSection}>
+                 {node.anjabTerisi ? (
+                   <span className={treeStyles.badgeSuccess} title="Anjab Terisi">✅ Anjab Terisi</span>
+                 ) : (
+                   <span className={treeStyles.badgeWarning} title="Anjab Kosong">⚠️ Anjab Kosong</span>
+                 )}
+                 <span className={`${treeStyles.badgeEselon} ${eselonClass}`}>
+                   <span className={treeStyles.badgeIcon}>{icon}</span>
+                   {node.eselon || 'Jabatan'}
+                 </span>
+                 {node.kelas && (
+                   <span className={treeStyles.badgeKelas}>Kls {node.kelas}</span>
+                 )}
+                 <div className={treeStyles.treeActions}>
+                    <button type="button" className={`${treeStyles.actionBtn} ${treeStyles.actionBtnPrimary}`} title="Isi Anjab" onClickCapture={(e) => openEditor(node, e)}>
+                       📝 Isi Anjab
+                    </button>
                  </div>
                </div>
             </div>

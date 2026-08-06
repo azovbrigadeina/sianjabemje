@@ -360,7 +360,8 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string) => {
   try {
     const opdNama = opdNamaParam || jabatan.hierarchy?.jptPratama || "OPD Kabupaten Muaro Jambi";
-    const verifyRecord = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan);
+    const verifyResult = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan);
+    const verifyRecord = verifyResult.record;
 
     let arrayBuffer: ArrayBuffer;
     
@@ -415,7 +416,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
           new TextRun({ text: "--------------------------------------------------------------------------------------------------\n", color: "CCCCCC" }),
           new TextRun({ text: "BAGIAN ORGANISASI PEMERINTAH KABUPATEN MUARO JAMBI\n", bold: true, size: 18 }),
           new TextRun({ text: `Dokumen Resmi SianjabABK EM-JE. Kode Keabsahan: ${verifyRecord.code}\n`, size: 18, color: "0284C7" }),
-          new TextRun({ text: `Verifikasi keaslian dokumen dapat diakses secara online pada tautan portal resmi.`, size: 16, italics: true, color: "64748B" }),
+          new TextRun({ text: `Verifikasi keaslian: ${verifyResult.verifyUrl}`, size: 16, italics: true, color: "64748B" }),
         ],
         spacing: { before: 400 },
       });
