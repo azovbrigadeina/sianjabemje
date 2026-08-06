@@ -1,8 +1,10 @@
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { saveAs } from 'file-saver';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
+import { generateVerificationCode } from './verification';
 
 // Helper to convert base64 string to ArrayBuffer
 const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -16,8 +18,14 @@ const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
 };
 
 // Map Sianjab data to template placeholder keys based on custom user mappings
-const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}, abkData?: any) => {
+const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}, abkData?: any, verifyCode?: string) => {
   const result: Record<string, any> = {};
+
+  if (verifyCode) {
+    result['kodeKeabsahan'] = verifyCode;
+    result['kodeVerifikasi'] = verifyCode;
+    result['verificationCode'] = verifyCode;
+  }
 
   const getValue = (fieldKey: string, defaultValue: any) => {
     return mappings[fieldKey] || defaultValue;
@@ -349,8 +357,11 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 };
 
 // Main Export Logic
-export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any) => {
+export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string) => {
   try {
+    const opdNama = opdNamaParam || jabatan.hierarchy?.jptPratama || "OPD Kabupaten Muaro Jambi";
+    const verifyRecord = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan);
+
     let arrayBuffer: ArrayBuffer;
     
     // 1. Fetch template from database settings
@@ -371,7 +382,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any) =
     const mappings = await api.getTagMappings().catch(() => null) || {};
 
     // 3. Transform data using mappings
-    const renderData = transformData(jabatan, mappings, abkData);
+    const renderData = transformData(jabatan, mappings, abkData, verifyRecord.code);
 
     // 4. Initialize pizzip and docxtemplater with dot-notation parser
     const zip = new PizZip(arrayBuffer);
@@ -397,13 +408,45 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any) =
     // 5. Render
     doc.render(renderData);
 
-    // 6. Generate output zip/docx blob
+    // 6. Append verification footer paragraph to document.xml
+    try {
+      const footerParagraph = new Paragraph({
+        children: [
+          new TextRun({ text: "--------------------------------------------------------------------------------------------------\n", color: "CCCCCC" }),
+          new TextRun({ text: "BAGIAN ORGANISASI PEMERINTAH KABUPATEN MUARO JAMBI\n", bold: true, size: 18 }),
+          new TextRun({ text: `Dokumen Resmi SianjabABK EM-JE. Kode Keabsahan: ${verifyRecord.code}\n`, size: 18, color: "0284C7" }),
+          new TextRun({ text: `Verifikasi keaslian dokumen dapat diakses secara online pada tautan portal resmi.`, size: 16, italics: true, color: "64748B" }),
+        ],
+        spacing: { before: 400 },
+      });
+
+      const dummyDoc = new Document({ sections: [{ children: [footerParagraph] }] });
+      const pBuffer = await Packer.toArrayBuffer(dummyDoc);
+      const pZip = new PizZip(pBuffer);
+      const pXml = pZip.file('word/document.xml')?.asText() || '';
+      const match = pXml.match(/<w:p>[\s\S]*?<\/w:p>/);
+      if (match) {
+        const paragraphXml = match[0];
+        const zipInstance = doc.getZip();
+        let docXml = zipInstance.file('word/document.xml')?.asText() || '';
+        if (docXml.includes('<w:sectPr')) {
+          docXml = docXml.replace('<w:sectPr', paragraphXml + '<w:sectPr');
+        } else if (docXml.includes('</w:body>')) {
+          docXml = docXml.replace('</w:body>', paragraphXml + '</w:body>');
+        }
+        zipInstance.file('word/document.xml', docXml);
+      }
+    } catch (verifErr) {
+      console.warn("Gagal menyisipkan footer keabsahan dokumen:", verifErr);
+    }
+
+    // 7. Generate output zip/docx blob
     const outBlob = doc.getZip().generate({
       type: 'blob',
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
 
-    // 7. Save file to client device
+    // 8. Save file to client device
     saveAs(outBlob, `Anjab_${jabatan.namaJabatan || 'Jabatan'}.docx`);
   } catch (err: any) {
     console.error("Gagal melakukan export Word:", err);
