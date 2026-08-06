@@ -127,7 +127,7 @@ function VerificationContent() {
               </div>
 
               <div className={styles.detailRow}>
-                <span className={styles.detailLabel}>Perangkat Daerah (OPD)</span>
+                <span className={styles.detailLabel}>Perangkat Daerah (OPD Induk)</span>
                 <span className={styles.detailValue}>{record.opdName}</span>
               </div>
 
@@ -142,7 +142,7 @@ function VerificationContent() {
               </div>
 
               <div className={styles.detailRow}>
-                <span className={styles.detailLabel}>Pencetak / Operator</span>
+                <span className={styles.detailLabel}>Pencetak Dokumen (User)</span>
                 <span className={styles.detailValue}>{record.printedBy || 'Operator Sianjab'}</span>
               </div>
             </div>

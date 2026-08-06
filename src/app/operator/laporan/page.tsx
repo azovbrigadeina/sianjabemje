@@ -85,7 +85,7 @@ export default function OperatorLaporanPage() {
     try {
       const fullJabatan = await api.getJabatanFull(jabatan.id) as JabatanFull;
       const { exportJabatanToDocx } = await import("@/lib/exportDocx");
-      await exportJabatanToDocx(fullJabatan, abkData);
+      await exportJabatanToDocx(fullJabatan, abkData, opdName);
     } catch (err: any) {
       alert("Gagal mengunduh laporan Anjab: " + err.message);
     } finally {

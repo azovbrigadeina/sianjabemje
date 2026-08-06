@@ -4,7 +4,7 @@ import { saveAs } from 'file-saver';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
-import { generateVerificationCode } from './verification';
+import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
 
 // Helper to convert base64 string to ArrayBuffer
 const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -357,10 +357,12 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 };
 
 // Main Export Logic
-export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string) => {
+export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string, opdsList?: any[]) => {
   try {
-    const opdNama = opdNamaParam || jabatan.hierarchy?.jptPratama || "OPD Kabupaten Muaro Jambi";
-    const verifyResult = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan);
+    const rawOpd = opdNamaParam || jabatan.hierarchy?.jptPratama || "Pemerintah Kabupaten Muaro Jambi";
+    const opdNama = resolveOpdInduk(rawOpd, opdsList);
+    const printedBy = getCurrentSessionUser();
+    const verifyResult = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan, printedBy);
     const verifyRecord = verifyResult.record;
 
     let arrayBuffer: ArrayBuffer;
