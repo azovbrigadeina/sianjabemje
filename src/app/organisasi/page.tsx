@@ -471,6 +471,7 @@ export default function PublicOrganisasiPage() {
           <div className={styles.navLinks}>
             <Link href="/">Beranda</Link>
             <Link href="/organisasi">Struktur Organisasi</Link>
+            <Link href="/verify">Cek Keabsahan Dokumen</Link>
             <a href="#" onClick={(e) => { e.preventDefault(); setShowContact(true); }}>Kontak Kami</a>
           </div>
         </nav>
