@@ -1207,7 +1207,8 @@ function exportForSitpp_() {
     var parentKey = opdIdMap[unit.parentId] || unit.parentId || "";
     opdListByTahun[t][opdKey] = {
       name: unit.nama || "",
-      admin_parent_opd: parentKey
+      admin_parent_opd: parentKey,
+      urutan: (typeof unit.urutan !== 'undefined' && !isNaN(Number(unit.urutan))) ? Number(unit.urutan) : (typeof unit.sortOrder !== 'undefined' && !isNaN(Number(unit.sortOrder))) ? Number(unit.sortOrder) : 0
     };
   });
 
