@@ -115,6 +115,7 @@ export default function DashboardLayout({
     if (pathname.includes('/verifikasi')) return 'Verifikasi Pengisian';
     if (pathname.includes('/validasi')) return 'Validasi Usulan';
     if (pathname.includes('/laporan')) return 'Laporan';
+    if (pathname.includes('/investigasi')) return 'Investigasi & Audit Anomali';
     if (pathname.includes('/referensi')) return 'Referensi Jabatan';
     if (pathname.includes('/users')) return 'Manajemen User';
     if (pathname.includes('/pengaturan')) return 'Pengaturan AI';
@@ -194,6 +195,9 @@ export default function DashboardLayout({
 
           <Link href="/dashboard/referensi" className={`${styles.navItem} ${pathname.includes('/referensi') ? styles.active : ''}`}>
             <span className={styles.navIcon}>📚</span> <span className={styles.navText}>Referensi Jabatan</span>
+          </Link>
+          <Link href="/dashboard/investigasi" className={`${styles.navItem} ${pathname.includes('/investigasi') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>🔍</span> <span className={styles.navText}>Investigasi Anomali</span>
           </Link>
           <Link href="/dashboard/users" className={`${styles.navItem} ${pathname.includes('/users') ? styles.active : ''}`}>
             <span className={styles.navIcon}>👤</span> <span className={styles.navText}>Manajemen User</span>
