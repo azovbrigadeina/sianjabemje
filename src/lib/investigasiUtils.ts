@@ -15,6 +15,8 @@ export interface AnomaliItem {
   severity: SeverityLevel;
   pesan: string;
   rekomendasi?: string;
+  rekomendasiBase?: string;
+  parsedJenjang?: string | null;
   kelasDominan?: number;
   kelasStandar?: string;
 }
@@ -29,6 +31,36 @@ export interface AuditResult {
   anomaliTypo: AnomaliItem[];
   anomaliDisparitas: AnomaliItem[];
   anomaliOutlier: AnomaliItem[];
+}
+
+export const JENJANG_FUNGSIONAL = [
+  'Ahli Utama',
+  'Ahli Madya',
+  'Ahli Muda',
+  'Ahli Pertama',
+  'Penyelia',
+  'Mahir',
+  'Terampil',
+  'Pemula',
+];
+
+export interface ParsedJabatan {
+  baseName: string;
+  jenjang: string | null;
+}
+
+export function parseJenjangJabatan(nama: string): ParsedJabatan {
+  const cleanName = (nama || '').trim();
+  for (const j of JENJANG_FUNGSIONAL) {
+    const regex = new RegExp(`\\b${j}$`, 'i');
+    if (regex.test(cleanName)) {
+      const baseName = cleanName.replace(regex, '').replace(/[-,\s]+$/, '').trim();
+      if (baseName.length > 0) {
+        return { baseName, jenjang: j };
+      }
+    }
+  }
+  return { baseName: cleanName, jenjang: null };
 }
 
 /** Distance metric Levenshtein */
@@ -92,15 +124,23 @@ export function analyzeAnomali(
   // 1. Check Typo & Reference
   jabatans.forEach(j => {
     const opdNama = opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui';
-    const normName = normalizeName(j.namaJabatan);
     const jenis = (j.jenisJabatan || '').toLowerCase();
 
     // Referensi Check for Pelaksana / Fungsional
     if (jenis.includes('pelaksana') || jenis.includes('fungsional')) {
-      const matchExactRef = refNameMap.get(normName);
+      const parsed = parseJenjangJabatan(j.namaJabatan);
+      const normBase = normalizeName(parsed.baseName);
+      const normFull = normalizeName(j.namaJabatan);
+
+      const matchExactRef = refNameMap.get(normBase) || refNameMap.get(normFull);
       if (matchExactRef) {
+        const isFullMatch = refNameMap.has(normFull) && !refNameMap.has(normBase);
+        const standardName = isFullMatch
+          ? matchExactRef.namaBase
+          : `${matchExactRef.namaBase}${parsed.jenjang ? ' ' + parsed.jenjang : ''}`;
+
         // Teks sama secara huruf, cek apakah ada spasi berlebih atau case tidak konsisten
-        if (j.namaJabatan !== matchExactRef.namaBase) {
+        if (j.namaJabatan !== standardName) {
           anomaliTypo.push({
             id: `typo-case-${j.id}`,
             jabatanId: j.id,
@@ -112,7 +152,9 @@ export function analyzeAnomali(
             type: 'TYPO_SPACE',
             severity: 'Rendah',
             pesan: 'Penulisan spasi atau huruf kapital berbeda dari Referensi Jabatan',
-            rekomendasi: matchExactRef.namaBase,
+            rekomendasi: standardName,
+            rekomendasiBase: matchExactRef.namaBase,
+            parsedJenjang: parsed.jenjang,
           });
         }
       } else {
@@ -120,14 +162,15 @@ export function analyzeAnomali(
         let bestMatch: ReferensiJabatan | null = null;
         let highestSim = 0;
         referensis.forEach(ref => {
-          const sim = stringSimilarity(normName, ref.namaBase);
+          const sim = stringSimilarity(normBase, ref.namaBase);
           if (sim > highestSim) {
             highestSim = sim;
             bestMatch = ref;
           }
         });
 
-        if (bestMatch && highestSim >= 0.78 && highestSim < 1.0) {
+        if (bestMatch && highestSim >= 0.78) {
+          const standardName = `${(bestMatch as ReferensiJabatan).namaBase}${parsed.jenjang ? ' ' + parsed.jenjang : ''}`;
           anomaliTypo.push({
             id: `typo-fuzzy-${j.id}`,
             jabatanId: j.id,
@@ -139,7 +182,9 @@ export function analyzeAnomali(
             type: 'FUZZY_TYPO',
             severity: 'Tinggi',
             pesan: `Kemiripan ${(highestSim * 100).toFixed(0)}% dengan referensi '${(bestMatch as ReferensiJabatan).namaBase}' (kemungkinan typo)`,
-            rekomendasi: (bestMatch as ReferensiJabatan).namaBase,
+            rekomendasi: standardName,
+            rekomendasiBase: (bestMatch as ReferensiJabatan).namaBase,
+            parsedJenjang: parsed.jenjang,
           });
         } else {
           anomaliTypo.push({
@@ -153,6 +198,8 @@ export function analyzeAnomali(
             type: 'UNREFERENCED',
             severity: 'Sedang',
             pesan: 'Nama Jabatan tidak terdaftar pada Master Referensi Jabatan',
+            rekomendasiBase: parsed.baseName,
+            parsedJenjang: parsed.jenjang,
           });
         }
       }
