@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import styles from "./investigasi.module.css";
 import { api } from "@/lib/api";
 import { Jabatan, ReferensiJabatan, UnitKerja } from "@/lib/types";
-import { analyzeAnomali, AnomaliItem } from "@/lib/investigasiUtils";
+import { analyzeAnomali, AnomaliItem, JENJANG_FUNGSIONAL } from "@/lib/investigasiUtils";
 import Link from "next/link";
 
 export default function InvestigasiPage() {
@@ -24,6 +24,16 @@ export default function InvestigasiPage() {
   const [editNama, setEditNama] = useState('');
   const [editKelas, setEditKelas] = useState<number>(0);
   const [saving, setSaving] = useState(false);
+
+  // 1-Click Standardize State
+  const [standardizingId, setStandardizingId] = useState<string | null>(null);
+
+  // Interactive Reference Mapping Modal State
+  const [mappingAnomali, setMappingAnomali] = useState<AnomaliItem | null>(null);
+  const [selectedRefBase, setSelectedRefBase] = useState('');
+  const [selectedJenjang, setSelectedJenjang] = useState('');
+  const [refSearchQuery, setRefSearchQuery] = useState('');
+  const [savingMapping, setSavingMapping] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,6 +55,16 @@ export default function InvestigasiPage() {
   const auditResult = useMemo(() => {
     return analyzeAnomali(jabatans, referensis, unitKerjas);
   }, [jabatans, referensis, unitKerjas]);
+
+  const sortedReferensis = useMemo(() => {
+    return [...referensis].sort((a, b) => a.namaBase.localeCompare(b.namaBase));
+  }, [referensis]);
+
+  const filteredReferensis = useMemo(() => {
+    if (!refSearchQuery.trim()) return sortedReferensis;
+    const q = refSearchQuery.toLowerCase();
+    return sortedReferensis.filter(r => r.namaBase.toLowerCase().includes(q));
+  }, [sortedReferensis, refSearchQuery]);
 
   const filterList = (items: AnomaliItem[]) => {
     return items.filter(item => {
@@ -84,6 +104,71 @@ export default function InvestigasiPage() {
       alert("Gagal mengupdate jabatan: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 1-Click Standardize Handler
+  const handleQuickStandardize = async (item: AnomaliItem) => {
+    if (!item.rekomendasi) return;
+    try {
+      setStandardizingId(item.id);
+      await api.updateJabatan(item.jabatanId, {
+        namaJabatan: item.rekomendasi,
+      });
+
+      // Update local state directly
+      setJabatans(prev =>
+        prev.map(j => (j.id === item.jabatanId ? { ...j, namaJabatan: item.rekomendasi! } : j))
+      );
+    } catch (err) {
+      alert("Gagal menstandardkan jabatan: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setStandardizingId(null);
+    }
+  };
+
+  // Open Reference Mapping Modal
+  const handleOpenMapping = (item: AnomaliItem) => {
+    setMappingAnomali(item);
+    setRefSearchQuery('');
+
+    const initialBase = item.rekomendasiBase || item.namaJabatan;
+    const exactMatch = referensis.find(
+      r => r.namaBase.toLowerCase() === initialBase.toLowerCase()
+    );
+    const partialMatch = !exactMatch
+      ? referensis.find(
+          r =>
+            r.namaBase.toLowerCase().includes(initialBase.toLowerCase()) ||
+            initialBase.toLowerCase().includes(r.namaBase.toLowerCase())
+        )
+      : null;
+
+    setSelectedRefBase(exactMatch?.namaBase || partialMatch?.namaBase || '');
+    setSelectedJenjang(item.parsedJenjang || '');
+  };
+
+  // Save Reference Mapping Handler
+  const handleSaveMapping = async () => {
+    if (!mappingAnomali || !selectedRefBase) return;
+    const computedStandard = `${selectedRefBase}${selectedJenjang ? ' ' + selectedJenjang : ''}`.trim();
+    if (!computedStandard) return;
+
+    try {
+      setSavingMapping(true);
+      await api.updateJabatan(mappingAnomali.jabatanId, {
+        namaJabatan: computedStandard,
+      });
+
+      // Update local state directly
+      setJabatans(prev =>
+        prev.map(j => (j.id === mappingAnomali.jabatanId ? { ...j, namaJabatan: computedStandard } : j))
+      );
+      setMappingAnomali(null);
+    } catch (err) {
+      alert("Gagal memetakan referensi jabatan: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingMapping(false);
     }
   };
 
@@ -224,7 +309,26 @@ export default function InvestigasiPage() {
                     </span>
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {item.rekomendasi && (
+                        <button
+                          className={styles.actionBtnStandard}
+                          onClick={() => handleQuickStandardize(item)}
+                          disabled={standardizingId === item.id}
+                          title={`Standardkan nama menjadi: "${item.rekomendasi}"`}
+                        >
+                          {standardizingId === item.id ? '⏳...' : '✨ Standardkan'}
+                        </button>
+                      )}
+                      {item.type === 'UNREFERENCED' && (
+                        <button
+                          className={styles.actionBtnMap}
+                          onClick={() => handleOpenMapping(item)}
+                          title="Petakan ke Master Referensi Jabatan"
+                        >
+                          🔗 Petakan
+                        </button>
+                      )}
                       <button className={styles.actionBtn} onClick={() => handleOpenEdit(item)}>
                         ✏️ Koreksi
                       </button>
@@ -286,6 +390,123 @@ export default function InvestigasiPage() {
                 disabled={saving}
               >
                 {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Reference Mapping Modal */}
+      {mappingAnomali && (
+        <div className={styles.modalBackdrop}>
+          <div className={styles.modalContent} style={{ maxWidth: '580px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>🔗</span> Pemetaan Master Referensi Jabatan
+              </h3>
+              <button
+                onClick={() => setMappingAnomali(null)}
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted, #6b7280)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ background: 'var(--bg-item-hover, #f3f4f6)', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.85rem' }}>
+              <div style={{ marginBottom: '0.25rem' }}>
+                <span style={{ color: 'var(--text-muted, #6b7280)' }}>Unit Kerja: </span>
+                <strong>{mappingAnomali.opdNama}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted, #6b7280)' }}>Jabatan Saat Ini: </span>
+                <strong style={{ color: '#ef4444' }}>{mappingAnomali.namaJabatan}</strong>
+                <span className={styles.badge} style={{ marginLeft: '0.5rem', background: '#e5e7eb' }}>
+                  {mappingAnomali.jenisJabatan}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
+                1. Cari & Pilih Master Referensi Jabatan <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                className={styles.searchBox}
+                style={{ width: '100%', marginBottom: '0.5rem' }}
+                placeholder="🔍 Ketik untuk memfilter master referensi..."
+                value={refSearchQuery}
+                onChange={e => setRefSearchQuery(e.target.value)}
+              />
+              <select
+                className={styles.selectBox}
+                style={{ width: '100%' }}
+                value={selectedRefBase}
+                onChange={e => setSelectedRefBase(e.target.value)}
+              >
+                <option value="">-- Pilih Master Referensi ({filteredReferensis.length} opsi) --</option>
+                {selectedRefBase && !filteredReferensis.some(r => r.namaBase === selectedRefBase) && (
+                  <option value={selectedRefBase}>{selectedRefBase} (Terpilih)</option>
+                )}
+                {filteredReferensis.map((r, idx) => (
+                  <option key={`${r.id || r.namaBase}-${idx}`} value={r.namaBase}>
+                    {r.namaBase} {r.jenisJabatan ? `(${r.jenisJabatan})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>
+                2. Jenjang Fungsional (Opsional)
+              </label>
+              <select
+                className={styles.selectBox}
+                style={{ width: '100%' }}
+                value={selectedJenjang}
+                onChange={e => setSelectedJenjang(e.target.value)}
+              >
+                <option value="">-- Tanpa Jenjang (Pelaksana / Jabatan Tunggal) --</option>
+                {JENJANG_FUNGSIONAL.map(j => (
+                  <option key={j} value={j}>
+                    {j}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Live Preview Card */}
+            <div className={styles.previewCard}>
+              <div className={styles.previewLabel}>Preview Standar Nama Jabatan</div>
+              <div className={styles.previewValue}>
+                {selectedRefBase ? (
+                  <span style={{ color: '#10b981' }}>
+                    {`${selectedRefBase}${selectedJenjang ? ' ' + selectedJenjang : ''}`.trim()}
+                  </span>
+                ) : (
+                  <span style={{ color: '#9ca3af', fontStyle: 'italic', fontWeight: 400 }}>
+                    Pilih Master Referensi di atas untuk melihat preview
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button
+                className={styles.actionBtn}
+                style={{ background: '#9ca3af' }}
+                onClick={() => setMappingAnomali(null)}
+                disabled={savingMapping}
+              >
+                Batal
+              </button>
+              <button
+                className={styles.actionBtnStandard}
+                onClick={handleSaveMapping}
+                disabled={savingMapping || !selectedRefBase}
+                style={{ opacity: savingMapping || !selectedRefBase ? 0.6 : 1 }}
+              >
+                {savingMapping ? 'Menyimpan...' : '💾 Simpan & Standardkan'}
               </button>
             </div>
           </div>

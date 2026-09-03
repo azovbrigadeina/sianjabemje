@@ -168,3 +168,75 @@
   flex-direction: column;
   gap: 1rem;
 }
+
+.actionBtnStandard {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #10b981;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.actionBtnStandard:hover {
+  background: #059669;
+}
+
+.actionBtnStandard:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.actionBtnMap {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #8b5cf6;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.actionBtnMap:hover {
+  background: #7c3aed;
+}
+
+.actionBtnMap:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.previewCard {
+  background: var(--bg-item-hover, #f8fafc);
+  border: 1px dashed var(--border-color, #cbd5e1);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-top: 0.25rem;
+}
+
+.previewLabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.25rem;
+}
+
+.previewValue {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+}
