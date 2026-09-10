@@ -52,9 +52,107 @@ export default function OrganisasiPage() {
   const [isSavingOrgSetting, setIsSavingOrgSetting] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isReorderMode, setIsReorderMode] = useState(false);
+  const [draggedNode, setDraggedNode] = useState<TreeNode | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
+  const handleDragStart = (e: React.DragEvent, node: TreeNode) => {
+    if (!isReorderMode) return;
+    setDraggedNode(node);
+    e.dataTransfer.setData('text/plain', node.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
 
-  // Modal state
+  const handleDragOver = (e: React.DragEvent, targetNode: TreeNode) => {
+    if (!isReorderMode || !draggedNode) return;
+    if (
+      draggedNode.parentId === targetNode.parentId &&
+      draggedNode.unitKerjaId === targetNode.unitKerjaId &&
+      draggedNode.id !== targetNode.id
+    ) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setDragOverId(targetNode.id);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetNode: TreeNode) => {
+    e.preventDefault();
+    setDragOverId(null);
+    if (!isReorderMode || !draggedNode) return;
+    if (
+      draggedNode.parentId !== targetNode.parentId ||
+      draggedNode.unitKerjaId !== targetNode.unitKerjaId ||
+      draggedNode.id === targetNode.id
+    )
+      return;
+
+    const reorderSiblings = (nodes: TreeNode[]): TreeNode[] => {
+      const hasDragged = nodes.some(c => c.id === draggedNode.id);
+      const hasTarget = nodes.some(c => c.id === targetNode.id);
+      if (hasDragged && hasTarget) {
+        const newNodes = [...nodes];
+        const draggedIdx = newNodes.findIndex(c => c.id === draggedNode.id);
+        const targetIdx = newNodes.findIndex(c => c.id === targetNode.id);
+        const [movedItem] = newNodes.splice(draggedIdx, 1);
+        newNodes.splice(targetIdx, 0, movedItem);
+
+        return newNodes.map((child, idx) => ({ ...child, urutan: idx + 1 }));
+      }
+
+      return nodes.map(n => {
+        if (n.children && n.children.length > 0) {
+          return { ...n, children: reorderSiblings(n.children) };
+        }
+        return n;
+      });
+    };
+
+    const updatedTree = reorderSiblings(treeData);
+    setTreeData(updatedTree);
+    showToast("✅ Urutan " + draggedNode.label + " berhasil diperbarui");
+
+    const findParentNode = (nodes: TreeNode[], targetId: string): TreeNode | null => {
+      for (const node of nodes) {
+        if (node.id === targetId) return node;
+        if (node.children && node.children.length > 0) {
+          const found = findParentNode(node.children, targetId);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const parentId = targetNode.parentId || targetNode.unitKerjaId;
+    if (parentId) {
+      const parentNode = findParentNode(updatedTree, parentId);
+      if (parentNode && parentNode.children) {
+        const payload = parentNode.children.map((c, idx) => ({
+          id: c.id,
+          nama: c.label,
+          namaJabatan: c.label,
+          urutan: idx + 1
+        }));
+        try {
+          await api.saveMultiEntity(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', parentId, payload);
+        } catch (err) {
+          console.error("Gagal menyimpan urutan:", err);
+        }
+      }
+    } else {
+      const payload = updatedTree.map((c, idx) => ({
+        id: c.id,
+        nama: c.label,
+        namaJabatan: c.label,
+        urutan: idx + 1
+      }));
+      try {
+        await api.saveMultiEntity(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', 'root', payload);
+      } catch (err) {
+        console.error("Gagal menyimpan urutan:", err);
+      }
+    }
+    setDraggedNode(null);
+  };
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [modalData, setModalData] = useState<ModalData>(EMPTY_MODAL);
   const [modalSaving, setModalSaving] = useState(false);
@@ -614,7 +712,16 @@ export default function OrganisasiPage() {
 
         return (
           <li key={node.id} className={styles.treeNode}>
-            <div onClick={(e) => toggleNode(node.id, e)} className={`${styles.treeNodeContent} ${highlightClass}`}>
+            <div 
+              onClick={(e) => toggleNode(node.id, e)} 
+              className={`${styles.treeNodeContent} ${highlightClass} ${dragOverId === node.id ? styles.dragOverTarget : ''}`}
+              draggable={isReorderMode}
+              onDragStart={(e) => handleDragStart(e, node)}
+              onDragOver={(e) => handleDragOver(e, node)}
+              onDrop={(e) => handleDrop(e, node)}
+              onDragEnd={() => { setDraggedNode(null); setDragOverId(null); }}
+            >
+               {isReorderMode && <span className={styles.dragHandle} title="Geser urutan">⋮⋮</span>}
                <div className={styles.treeToggle}>
                  {hasChildren ? (
                    <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
