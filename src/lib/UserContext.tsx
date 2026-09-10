@@ -85,7 +85,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     document.cookie = "sianjab_token=; Max-Age=0; path=/";
   }, []);
 
-  // Idle timeout detector (5 minutes)
+  // Idle timeout detector (30 minutes)
   useEffect(() => {
     if (!user) return;
 

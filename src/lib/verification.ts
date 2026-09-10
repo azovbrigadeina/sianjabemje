@@ -27,6 +27,8 @@ export function parseVerificationToken(token: string): VerificationRecord | null
   }
 }
 
+import { INSTANSI_NAME } from "./constants";
+
 /**
  * Resolves the root parent OPD (OPD Induk) from a raw OPD name or unitKerjaId by traversing parentId up to the root.
  */
@@ -34,7 +36,7 @@ export function resolveOpdInduk(
   rawOpdName?: string,
   opdsList?: Array<{ id: string; nama: string; parentId?: string }>
 ): string {
-  if (!rawOpdName) return "Pemerintah Kabupaten Muaro Jambi";
+  if (!rawOpdName) return INSTANSI_NAME;
 
   if (opdsList && opdsList.length > 0) {
     let current = opdsList.find(
@@ -84,6 +86,8 @@ export function getCurrentSessionUser(): string {
   return 'Operator Sianjab';
 }
 
+import { api } from '@/lib/api';
+
 export function generateVerificationCode(
   documentType: string,
   opdNameParam: string,
@@ -119,6 +123,7 @@ export function generateVerificationCode(
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sianjab.muarojambikab.go.id';
   const verifyUrl = `${origin}/verify?code=${record.code}&d=${token}`;
 
+  // Register to local storage for instant offline fallback
   try {
     const existingStr = typeof window !== 'undefined' ? localStorage.getItem('sianjab_verification_logs') : null;
     const logs: Record<string, VerificationRecord> = existingStr ? JSON.parse(existingStr) : {};
@@ -127,10 +132,50 @@ export function generateVerificationCode(
       localStorage.setItem('sianjab_verification_logs', JSON.stringify(logs));
     }
   } catch (e) {
-    console.error('Failed to save verification record:', e);
+    console.error('Failed to save local verification record:', e);
+  }
+
+  // Register to backend server asynchronously
+  try {
+    api.registerVerificationCode(record).catch(err => {
+      console.error('Failed to register verification code to server:', err);
+    });
+  } catch (e) {
+    console.error('Error invoking registerVerificationCode:', e);
   }
 
   return { record, verifyUrl, token };
+}
+
+export async function fetchVerificationRecordFromServer(code: string, token?: string): Promise<VerificationRecord | null> {
+  if (!code) return null;
+  try {
+    const serverResult = await api.checkVerificationCode(code);
+    if (serverResult && serverResult.code === code) {
+      return serverResult as VerificationRecord;
+    }
+  } catch (e) {
+    console.warn('Server verification check failed, falling back to token/local:', e);
+  }
+
+  // Fallback to token parse or local storage
+  if (token) {
+    const parsed = parseVerificationToken(token);
+    if (parsed && parsed.code === code) {
+      return parsed;
+    }
+  }
+
+  try {
+    if (typeof window === 'undefined') return null;
+    const existingStr = localStorage.getItem('sianjab_verification_logs');
+    if (!existingStr) return null;
+    const logs: Record<string, VerificationRecord> = JSON.parse(existingStr);
+    return logs[code] || null;
+  } catch (e) {
+    console.error('Failed to read local verification record:', e);
+    return null;
+  }
 }
 
 export function getVerificationRecord(code: string, token?: string): VerificationRecord | null {

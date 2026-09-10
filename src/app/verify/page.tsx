@@ -2,7 +2,7 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getVerificationRecord, VerificationRecord } from '@/lib/verification';
+import { fetchVerificationRecordFromServer, VerificationRecord } from '@/lib/verification';
 import styles from './verify.module.css';
 
 function VerificationContent() {
@@ -18,16 +18,25 @@ function VerificationContent() {
   const [showContactModal, setShowContactModal] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     if (urlCode) {
       setInputCode(urlCode);
-      const rec = getVerificationRecord(urlCode, token || undefined);
-      setRecord(rec);
-      setSearched(true);
+      setLoading(true);
+      fetchVerificationRecordFromServer(urlCode, token || undefined).then((rec) => {
+        if (isMounted) {
+          setRecord(rec);
+          setSearched(true);
+          setLoading(false);
+        }
+      });
     } else {
       setRecord(null);
       setSearched(false);
+      setLoading(false);
     }
-    setLoading(false);
+    return () => {
+      isMounted = false;
+    };
   }, [urlCode, token]);
 
   const handleSearch = (e: React.FormEvent) => {

@@ -132,8 +132,14 @@ async function getFromCache<T>(key: string): Promise<T | null> {
   return null;
 }
 
-/** Simpan ke cache (memory + IndexedDB) */
+/** Simpan ke cache (memory + IndexedDB) dengan LRU eviction limit (max 100 entries) */
 async function setCache(key: string, data: unknown) {
+  if (API_CACHE.size >= 100 && !API_CACHE.has(key)) {
+    const oldestKey = API_CACHE.keys().next().value;
+    if (oldestKey) {
+      API_CACHE.delete(oldestKey);
+    }
+  }
   const entry: CacheEntry = {
     data,
     expiry: Date.now() + CACHE_TTL_MS,
@@ -204,8 +210,8 @@ async function executeActualRequest<T = unknown>(
           throw new Error(json.error || 'API request failed');
         }
 
-        // Simpan ke cache jika ini GET request
-        if (!isWriteOperation) {
+        // Simpan ke cache jika ini GET request yang cacheable (kecuali getJabatanFull)
+        if (!isWriteOperation && !url.includes('action=getJabatanFull')) {
           await setCache(url, json.data);
         }
 
@@ -249,7 +255,14 @@ async function apiCall<T = unknown>(
     console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
   }
 
-  const writeActions = ['create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK', 'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData', 'syncFromSheet', 'syncToSheet'];
+  const writeActions = [
+    'create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK',
+    'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData', 'syncFromSheet',
+    'syncToSheet', 'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords',
+    'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
+    'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
+    'saveDeadline', 'registerVerificationCode'
+  ];
   const isWriteOperation = writeActions.includes(action) || !!options.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
   const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
@@ -265,8 +278,9 @@ async function apiCall<T = unknown>(
 
   const url = `${API_BASE}?${searchParams.toString()}`;
 
-  // Cek cache untuk GET request (non-write) — memory + IndexedDB
-  if (!isWriteOperation) {
+  // Cek cache untuk GET request (non-write, kecuali getJabatanFull) — memory + IndexedDB
+  const noCacheActions = ['getJabatanFull'];
+  if (!isWriteOperation && !noCacheActions.includes(action)) {
     const cached = await getFromCache<T>(url);
     if (cached !== null) {
       return cached;
@@ -479,12 +493,15 @@ export const api = {
   getThemeSetting: () =>
     apiCall<{ colorTheme: 'theme1' | 'theme2' } | null>('read', 'settings', { params: { id: 'themeSetting' } }),
 
-  // -- Year Cloning and Deletion --
+  // -- Year Cloning and Deletion & Maintenance --
   cloneYear: (fromYear: string, toYear: string) =>
     apiCall<{ success: boolean; message: string }>('cloneYearData', '', { params: { fromYear, toYear } }),
 
   deleteYear: (tahun: string) =>
     apiCall<{ success: boolean; message: string }>('deleteYearData', '', { params: { tahun } }),
+
+  cleanupOrphanedRecords: () =>
+    apiCall<{ success: boolean; deletedOrphans: number }>('cleanupOrphanedRecords', ''),
 
   // -- AI Generation --
   generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string) => {
@@ -570,6 +587,13 @@ export const api = {
   // -- Security Logs --
   getSecurityLogs: () =>
     apiCall<any[]>('readAll', 'security_logs'),
+
+  // -- Document Verification --
+  registerVerificationCode: (record: unknown) =>
+    apiCall<{ success: boolean; code: string }>('registerVerificationCode', '', { data: record }),
+
+  checkVerificationCode: (code: string) =>
+    apiCall<any>('checkVerificationCode', '', { params: { code } }),
 
   warmUpGas: () => {
     if (typeof window === 'undefined') return;

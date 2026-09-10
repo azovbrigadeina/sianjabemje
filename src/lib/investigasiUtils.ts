@@ -256,8 +256,16 @@ export function analyzeAnomali(
     const kelas = j.kelasJabatan || 0;
     const opdNama = opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui';
 
-    // JPT Pratama (Eselon II)
-    if (jenis.includes('jpt') || jenis.includes('utama') || jenis.includes('madya') || jenis.includes('pratama') || nama.includes('kepala dinas') || nama.includes('kepala badan') || nama.includes('sekretaris daerah')) {
+    // JPT Pratama / Madya / Utama (Eselon I / II) - exclude functional roles
+    const isFungsional = jenis.includes('fungsional');
+    const isJpt = !isFungsional && (
+      jenis.includes('pimpinan tinggi') ||
+      /\bjpt\b/.test(jenis) ||
+      nama.includes('kepala dinas') ||
+      nama.includes('kepala badan') ||
+      nama.includes('sekretaris daerah')
+    );
+    if (isJpt) {
       const isSekda = nama.includes('sekretaris daerah');
       const targetGrade = isSekda ? 15 : 14;
       if (kelas !== targetGrade) {

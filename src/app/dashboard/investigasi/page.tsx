@@ -22,6 +22,7 @@ export default function InvestigasiPage() {
   // Quick Fix Modal State
   const [editingAnomali, setEditingAnomali] = useState<AnomaliItem | null>(null);
   const [editNama, setEditNama] = useState('');
+  const [editJenis, setEditJenis] = useState('');
   const [editKelas, setEditKelas] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
@@ -83,6 +84,7 @@ export default function InvestigasiPage() {
   const handleOpenEdit = (item: AnomaliItem) => {
     setEditingAnomali(item);
     setEditNama(item.rekomendasi || item.namaJabatan);
+    setEditJenis(item.jenisJabatan || '');
     setEditKelas(item.kelasDominan || item.kelasJabatan);
   };
 
@@ -92,12 +94,13 @@ export default function InvestigasiPage() {
       setSaving(true);
       await api.updateJabatan(editingAnomali.jabatanId, {
         namaJabatan: editNama,
+        jenisJabatan: editJenis,
         kelasJabatan: Number(editKelas),
       });
 
       // Update local state directly
       setJabatans(prev =>
-        prev.map(j => (j.id === editingAnomali.jabatanId ? { ...j, namaJabatan: editNama, kelasJabatan: Number(editKelas) } : j))
+        prev.map(j => (j.id === editingAnomali.jabatanId ? { ...j, namaJabatan: editNama, jenisJabatan: editJenis, kelasJabatan: Number(editKelas) } : j))
       );
       setEditingAnomali(null);
     } catch (err) {
@@ -362,6 +365,25 @@ export default function InvestigasiPage() {
                 value={editNama}
                 onChange={e => setEditNama(e.target.value)}
               />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>Jenis / Kategori Jabatan</label>
+              <select
+                className={styles.selectBox}
+                style={{ width: '100%' }}
+                value={editJenis}
+                onChange={e => setEditJenis(e.target.value)}
+              >
+                <option value="">-- Pilih Jenis Jabatan --</option>
+                <option value="Jabatan Pimpinan Tinggi">Jabatan Pimpinan Tinggi</option>
+                <option value="Administrator">Administrator</option>
+                <option value="Pengawas">Pengawas</option>
+                <option value="Pelaksana">Pelaksana</option>
+                <option value="Fungsional">Fungsional</option>
+                <option value="Fungsional Keahlian">Fungsional Keahlian</option>
+                <option value="Fungsional Keterampilan">Fungsional Keterampilan</option>
+              </select>
             </div>
 
             <div>

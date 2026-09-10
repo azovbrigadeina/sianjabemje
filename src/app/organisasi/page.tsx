@@ -213,10 +213,12 @@ export default function PublicOrganisasiPage() {
     const loadOpdHierarchy = async () => {
       setIsTreeLoading(true);
       try {
-        const allJabatans = await api.readAllEntity('jabatan', '') as Jabatan[];
+        const bulk = await api.getBulkData(['jabatan']) as { jabatan: Jabatan[] };
+        const allJabatans = bulk.jabatan || [];
         const targetUnitIds = getDescendantUnitIds(selectedOpdId, opds);
+        const targetUnitSet = new Set(targetUnitIds);
         const filteredJabatans = allJabatans.filter(j => 
-          j.unitKerjaId && targetUnitIds.includes(j.unitKerjaId)
+          j.unitKerjaId && targetUnitSet.has(j.unitKerjaId)
         );
 
         if (filteredJabatans.length === 0) {

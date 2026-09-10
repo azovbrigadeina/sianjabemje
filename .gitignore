@@ -51,6 +51,8 @@ siasn_export.xlsx
 # helper and local tool cache
 .agents/
 .firebase/
+.freebuff/
+scratch/
 
 
 

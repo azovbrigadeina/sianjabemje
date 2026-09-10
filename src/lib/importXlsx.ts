@@ -212,7 +212,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[TUGAS POKOK]':
-              if (col0 && col0 !== 'Uraian contoh...') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.tugasPokok.push({
                   uraianTugas: col0,
                   hasilKerja: row[1]?.toString() || '',
@@ -222,7 +222,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[BAHAN KERJA]':
-              if (col0 && col0 !== 'Data operasional') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.bahanKerja.push({
                   namaBahan: col0,
                   penggunaanDalamTugas: row[1]?.toString() || ''
@@ -230,7 +230,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[PERANGKAT KERJA]':
-              if (col0 && col0 !== 'Komputer/Laptop') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.perangkatKerja.push({
                   namaPerangkat: col0,
                   penggunaanUntukTugas: row[1]?.toString() || ''
@@ -238,17 +238,17 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[TANGGUNG JAWAB]':
-              if (col0 && col0 !== 'Kerahasiaan data instansi') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.tanggungJawab.push({ uraian: col0 });
               }
               break;
             case '[WEWENANG]':
-              if (col0 && col0 !== 'Meminta data terkait') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.wewenang.push({ uraian: col0 });
               }
               break;
             case '[KORELASI JABATAN]':
-              if (col0 && col0 !== 'Atasan Langsung') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.korelasiJabatan.push({
                   namaJabatanTerkait: col0,
                   unitKerjaInstansi: row[1]?.toString() || '',
@@ -257,7 +257,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[KONDISI LINGKUNGAN KERJA]':
-              if (col0 && col0 !== 'Tempat Kerja' && col0 !== 'Suhu') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.kondisiLingkungan.push({
                   aspek: col0,
                   faktor: row[1]?.toString() || ''
@@ -265,7 +265,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
               }
               break;
             case '[RISIKO BAHAYA]':
-              if (col0 && col0 !== 'Kelelahan Visual') {
+              if (col0 && !col0.toLowerCase().includes('contoh')) {
                 result.risikoBahaya.push({
                   namaRisiko: col0,
                   penyebab: row[1]?.toString() || ''

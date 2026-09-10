@@ -8,6 +8,7 @@ import { useUser } from "@/lib/UserContext";
 import Footer from "@/components/Footer";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { api } from "@/lib/api";
+import { SUPPORTED_YEARS } from "@/lib/constants";
 
 
 export default function DashboardLayout({
@@ -234,9 +235,9 @@ export default function DashboardLayout({
               onChange={(e) => handleYearChange(e.target.value)}
               title="Pilih Tahun Anggaran"
             >
-              <option value="2026">Tahun 2026</option>
-              <option value="2027">Tahun 2027</option>
-              <option value="2028">Tahun 2028</option>
+              {SUPPORTED_YEARS.map(year => (
+                <option key={year} value={year}>Tahun {year}</option>
+              ))}
             </select>
             <select
               className={styles.themeSelect}

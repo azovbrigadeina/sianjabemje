@@ -746,7 +746,10 @@
   :global(header), 
   :global(aside), 
   :global([class*="sidebar"]),
-  :global([class*="header"]),
+  :global([class*="header"]) {
+    display: none !important;
+  }
+
   .toolbar, 
   .zoomWidget, 
   .btnControl,
@@ -755,7 +758,8 @@
   }
 
   /* Reset pembungkus layout Next.js agar luapan terlihat dan tinggi otomatis */
-  :global(html), :global(body), 
+  :global(html), 
+  :global(body), 
   :global([class*="dashboardLayout"]),
   :global([class*="mainContent"]),
   :global([class*="contentScroll"]) {

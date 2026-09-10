@@ -1,0 +1,13 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /verify
+
+# Disallow private user dashboards
+Disallow: /dashboard/
+Disallow: /organisasi/
+Disallow: /operator/
+
+# Sitemap location
+Sitemap: https://anjabmj-44141.web.app/sitemap.xml

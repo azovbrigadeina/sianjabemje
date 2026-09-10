@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
+import { filterTreeNodes } from "@/lib/utils";
 import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan } from "@/lib/types";
 
 import TabIdentitas from "./components/TabIdentitas";
@@ -88,14 +89,26 @@ export default function AnalisisPage() {
   const loadTree = useCallback(async () => {
     setIsLoadingTree(true);
     try {
-      const bulkData = await api.getBulkData(['unitKerja', 'jabatan']);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']);
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatans = (bulkData.jabatan || []) as Jabatan[];
       const tugasPokoks = (bulkData.tugasPokok || []) as any[];
+      const syaratList = (bulkData.syaratJabatan || []) as any[];
+      const kualifikasiList = (bulkData.kualifikasi || []) as any[];
+      const bahanList = (bulkData.bahanKerja || []) as any[];
 
-      const tpMap: Record<string, boolean> = {};
+      const filledMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
-        tugasPokoks.forEach(tp => { if (tp.jabatanId) tpMap[tp.jabatanId] = true; });
+        tugasPokoks.forEach(tp => { if (tp.jabatanId) filledMap[tp.jabatanId] = true; });
+      }
+      if (syaratList && Array.isArray(syaratList)) {
+        syaratList.forEach(s => { if (s.jabatanId) filledMap[s.jabatanId] = true; });
+      }
+      if (kualifikasiList && Array.isArray(kualifikasiList)) {
+        kualifikasiList.forEach(k => { if (k.jabatanId) filledMap[k.jabatanId] = true; });
+      }
+      if (bahanList && Array.isArray(bahanList)) {
+        bahanList.forEach(b => { if (b.jabatanId) filledMap[b.jabatanId] = true; });
       }
 
       const map: Record<string, TreeNode> = {};
@@ -116,7 +129,7 @@ export default function AnalisisPage() {
           eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
           parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
           urutan: jbt.urutan || 0, ikhtisar: jbt.ikhtisarJabatan || "", 
-          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5) || !!tpMap[jbt.id],
+          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) || !!filledMap[jbt.id],
           children: []
         };
       });
@@ -382,13 +395,11 @@ export default function AnalisisPage() {
       updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Mengirim data draf AI secara bulk ke database...`]);
 
       const mappedTasks = (aiDraft.tugasPokok || []).map((tp: any, index: number) => ({
-        nomorUrut: tp.nomorUrut || index + 1,
-        uraianTugas: tp.uraianTugas,
-        hasilKerja: tp.hasilKerja || "Dokumen Laporan",
+        nomorUrut: index + 1,
+        uraianTugas: tp.uraianTugas || "",
+        hasilKerja: tp.hasilKerja || "Dokumen",
         jumlahHasil: 1,
-        waktuPenyelesaian: tp.waktuPenyelesaian || 60,
-        waktuEfektif: 72000,
-        kebutuhanPegawai: Number(((1 * (tp.waktuPenyelesaian || 60)) / 72000).toFixed(4))
+        waktuPenyelesaian: tp.waktuPenyelesaian || 60
       }));
 
       const hasilKerjaData = aiDraft.hasilKerja
@@ -401,7 +412,6 @@ export default function AnalisisPage() {
 
       const bulkPayload = {
         jabatan: {
-          ...jabatanData,
           ikhtisarJabatan: aiDraft.ikhtisarJabatan
         },
         kualifikasi: aiDraft.kualifikasi || {},
@@ -497,8 +507,11 @@ export default function AnalisisPage() {
 
   const closeEditor = () => {
     if (jabatanData) {
-      const isTerisi = (jabatanData.ikhtisarJabatan && jabatanData.ikhtisarJabatan.length > 5) || 
-                       (jabatanData.tugasPokok && jabatanData.tugasPokok.length > 0);
+      const isTerisi = (jabatanData.ikhtisarJabatan && jabatanData.ikhtisarJabatan.trim().length > 5) || 
+                       (jabatanData.tugasPokok && jabatanData.tugasPokok.length > 0) ||
+                       !!(jabatanData.syaratJabatan && (jabatanData.syaratJabatan.keterampilanKerja || jabatanData.syaratJabatan.bakatKerja)) ||
+                       !!(jabatanData.kualifikasi && (jabatanData.kualifikasi.pendidikanFormal || jabatanData.kualifikasi.pengalamanKerja)) ||
+                       (jabatanData.bahanKerja && jabatanData.bahanKerja.length > 0);
       
       const updateNodeInTree = (nodes: TreeNode[]): TreeNode[] => {
         return nodes.map(node => {
@@ -532,7 +545,10 @@ export default function AnalisisPage() {
     showToast("⏳ Menyimpan identitas di latar belakang...");
     
     api.updateJabatan(jabatanData.id, {
-      ikhtisarJabatan: data.ikhtisarJabatan
+      ikhtisarJabatan: data.ikhtisarJabatan,
+      jenisJabatan: data.jenisJabatan,
+      kelasJabatan: data.kelasJabatan,
+      kodeJabatan: data.kodeJabatan
     }).then(() => {
       showToast("✅ Identitas berhasil disimpan permanen");
     }).catch(err => {
@@ -668,83 +684,44 @@ export default function AnalisisPage() {
       localStorage.removeItem(`anjab_draft_identitas_${jabatanData.id}`);
       localStorage.removeItem(`anjab_draft_tugas_${jabatanData.id}`);
 
-      // Step 3: Identitas & Kualifikasi & Syarat
-      if (parsedData.identitas.ikhtisarJabatan) {
-        updatedJabatan.ikhtisarJabatan = parsedData.identitas.ikhtisarJabatan;
-        await api.updateJabatan(jabatanData.id, {
-          ...jabatanData,
-          ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan
-        });
-      }
-      if (parsedData.kualifikasi.pendidikanFormal?.length > 0 || parsedData.kualifikasi.pengalamanKerja?.length > 0) {
-        updatedJabatan.kualifikasi = parsedData.kualifikasi;
-        await api.saveSingleEntity('kualifikasi', jabatanData.id, parsedData.kualifikasi);
-      }
-      if (parsedData.syaratJabatan) {
-        updatedJabatan.syaratJabatan = parsedData.syaratJabatan;
-        await api.saveSingleEntity('syaratJabatan', jabatanData.id, parsedData.syaratJabatan);
-      }
-      await new Promise(r => setTimeout(r, 400));
-      updateStep(2, 'success', [
-        `${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, dan Syarat Jabatan berhasil disimpan.`
-      ]);
+      // Step 3-5: Save entire Anjab draft in 1 bulk request
+      updateStep(2, 'loading', [`${getTimestamp()} PROCESS: Menyimpan seluruh data draf AI secara bulk ke database...`]);
 
-      // Step 4: Tugas Pokok & Hasil Kerja
-      updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Menyimpan Tugas Pokok & Hasil Kerja...`]);
-      if (parsedData.tugasPokok.length > 0) {
-        updatedJabatan.tugasPokok = parsedData.tugasPokok;
-        await api.saveMultiEntity('tugasPokok', jabatanData.id, parsedData.tugasPokok);
-      }
-      if (parsedData.hasilKerja?.uraian) {
-        updatedJabatan.hasilKerja = parsedData.hasilKerja;
-        await api.saveSingleEntity('hasilKerja', jabatanData.id, parsedData.hasilKerja);
-      }
-      if (parsedData.prestasiKerja?.uraian) {
-        updatedJabatan.prestasiKerja = parsedData.prestasiKerja;
-        await api.saveSingleEntity('prestasiKerja', jabatanData.id, parsedData.prestasiKerja);
-      }
-      await new Promise(r => setTimeout(r, 400));
-      updateStep(3, 'success', [
-        `${getTimestamp()} SUCCESS: Tugas Pokok & Hasil Kerja berhasil disimpan.`
-      ]);
+      const mappedTasks = (parsedData.tugasPokok || []).map((tp: any, index: number) => ({
+        nomorUrut: index + 1,
+        uraianTugas: tp.uraianTugas || "",
+        hasilKerja: tp.hasilKerja || "Dokumen",
+        jumlahHasil: tp.jumlahHasil || 1,
+        waktuPenyelesaian: tp.waktuPenyelesaian || 60
+      }));
 
-      // Step 5: Tabel Pendukung
-      updateStep(4, 'loading', [`${getTimestamp()} PROCESS: Menyimpan tabel-tabel data pendukung...`]);
-      if (parsedData.bahanKerja.length > 0) {
-        updatedJabatan.bahanKerja = parsedData.bahanKerja;
-        await api.saveMultiEntity('bahanKerja', jabatanData.id, parsedData.bahanKerja);
-      }
-      if (parsedData.perangkatKerja.length > 0) {
-        updatedJabatan.perangkatKerja = parsedData.perangkatKerja;
-        await api.saveMultiEntity('perangkatKerja', jabatanData.id, parsedData.perangkatKerja);
-      }
-      if (parsedData.tanggungJawab.length > 0) {
-        updatedJabatan.tanggungJawab = parsedData.tanggungJawab;
-        await api.saveMultiEntity('tanggungJawab', jabatanData.id, parsedData.tanggungJawab);
-      }
-      if (parsedData.wewenang.length > 0) {
-        updatedJabatan.wewenang = parsedData.wewenang;
-        await api.saveMultiEntity('wewenang', jabatanData.id, parsedData.wewenang);
-      }
-      if (parsedData.korelasiJabatan.length > 0) {
-        updatedJabatan.korelasiJabatan = parsedData.korelasiJabatan;
-        await api.saveMultiEntity('korelasiJabatan', jabatanData.id, parsedData.korelasiJabatan);
-      }
-      if (parsedData.kondisiLingkungan.length > 0) {
-        updatedJabatan.kondisiLingkungan = parsedData.kondisiLingkungan;
-        await api.saveMultiEntity('kondisiLingkungan', jabatanData.id, parsedData.kondisiLingkungan);
-      }
-      if (parsedData.risikoBahaya.length > 0) {
-        updatedJabatan.risikoBahaya = parsedData.risikoBahaya;
-        await api.saveMultiEntity('risikoBahaya', jabatanData.id, parsedData.risikoBahaya);
-      }
-      await new Promise(r => setTimeout(r, 400));
-      updateStep(4, 'success', [
-        `${getTimestamp()} SUCCESS: Seluruh data tabel pendukung berhasil disimpan.`
-      ]);
+      const bulkPayload = {
+        jabatan: parsedData.identitas.ikhtisarJabatan ? { ikhtisarJabatan: parsedData.identitas.ikhtisarJabatan } : undefined,
+        kualifikasi: parsedData.kualifikasi || {},
+        syaratJabatan: parsedData.syaratJabatan || {},
+        tugasPokok: mappedTasks,
+        hasilKerja: parsedData.hasilKerja || null,
+        prestasiKerja: parsedData.prestasiKerja || {},
+        bahanKerja: (parsedData.bahanKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        perangkatKerja: (parsedData.perangkatKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        tanggungJawab: (parsedData.tanggungJawab || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        wewenang: (parsedData.wewenang || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        korelasiJabatan: (parsedData.korelasiJabatan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        kondisiLingkungan: (parsedData.kondisiLingkungan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        risikoBahaya: (parsedData.risikoBahaya || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 }))
+      };
+
+      await api.saveBulkAnjabData(jabatanData.id, bulkPayload);
+
+      updateStep(2, 'success', [`${getTimestamp()} SUCCESS: Data Identitas, Kualifikasi, dan Syarat berhasil disimpan.`]);
+      updateStep(3, 'success', [`${getTimestamp()} SUCCESS: Tugas Pokok & Hasil Kerja berhasil disimpan.`]);
+      updateStep(4, 'success', [`${getTimestamp()} SUCCESS: Seluruh data tabel pendukung berhasil disimpan.`]);
 
       // Step 6: Finalisasi
       updateStep(5, 'loading', [`${getTimestamp()} PROCESS: Memuat ulang tampilan editor...`]);
+      const refreshed = await api.getJabatanFull(jabatanData.id) as JabatanFull;
+      setJabatanData(refreshed);
+      setVersionKey(prev => prev + 1);
       setJabatanData(updatedJabatan);
       setVersionKey(prev => prev + 1);
       await new Promise(r => setTimeout(r, 300));
@@ -881,9 +858,7 @@ export default function AnalisisPage() {
     </ul>
   );
 
-  const displayTree = searchQuery
-    ? treeData // Simplification
-    : treeData;
+  const displayTree = filterTreeNodes(treeData, searchQuery);
 
   // Pagination logic
   const pageSize = 10;

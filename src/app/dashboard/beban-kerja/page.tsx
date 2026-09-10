@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
+import { filterTreeNodes } from "@/lib/utils";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -74,20 +75,32 @@ export default function BebanKerjaPage() {
   const loadTree = useCallback(async () => {
     setIsLoadingTree(true);
     try {
-      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk']);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']);
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatans = (bulkData.jabatan || []) as Jabatan[];
       const abks = (bulkData.abk || []) as any[];
       const tugasPokoks = (bulkData.tugasPokok || []) as any[];
+      const syaratList = (bulkData.syaratJabatan || []) as any[];
+      const kualifikasiList = (bulkData.kualifikasi || []) as any[];
+      const bahanList = (bulkData.bahanKerja || []) as any[];
 
       const abkMap: Record<string, boolean> = {};
       if (abks && Array.isArray(abks)) {
         abks.forEach(a => { if (a.id) abkMap[a.id] = true; });
       }
 
-      const tpMap: Record<string, boolean> = {};
+      const filledMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
-        tugasPokoks.forEach(tp => { if (tp.jabatanId) tpMap[tp.jabatanId] = true; });
+        tugasPokoks.forEach(tp => { if (tp.jabatanId) filledMap[tp.jabatanId] = true; });
+      }
+      if (syaratList && Array.isArray(syaratList)) {
+        syaratList.forEach(s => { if (s.jabatanId) filledMap[s.jabatanId] = true; });
+      }
+      if (kualifikasiList && Array.isArray(kualifikasiList)) {
+        kualifikasiList.forEach(k => { if (k.jabatanId) filledMap[k.jabatanId] = true; });
+      }
+      if (bahanList && Array.isArray(bahanList)) {
+        bahanList.forEach(b => { if (b.jabatanId) filledMap[b.jabatanId] = true; });
       }
 
       const map: Record<string, TreeNode> = {};
@@ -108,7 +121,7 @@ export default function BebanKerjaPage() {
           eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
           parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
           urutan: jbt.urutan || 0, ikhtisar: jbt.ikhtisarJabatan || "", 
-          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5) || !!tpMap[jbt.id],
+          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) || !!filledMap[jbt.id],
           abkTerisi: !!abkMap[jbt.id], children: []
         };
       });
@@ -426,7 +439,7 @@ export default function BebanKerjaPage() {
     </ul>
   );
 
-  const displayTree = searchQuery ? treeData : treeData;
+  const displayTree = filterTreeNodes(treeData, searchQuery);
 
   // Pagination logic
   const pageSize = 10;
@@ -549,8 +562,14 @@ export default function BebanKerjaPage() {
                     <select className={styles.editableInput} style={{ width: '130px', cursor: 'pointer' }}
                       value={waktuSatuan} onChange={(e) => {
                         const val = e.target.value as 'jam' | 'menit';
-                        setWaktuSatuan(val);
-                        setWke(val === 'jam' ? 1250 : 72000);
+                        if (val !== waktuSatuan) {
+                          setWaktuSatuan(val);
+                          setWke(val === 'jam' ? 1250 : 72000);
+                          setAbkRows(prev => prev.map(r => ({
+                            ...r,
+                            waktu: val === 'menit' ? Math.round(r.waktu * 60) : Math.round((r.waktu / 60) * 100) / 100
+                          })));
+                        }
                       }}>
                       <option value="jam">Jam / Tahun</option>
                       <option value="menit">Menit / Tahun</option>

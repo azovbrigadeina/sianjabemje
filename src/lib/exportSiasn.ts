@@ -169,7 +169,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
       syaratUpaya[i] || '',
       i === 0 ? (jabatan.syaratJabatan?.kondisiFisik?.jenisKelamin || 'Laki-laki/Perempuan') : '',
       i === 0 ? (jabatan.syaratJabatan?.kondisiFisik?.posturBadan || 'Tegap') : '',
-      i === 0 ? (parseInt(jabatan.syaratJabatan?.kondisiFisik?.umur || '') || 58) : '',
+      i === 0 ? ((jabatan.syaratJabatan?.kondisiFisik?.umur || '').match(/\d+/)?.[0] || '') : '',
       i === 0 ? (jabatan.syaratJabatan?.kondisiFisik?.penampilan || 'Rapi') : '',
       i === 0 ? (jabatan.syaratJabatan?.kondisiFisik?.tinggiBadan || 'tidak ada syarat khusus') : '',
       i === 0 ? (jabatan.syaratJabatan?.kondisiFisik?.beratBadan || 'tidak ada syarat khusus') : '',

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type { JabatanFull } from "@/lib/types";
 import type { TreeNode } from "../page";
 import styles from "../page.module.css";
+import { generateKodeJabatan } from "@/lib/utils";
 
 interface Props {
   jabatan: JabatanFull | null;
@@ -72,83 +73,24 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
     }
   }, [form, jabatan]);
 
-  // Efek berjalan otomatis: Update Kode Jabatan jika Jenis Jabatan berubah atau ketika dimuat
+  // Efek berjalan otomatis: Auto-generate Kode Jabatan HANYA jika kosong atau ber-format ID dummy
   useEffect(() => {
     if (jabatan) {
-      const opdCode = jabatan.unitKerjaId ? (jabatan.unitKerjaId.length % 90) + 10 : 14; 
-      
-      let levelCode = 2;
-      if (jabatan.level !== undefined && jabatan.level !== null && jabatan.level !== 0) {
-        levelCode = jabatan.level;
-      } else {
-        const h = jabatan.hierarchy as Record<string, string> | undefined;
-        if (h) {
-          let count = 0;
-          if (h.jptUtama) count++;
-          if (h.jptMadya) count++;
-          if (h.jptPratama) count++;
-          if (h.administrator) count++;
-          if (h.pengawas) count++;
-          if (h.pelaksana) count++;
-          if (h.jabatanFungsional) count++;
-          if (count > 0) {
-            levelCode = count;
-          } else {
-            let path: TreeNode[] = [];
-            const findPath = (nodes: TreeNode[], currentPath: TreeNode[]): boolean => {
-              for (const n of nodes) {
-                if (n.id === jabatan.id) {
-                  path = currentPath;
-                  return true;
-                }
-                if (findPath(n.children, [...currentPath, n])) return true;
-              }
-              return false;
-            };
-            findPath(treeData || [], []);
-            const jbtAncestors = path.filter(n => n.type === 'JABATAN');
-            levelCode = jbtAncestors.length + 1;
-          }
-        } else {
-          let path: TreeNode[] = [];
-          const findPath = (nodes: TreeNode[], currentPath: TreeNode[]): boolean => {
-            for (const n of nodes) {
-              if (n.id === jabatan.id) {
-                path = currentPath;
-                return true;
-              }
-              if (findPath(n.children, [...currentPath, n])) return true;
-            }
-            return false;
-          };
-          findPath(treeData || [], []);
-          const jbtAncestors = path.filter(n => n.type === 'JABATAN');
-          levelCode = jbtAncestors.length + 1;
+      const currentKode = form.kodeJabatan || jabatan.kodeJabatan || "";
+      if (!currentKode || currentKode.startsWith("jbt_") || currentKode === "-" || currentKode.includes("null")) {
+        const generatedKode = generateKodeJabatan({
+          id: jabatan.id,
+          unitKerjaId: jabatan.unitKerjaId,
+          level: jabatan.level,
+          hierarchy: jabatan.hierarchy as Record<string, string> | undefined,
+          jenisJabatan: form.jenisJabatan || jabatan.jenisJabatan
+        });
+        if (form.kodeJabatan !== generatedKode) {
+          setForm(prev => ({ ...prev, kodeJabatan: generatedKode }));
         }
-      }
-
-      const subCode = form.jenisJabatan === "Administrator" ? 1 : 
-                      form.jenisJabatan === "Pengawas" ? 2 : 
-                      form.jenisJabatan === "Pelaksana" ? 3 : 0;
-      
-      // Ambil sequence dari data asal, jika belum ada kasih angka random/urut simulasi
-      let seqCode = 1;
-      if (jabatan.kodeJabatan) {
-        const parts = jabatan.kodeJabatan.split(".");
-        if (parts.length === 4) {
-          seqCode = parseInt(parts[3]) || 1;
-        } else {
-           seqCode = Math.floor(Math.random() * 9) + 1;
-        }
-      }
-
-      const generatedKode = `${opdCode}.${levelCode}.${subCode}.${seqCode}`;
-      
-      if (form.kodeJabatan !== generatedKode) {
-         setForm(prev => ({ ...prev, kodeJabatan: generatedKode }));
       }
     }
-  }, [jabatan, form.jenisJabatan, treeData]);
+  }, [jabatan, form.jenisJabatan]);
 
   const hierarchy = jabatan?.hierarchy as Record<string, string> | undefined;
 

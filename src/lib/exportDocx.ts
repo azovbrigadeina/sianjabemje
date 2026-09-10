@@ -5,6 +5,8 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
 import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
+import { generateKodeJabatan } from './utils';
+import { INSTANSI_NAME } from './constants';
 
 // Helper to convert base64 string to ArrayBuffer
 const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -35,41 +37,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   result[getValue('namaJabatan', 'namaJabatan')] = jabatan.namaJabatan || "-";
 
   // Generate hierarchical code if kodeJabatan is empty, is database ID, or contains null
-  let displayKode = jabatan.kodeJabatan || "";
-  if (!displayKode || displayKode.startsWith("jbt_") || displayKode === "-" || displayKode.includes("null")) {
-    const opdCode = jabatan.unitKerjaId ? (jabatan.unitKerjaId.replace(/[^0-9]/g, '').slice(-2) || ((jabatan.unitKerjaId.length % 90) + 10).toString()) : "14";
-    
-    let levelCode = 2;
-    if (jabatan.level !== undefined && jabatan.level !== null && jabatan.level !== 0) {
-      levelCode = jabatan.level;
-    } else if (jabatan.hierarchy) {
-      const h = jabatan.hierarchy;
-      let count = 0;
-      if (h.jptUtama) count++;
-      if (h.jptMadya) count++;
-      if (h.jptPratama) count++;
-      if (h.administrator) count++;
-      if (h.pengawas) count++;
-      if (h.pelaksana) count++;
-      if (h.jabatanFungsional) count++;
-      if (count > 0) {
-        levelCode = count;
-      }
-    }
-
-    const subCode = jabatan.jenisJabatan === "Administrator" ? 1 : 
-                    jabatan.jenisJabatan === "Pengawas" ? 2 : 
-                    jabatan.jenisJabatan === "Pelaksana" ? 3 : 0;
-    
-    // Deterministic sequence from ID hash
-    let sum = 0;
-    const idStr = jabatan.id || "";
-    for (let i = 0; i < idStr.length; i++) {
-      sum += idStr.charCodeAt(i);
-    }
-    const seqCode = (sum % 9) + 1;
-    displayKode = `${opdCode}.${levelCode}.${subCode}.${seqCode}`;
-  }
+  const displayKode = generateKodeJabatan(jabatan);
   result[getValue('kodeJabatan', 'kodeJabatan')] = displayKode;
   result[getValue('jenisJabatan', 'jenisJabatan')] = jabatan.jenisJabatan || "-";
   result[getValue('ikhtisarJabatan', 'ikhtisarJabatan')] = jabatan.ikhtisarJabatan || "-";
@@ -359,7 +327,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 // Main Export Logic
 export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string, opdsList?: any[]) => {
   try {
-    const rawOpd = opdNamaParam || jabatan.hierarchy?.jptPratama || "Pemerintah Kabupaten Muaro Jambi";
+    const rawOpd = opdNamaParam || jabatan.hierarchy?.jptPratama || INSTANSI_NAME;
     const opdNama = resolveOpdInduk(rawOpd, opdsList);
     const printedBy = getCurrentSessionUser();
     const verifyResult = generateVerificationCode("Analisis Jabatan & ABK", opdNama, jabatan.namaJabatan, printedBy);

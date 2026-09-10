@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "../../dashboard/beban-kerja/page.module.css";
 import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
+import { filterTreeNodes } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
@@ -80,13 +81,16 @@ export default function OperatorBebanKerjaPage() {
     setIsLoadingTree(true);
     try {
       const [bulkData, deadlineData] = await Promise.all([
-        api.getBulkData(['unitKerja', 'jabatan', 'abk']),
+        api.getBulkData(['unitKerja', 'jabatan', 'abk', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']),
         api.getDeadline().catch(() => null)
       ]);
       const opdsRaw = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatansRaw = (bulkData.jabatan || []) as Jabatan[];
       const abks = (bulkData.abk || []) as any[];
       const tugasPokoks = (bulkData.tugasPokok || []) as any[];
+      const syaratList = (bulkData.syaratJabatan || []) as any[];
+      const kualifikasiList = (bulkData.kualifikasi || []) as any[];
+      const bahanList = (bulkData.bahanKerja || []) as any[];
 
       const thisOpd = opdsRaw ? opdsRaw.find(u => u.id === user.unitKerjaId) : null;
       let readOnlyActive = false;
@@ -118,9 +122,18 @@ export default function OperatorBebanKerjaPage() {
         abks.forEach(a => { if (a.id) abkMap[a.id] = true; });
       }
 
-      const tpMap: Record<string, boolean> = {};
+      const filledMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
-        tugasPokoks.forEach(tp => { if (tp.jabatanId) tpMap[tp.jabatanId] = true; });
+        tugasPokoks.forEach(tp => { if (tp.jabatanId) filledMap[tp.jabatanId] = true; });
+      }
+      if (syaratList && Array.isArray(syaratList)) {
+        syaratList.forEach(s => { if (s.jabatanId) filledMap[s.jabatanId] = true; });
+      }
+      if (kualifikasiList && Array.isArray(kualifikasiList)) {
+        kualifikasiList.forEach(k => { if (k.jabatanId) filledMap[k.jabatanId] = true; });
+      }
+      if (bahanList && Array.isArray(bahanList)) {
+        bahanList.forEach(b => { if (b.jabatanId) filledMap[b.jabatanId] = true; });
       }
 
       const allOpds = opdsRaw || [];
@@ -156,7 +169,7 @@ export default function OperatorBebanKerjaPage() {
           eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
           parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
           urutan: jbt.urutan || 0, ikhtisar: jbt.ikhtisarJabatan || "", 
-          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5) || !!tpMap[jbt.id],
+          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) || !!filledMap[jbt.id],
           abkTerisi: !!abkMap[jbt.id], children: []
         };
       });
@@ -459,7 +472,7 @@ export default function OperatorBebanKerjaPage() {
     </ul>
   );
 
-  const displayTree = searchQuery ? treeData : treeData;
+  const displayTree = filterTreeNodes(treeData, searchQuery);
 
   return (
     <div className={styles.container}>
@@ -562,8 +575,14 @@ export default function OperatorBebanKerjaPage() {
                       disabled={isReadOnly}
                       value={waktuSatuan} onChange={(e) => {
                         const val = e.target.value as 'jam' | 'menit';
-                        setWaktuSatuan(val);
-                        setWke(val === 'jam' ? 1250 : 72000);
+                        if (val !== waktuSatuan) {
+                          setWaktuSatuan(val);
+                          setWke(val === 'jam' ? 1250 : 72000);
+                          setAbkRows(prev => prev.map(r => ({
+                            ...r,
+                            waktu: val === 'menit' ? Math.round(r.waktu * 60) : Math.round((r.waktu / 60) * 100) / 100
+                          })));
+                        }
                       }}>
                       <option value="jam">Jam / Tahun</option>
                       <option value="menit">Menit / Tahun</option>

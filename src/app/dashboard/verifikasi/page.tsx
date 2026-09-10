@@ -52,11 +52,14 @@ export default function VerifikasiPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'abk']);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'abk']);
 
       setOpds((bulkData.unitKerja || []) as UnitKerja[]);
       setJabatans((bulkData.jabatan || []) as Jabatan[]);
       setTugasPokoks((bulkData.tugasPokok || []) as any[]);
+      setSyaratList((bulkData.syaratJabatan || []) as any[]);
+      setKualifikasiList((bulkData.kualifikasi || []) as any[]);
+      setBahanList((bulkData.bahanKerja || []) as any[]);
       setAbks((bulkData.abk || []) as any[]);
     } catch (err) {
       console.error("Gagal memuat data verifikasi", err);
@@ -65,20 +68,31 @@ export default function VerifikasiPage() {
     }
   };
 
+  const [syaratList, setSyaratList] = useState<any[]>([]);
+  const [kualifikasiList, setKualifikasiList] = useState<any[]>([]);
+  const [bahanList, setBahanList] = useState<any[]>([]);
+
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Map to check if a job has tugas pokok
-  const tpMap = useMemo(() => {
+  // Map to check if a job has ANJAB data filled
+  const filledMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     if (tugasPokoks && Array.isArray(tugasPokoks)) {
-      tugasPokoks.forEach((tp) => {
-        if (tp.jabatanId) map[tp.jabatanId] = true;
-      });
+      tugasPokoks.forEach((tp) => { if (tp.jabatanId) map[tp.jabatanId] = true; });
+    }
+    if (syaratList && Array.isArray(syaratList)) {
+      syaratList.forEach((s) => { if (s.jabatanId) map[s.jabatanId] = true; });
+    }
+    if (kualifikasiList && Array.isArray(kualifikasiList)) {
+      kualifikasiList.forEach((k) => { if (k.jabatanId) map[k.jabatanId] = true; });
+    }
+    if (bahanList && Array.isArray(bahanList)) {
+      bahanList.forEach((b) => { if (b.jabatanId) map[b.jabatanId] = true; });
     }
     return map;
-  }, [tugasPokoks]);
+  }, [tugasPokoks, syaratList, kualifikasiList, bahanList]);
 
   // Map to check if a job has ABK filled
   const abkMap = useMemo(() => {
@@ -100,8 +114,8 @@ export default function VerifikasiPage() {
     jabatans.forEach((jbt) => {
       total++;
       const isAnjabFilled =
-        (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5) ||
-        !!tpMap[jbt.id];
+        (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) ||
+        !!filledMap[jbt.id];
       const isAbkFilled = !!abkMap[jbt.id];
 
       if (isAnjabFilled) anjabFilled++;
@@ -123,7 +137,7 @@ export default function VerifikasiPage() {
       abkUnfilled,
       abkPct,
     };
-  }, [jabatans, tpMap, abkMap]);
+  }, [jabatans, filledMap, abkMap]);
 
   // Process data hierarchical
   const processedData = useMemo<OpdNode[]>(() => {
@@ -133,8 +147,8 @@ export default function VerifikasiPage() {
     const jobsByUnit: Record<string, JobWithStatus[]> = {};
     jabatans.forEach((jbt) => {
       const isAnjabFilled =
-        (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.length > 5) ||
-        !!tpMap[jbt.id];
+        (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) ||
+        !!filledMap[jbt.id];
       const isAbkFilled = !!abkMap[jbt.id];
       const jobWithStatus: JobWithStatus = {
         ...jbt,
@@ -223,7 +237,7 @@ export default function VerifikasiPage() {
         })),
       };
     });
-  }, [opds, jabatans, tpMap, abkMap]);
+  }, [opds, jabatans, filledMap, abkMap]);
 
   // Filter & search processed data
   const filteredData = useMemo(() => {

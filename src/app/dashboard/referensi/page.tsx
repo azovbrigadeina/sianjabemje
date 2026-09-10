@@ -26,11 +26,16 @@ export default function ReferensiPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  const [editingItem, setEditingItem] = useState<ReferensiJabatan | null>(null);
+  const [editNamaBase, setEditNamaBase] = useState("");
+  const [editKategori, setEditKategori] = useState<'Keahlian' | 'Keterampilan'>('Keahlian');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
   const fetchSavedData = async () => {
     setIsLoadingData(true);
     try {
-      const data = await api.readAllEntity('referensiJabatan', '');
-      setSavedData((data as ReferensiJabatan[]) || []);
+      const bulk = await api.getBulkData(['referensiJabatan']) as { referensiJabatan: ReferensiJabatan[] };
+      setSavedData(bulk.referensiJabatan || []);
     } catch (err) {
       console.error("Failed to fetch referensi data:", err);
     } finally {
@@ -41,6 +46,38 @@ export default function ReferensiPage() {
   useEffect(() => {
     fetchSavedData();
   }, []);
+
+  const handleOpenEdit = (item: ReferensiJabatan) => {
+    setEditingItem(item);
+    setEditNamaBase(item.namaBase || "");
+    setEditKategori((item.kategori as 'Keahlian' | 'Keterampilan') || 'Keahlian');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingItem || !editingItem.id) return;
+    if (!editNamaBase.trim()) {
+      setMessage({ type: 'error', text: 'Nama jabatan tidak boleh kosong.' });
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const updatedData: ReferensiJabatan = {
+        ...editingItem,
+        namaBase: editNamaBase.trim(),
+        kategori: editingItem.jenisJabatan === 'Fungsional' ? editKategori : undefined
+      };
+
+      await api.updateEntity('referensiJabatan', editingItem.id, updatedData);
+      setSavedData(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...updatedData } : item));
+      setMessage({ type: 'success', text: 'Data referensi berhasil diperbarui.' });
+      setEditingItem(null);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Gagal memperbarui referensi.' });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Yakin ingin menghapus referensi ini?")) return;
@@ -278,13 +315,22 @@ export default function ReferensiPage() {
                           </span>
                         </td>
                         <td style={{ textAlign: 'center' }}>
-                          <button 
-                            onClick={() => item.id && handleDelete(item.id)}
-                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px' }}
-                            title="Hapus"
-                          >
-                            🗑️ Hapus
-                          </button>
+                          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                            <button 
+                              onClick={() => handleOpenEdit(item)}
+                              style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px' }}
+                              title="Edit Referensi"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button 
+                              onClick={() => item.id && handleDelete(item.id)}
+                              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px' }}
+                              title="Hapus"
+                            >
+                              🗑️ Hapus
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -317,6 +363,60 @@ export default function ReferensiPage() {
           );
         })()}
       </div>
+
+      {editingItem && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>
+              Edit Referensi {editingItem.jenisJabatan}
+            </h3>
+
+            <div className={styles.formGroup} style={{ marginBottom: '1rem' }}>
+              <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Nama Jabatan</label>
+              <input 
+                type="text"
+                className={styles.textarea}
+                style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem' }}
+                value={editNamaBase}
+                onChange={(e) => setEditNamaBase(e.target.value)}
+                placeholder="Nama jabatan..."
+              />
+            </div>
+
+            {editingItem.jenisJabatan === 'Fungsional' && (
+              <div className={styles.formGroup} style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Kategori Jenjang Fungsional</label>
+                <select 
+                  className={styles.textarea}
+                  style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.95)' }}
+                  value={editKategori}
+                  onChange={(e) => setEditKategori(e.target.value as 'Keahlian' | 'Keterampilan')}
+                >
+                  <option value="Keahlian">Keahlian (Ahli Pertama, Muda, Madya, Utama)</option>
+                  <option value="Keterampilan">Keterampilan (Pemula, Terampil, Mahir, Penyelia)</option>
+                </select>
+              </div>
+            )}
+
+            <div className={styles.buttonGroup} style={{ justifyContent: 'flex-end', display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
+              <button 
+                className={styles.btnSecondary} 
+                onClick={() => setEditingItem(null)}
+                disabled={isSavingEdit}
+              >
+                Batal
+              </button>
+              <button 
+                className={styles.btnPrimary} 
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
