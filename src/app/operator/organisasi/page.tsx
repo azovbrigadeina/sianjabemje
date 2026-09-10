@@ -53,6 +53,8 @@ export default function OperatorOrganisasiPage() {
 
   // Lock status (Admin Controlled)
   const [orgEditEnabled, setOrgEditEnabled] = useState<boolean>(true);
+  const [isReorderMode, setIsReorderMode] = useState(false);
+
 
   // Modal state
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -746,6 +748,16 @@ export default function OperatorOrganisasiPage() {
           <button type="button" className={styles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
             ➖ Ciutkan Semua
           </button>
+          {orgEditEnabled && (
+            <button 
+              type="button" 
+              className={`${styles.reorderSwitch} ${isReorderMode ? styles.reorderSwitchActive : ''}`}
+              onClick={() => setIsReorderMode(prev => !prev)}
+              style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}
+            >
+              ⇄ Mode Atur Urutan {isReorderMode ? '(Aktif)' : ''}
+            </button>
+          )}
           {orgEditEnabled && (
             <button className={styles.btnSave} onClick={openAddOpdModal} style={{ marginLeft: '12px' }}>
               ➕ Tambah Sub-OPD Baru

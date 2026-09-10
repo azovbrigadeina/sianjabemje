@@ -51,6 +51,8 @@ export default function OrganisasiPage() {
   const [orgEditEnabled, setOrgEditEnabled] = useState<boolean>(true);
   const [isSavingOrgSetting, setIsSavingOrgSetting] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isReorderMode, setIsReorderMode] = useState(false);
+
 
   // Modal state
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -745,6 +747,14 @@ export default function OrganisasiPage() {
           </button>
           <button type="button" className={styles.btnSecondary} onClick={collapseAll} style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}>
             ➖ Ciutkan Semua
+          </button>
+          <button 
+            type="button" 
+            className={`${styles.reorderSwitch} ${isReorderMode ? styles.reorderSwitchActive : ''}`}
+            onClick={() => setIsReorderMode(prev => !prev)}
+            style={{ marginLeft: '12px', whiteSpace: 'nowrap' }}
+          >
+            ⇄ Mode Atur Urutan {isReorderMode ? '(Aktif)' : ''}
           </button>
         </div>
 
