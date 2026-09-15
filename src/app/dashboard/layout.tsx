@@ -37,33 +37,49 @@ export default function DashboardLayout({
     setColorTheme(initialColorTheme);
     document.documentElement.setAttribute("data-color-theme", initialColorTheme);
 
-    // Sync color theme from database if user is logged in
-    const syncColorTheme = async () => {
+    // Sync settings (color theme & active year) from database if user is logged in
+    const syncSettings = async () => {
       try {
-        const res = await api.getThemeSetting();
-        if (res && res.colorTheme) {
-          setColorTheme(res.colorTheme);
-          localStorage.setItem("color-theme", res.colorTheme);
-          document.documentElement.setAttribute("data-color-theme", res.colorTheme);
+        const [themeRes, yearRes] = await Promise.all([
+          api.getThemeSetting().catch(() => null),
+          api.getActiveYearSetting().catch(() => null),
+        ]);
+        if (themeRes && themeRes.colorTheme) {
+          setColorTheme(themeRes.colorTheme);
+          localStorage.setItem("color-theme", themeRes.colorTheme);
+          document.documentElement.setAttribute("data-color-theme", themeRes.colorTheme);
+        }
+        if (yearRes && yearRes.activeYear) {
+          const currentYear = localStorage.getItem("sianjab_active_year");
+          setSelectedYear(yearRes.activeYear);
+          localStorage.setItem("sianjab_active_year", yearRes.activeYear);
+          if (currentYear !== yearRes.activeYear && typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("yearChanged", { detail: yearRes.activeYear }));
+          }
         }
       } catch (err) {
-        console.error("Gagal sinkronisasi tema warna dari database:", err);
+        console.error("Gagal sinkronisasi pengaturan dari database:", err);
       }
     };
     if (user) {
-      syncColorTheme();
+      syncSettings();
     }
 
-    // Load saved year
+    // Load saved year fallback from local storage
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
     setSelectedYear(savedYear);
   }, [user]);
 
-  const handleYearChange = (newYear: string) => {
+  const handleYearChange = async (newYear: string) => {
     setSelectedYear(newYear);
     localStorage.setItem("sianjab_active_year", newYear);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("yearChanged", { detail: newYear }));
+    }
+    try {
+      await api.saveActiveYearSetting({ activeYear: newYear });
+    } catch (err) {
+      console.error("Gagal menyimpan tahun aktif ke database:", err);
     }
   };
 
@@ -121,6 +137,7 @@ export default function DashboardLayout({
     if (pathname.includes('/users')) return 'Manajemen User';
     if (pathname.includes('/pengaturan')) return 'Pengaturan AI';
     if (pathname.includes('/log-keamanan')) return 'Log Keamanan';
+    if (pathname.includes('/backup-database')) return 'Backup & Restore Database';
     return 'Ringkasan Sistem';
   };
 
@@ -208,6 +225,9 @@ export default function DashboardLayout({
           </Link>
           <Link href="/dashboard/log-keamanan" className={`${styles.navItem} ${pathname.includes('/log-keamanan') ? styles.active : ''}`}>
             <span className={styles.navIcon}>🛡️</span> <span className={styles.navText}>Log Keamanan</span>
+          </Link>
+          <Link href="/dashboard/backup-database" className={`${styles.navItem} ${pathname.includes('/backup-database') ? styles.active : ''}`}>
+            <span className={styles.navIcon}>💾</span> <span className={styles.navText}>Backup & Restore</span>
           </Link>
         </nav>
 

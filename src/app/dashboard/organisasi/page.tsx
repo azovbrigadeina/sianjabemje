@@ -128,12 +128,10 @@ export default function OrganisasiPage() {
       if (parentNode && parentNode.children) {
         const payload = parentNode.children.map((c, idx) => ({
           id: c.id,
-          nama: c.label,
-          namaJabatan: c.label,
           urutan: idx + 1
         }));
         try {
-          await api.saveMultiEntity(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', parentId, payload);
+          await api.updateUrutanBatch(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', payload);
         } catch (err) {
           console.error("Gagal menyimpan urutan:", err);
         }
@@ -141,12 +139,10 @@ export default function OrganisasiPage() {
     } else {
       const payload = updatedTree.map((c, idx) => ({
         id: c.id,
-        nama: c.label,
-        namaJabatan: c.label,
         urutan: idx + 1
       }));
       try {
-        await api.saveMultiEntity(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', 'root', payload);
+        await api.updateUrutanBatch(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', payload);
       } catch (err) {
         console.error("Gagal menyimpan urutan:", err);
       }
@@ -251,10 +247,12 @@ export default function OrganisasiPage() {
       const roots: TreeNode[] = [];
 
       opds.forEach(opd => {
-        map[opd.id] = {
+        const node: TreeNode = {
           id: opd.id, type: 'OPD', label: opd.nama || opd.id,
           parentId: opd.parentId, urutan: opd.urutan || 0, children: []
         };
+        map[opd.id] = node;
+        if (opd.kode) map[opd.kode.trim()] = node;
       });
 
       jabatans.forEach(jbt => {
@@ -305,7 +303,7 @@ export default function OrganisasiPage() {
           map[jbt.parentId].children.push(map[jbt.id]);
         } else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) {
           map[jbt.unitKerjaId].children.push(map[jbt.id]);
-        } else {
+        } else if (opds.length === 0) {
           roots.push(map[jbt.id]);
         }
       });

@@ -240,3 +240,80 @@
   font-weight: 700;
   color: var(--text-main, #0f172a);
 }
+
+.actionBtnDelete {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #ef4444;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.actionBtnDelete:hover {
+  background: #dc2626;
+}
+
+.actionBtnDelete:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.actionBtnExclude {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f3f4f6;
+  color: #374151;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.actionBtnExclude:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.actionBtnExclude:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.actionBtnResetExclusion {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #3b82f6;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #eff6ff;
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.actionBtnResetExclusion:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.actionBtnResetExclusion:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

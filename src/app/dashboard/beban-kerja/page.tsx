@@ -108,10 +108,12 @@ export default function BebanKerjaPage() {
       const expandState: Record<string, boolean> = {};
 
       opds.forEach(opd => {
-        map[opd.id] = {
+        const node: TreeNode = {
           id: opd.id, type: 'OPD', label: opd.nama || opd.id,
           parentId: opd.parentId, urutan: opd.urutan || 0, children: []
         };
+        map[opd.id] = node;
+        if (opd.kode) map[opd.kode.trim()] = node;
         expandState[opd.id] = false; // Collapsed by default
       });
 
@@ -126,15 +128,41 @@ export default function BebanKerjaPage() {
         };
       });
 
+      // --- TIPUAN VISUAL UNTUK SUB-UNIT (BAGIAN/UPTD) ---
+      const opdToExternalParentJbt: Record<string, string> = {};
+      const jbtToReroute: Record<string, boolean> = {};
+
+      const jabatanById = new Map<string, any>();
+      jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
+
+      jabatans.forEach(jbt => {
+        if (jbt.parentId && jbt.unitKerjaId) {
+          const parentJbt = jabatanById.get(jbt.parentId);
+          if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
+            opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
+            jbtToReroute[jbt.id] = true;
+          }
+        }
+      });
+
       opds.forEach(opd => {
-        if (opd.parentId && map[opd.parentId]) map[opd.parentId].children.push(map[opd.id]);
-        else roots.push(map[opd.id]);
+        if (opdToExternalParentJbt[opd.id] && map[opdToExternalParentJbt[opd.id]]) {
+          map[opdToExternalParentJbt[opd.id]].children.push(map[opd.id]);
+        } else if (opd.parentId && map[opd.parentId]) {
+          map[opd.parentId].children.push(map[opd.id]);
+        } else {
+          roots.push(map[opd.id]);
+        }
       });
 
       jabatans.forEach(jbt => {
-        if (jbt.parentId && map[jbt.parentId]) map[jbt.parentId].children.push(map[jbt.id]);
-        else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) map[jbt.unitKerjaId].children.push(map[jbt.id]);
-        else roots.push(map[jbt.id]);
+        if (jbt.parentId && map[jbt.parentId] && !jbtToReroute[jbt.id]) {
+          map[jbt.parentId].children.push(map[jbt.id]);
+        } else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) {
+          map[jbt.unitKerjaId].children.push(map[jbt.id]);
+        } else if (opds.length === 0) {
+          roots.push(map[jbt.id]);
+        }
       });
 
       const getEselonWeight = (eselon?: string) => {

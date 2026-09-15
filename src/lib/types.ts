@@ -245,3 +245,15 @@ export const ASPEK_LINGKUNGAN = [
   'Letak', 'Penerangan', 'Suara', 'Keadaan Tempat Kerja',
   'Getaran',
 ];
+
+export interface AnomaliExclusion {
+  id: string;
+  jabatanId: string;
+  unitKerjaId?: string;
+  namaJabatan?: string;
+  type: string;
+  pesan?: string;
+  tahun?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}

@@ -36,21 +36,31 @@ export default function OperatorLayout({
     setColorTheme(initialColorTheme);
     document.documentElement.setAttribute("data-color-theme", initialColorTheme);
 
-    // Sync color theme from database if user is logged in
-    const syncColorTheme = async () => {
+    // Sync settings (color theme & active year) from database if user is logged in
+    const syncSettings = async () => {
       try {
-        const res = await api.getThemeSetting();
-        if (res && res.colorTheme) {
-          setColorTheme(res.colorTheme);
-          localStorage.setItem("color-theme", res.colorTheme);
-          document.documentElement.setAttribute("data-color-theme", res.colorTheme);
+        const [themeRes, yearRes] = await Promise.all([
+          api.getThemeSetting().catch(() => null),
+          api.getActiveYearSetting().catch(() => null),
+        ]);
+        if (themeRes && themeRes.colorTheme) {
+          setColorTheme(themeRes.colorTheme);
+          localStorage.setItem("color-theme", themeRes.colorTheme);
+          document.documentElement.setAttribute("data-color-theme", themeRes.colorTheme);
+        }
+        if (yearRes && yearRes.activeYear) {
+          const currentYear = localStorage.getItem("sianjab_active_year");
+          localStorage.setItem("sianjab_active_year", yearRes.activeYear);
+          if (currentYear !== yearRes.activeYear && typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("yearChanged", { detail: yearRes.activeYear }));
+          }
         }
       } catch (err) {
-        console.error("Gagal sinkronisasi tema warna dari database:", err);
+        console.error("Gagal sinkronisasi pengaturan dari database:", err);
       }
     };
     if (user) {
-      syncColorTheme();
+      syncSettings();
     }
   }, [user]);
 

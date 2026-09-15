@@ -112,6 +112,7 @@ export default function OPDManagementPage() {
       if (res.success) {
         showToast(`✅ Berhasil menyalin data ke tahun ${targetYear}!`);
         localStorage.setItem("sianjab_active_year", targetYear);
+        await api.saveActiveYearSetting({ activeYear: targetYear }).catch(() => {});
         window.dispatchEvent(new CustomEvent("yearChanged", { detail: targetYear }));
       } else {
         alert("Gagal kloning: " + res.message);
@@ -141,6 +142,7 @@ export default function OPDManagementPage() {
       if (res.success) {
         showToast(`🗑️ Seluruh data tahun ${activeYear} berhasil dihapus.`);
         localStorage.setItem("sianjab_active_year", "2026");
+        await api.saveActiveYearSetting({ activeYear: "2026" }).catch(() => {});
         window.dispatchEvent(new CustomEvent("yearChanged", { detail: "2026" }));
       } else {
         alert("Gagal menghapus data tahun: " + res.message);

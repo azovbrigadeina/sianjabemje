@@ -244,7 +244,7 @@ async function executeActualRequest<T = unknown>(
 
 async function apiCall<T = unknown>(
   action: string,
-  entity: string,
+  entityOrOptions: string | { params?: Record<string, string>; data?: unknown; signal?: AbortSignal } = '',
   options: {
     params?: Record<string, string>;
     data?: unknown;
@@ -255,19 +255,27 @@ async function apiCall<T = unknown>(
     console.warn("Warning: NEXT_PUBLIC_GAS_DEPLOYMENT_URL is not configured.");
   }
 
+  let entity = '';
+  let opts = options;
+  if (typeof entityOrOptions === 'string') {
+    entity = entityOrOptions;
+  } else if (typeof entityOrOptions === 'object' && entityOrOptions !== null) {
+    opts = entityOrOptions;
+  }
+
   const writeActions = [
-    'create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'saveABK',
+    'create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'updateUrutanBatch', 'saveABK',
     'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData', 'syncFromSheet',
     'syncToSheet', 'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords',
     'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
     'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
-    'saveDeadline', 'registerVerificationCode'
+    'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase'
   ];
-  const isWriteOperation = writeActions.includes(action) || !!options.data;
+  const isWriteOperation = writeActions.includes(action) || !!opts.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
   const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
-  if (options.params) {
-    Object.entries(options.params).forEach(([k, v]) => searchParams.set(k, v));
+  if (opts.params) {
+    Object.entries(opts.params).forEach(([k, v]) => searchParams.set(k, v));
   }
 
   // Sertakan auth token untuk semua request kecuali login
@@ -304,14 +312,14 @@ async function apiCall<T = unknown>(
     const result = await new Promise<T>((resolve, reject) => {
       writeQueuePromise = writeQueuePromise.then(async () => {
         try {
-          const resData = await executeActualRequest<T>(url, true, options);
+          const resData = await executeActualRequest<T>(url, true, opts);
           resolve(resData);
         } catch (err) {
           reject(err);
         }
       }).catch(async () => {
         try {
-          const resData = await executeActualRequest<T>(url, true, options);
+          const resData = await executeActualRequest<T>(url, true, opts);
           resolve(resData);
         } catch (err) {
           reject(err);
@@ -321,7 +329,7 @@ async function apiCall<T = unknown>(
     return result;
   } else {
     // READ: jalankan langsung (paralel), dengan in-flight deduplication
-    const requestPromise = executeActualRequest<T>(url, false, options)
+    const requestPromise = executeActualRequest<T>(url, false, opts)
       .finally(() => {
         inFlightRequests.delete(url);
       });
@@ -368,8 +376,8 @@ export const api = {
     apiCall('getHierarchy', 'jabatan', { params: { id } }),
 
   // -- Multi-row Entities (generic CRUD) --
-  createEntity: (entity: string, data: unknown) =>
-    apiCall('create', entity, { data }),
+  createEntity: <T = unknown>(entity: string, data: unknown) =>
+    apiCall<{ id: string; data: T }>('create', entity, { data }),
 
   readAllEntity: (entity: string, jabatanId: string, signal?: AbortSignal) =>
     apiCall('readAll', entity, { params: { parentId: jabatanId }, signal }),
@@ -412,6 +420,10 @@ export const api = {
   // -- Multi-row Entities Atomic Save --
   saveMultiEntity: (entity: string, jabatanId: string, data: unknown) =>
     apiCall('saveMultiEntity', entity, { data, params: { parentId: jabatanId } }),
+
+  // -- Batch Update Urutan (Reordering) --
+  updateUrutanBatch: (entity: string, updates: Array<{ id: string; urutan: number }>) =>
+    apiCall('updateUrutanBatch', entity, { data: updates }),
 
   // -- Auth & Users --
   login: (data: unknown) =>
@@ -492,6 +504,12 @@ export const api = {
 
   getThemeSetting: () =>
     apiCall<{ colorTheme: 'theme1' | 'theme2' } | null>('read', 'settings', { params: { id: 'themeSetting' } }),
+
+  saveActiveYearSetting: (data: { activeYear: string }) =>
+    apiCall('update', 'settings', { data, params: { id: 'activeYearSetting' } }),
+
+  getActiveYearSetting: () =>
+    apiCall<{ activeYear: string } | null>('read', 'settings', { params: { id: 'activeYearSetting' } }),
 
   // -- Year Cloning and Deletion & Maintenance --
   cloneYear: (fromYear: string, toYear: string) =>
@@ -587,6 +605,15 @@ export const api = {
   // -- Security Logs --
   getSecurityLogs: () =>
     apiCall<any[]>('readAll', 'security_logs'),
+
+  // -- Full Database Backup & Restore --
+  exportFullDatabase: async () => {
+    return await apiCall('exportFullDatabase');
+  },
+
+  restoreFullDatabase: async (backupPayload: any) => {
+    return await apiCall('restoreFullDatabase', { data: backupPayload });
+  },
 
   // -- Document Verification --
   registerVerificationCode: (record: unknown) =>

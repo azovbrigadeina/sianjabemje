@@ -143,7 +143,7 @@ function invalidateCache_(entity) {
 }
 
 function invalidateAllCaches_() {
-  var entities = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja'];
+  var entities = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion'];
   entities.forEach(function(ent) {
     removeLargeCache_('fb_' + ent);
     removeLargeCache_('fb_' + CURRENT_TAHUN + '_' + ent);
@@ -162,7 +162,8 @@ var ADMIN_ONLY_ACTIONS_ = [
   'createUser', 'updateUser', 'deleteUser',
   'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords', 'migrateRootTo2026',
   'syncToSheet', 'syncFromSheet',
-  'saveTemplate', 'saveTagMappings', 'saveDeadline'
+  'saveTemplate', 'saveTagMappings', 'saveDeadline',
+  'exportFullDatabase', 'restoreFullDatabase'
 ];
 
 function computeHmacHex_(dataStr, secretKey) {
@@ -265,7 +266,7 @@ var ALLOWED_ENTITIES_ = [
   'unitKerja','jabatan','users','settings','abk','referensiJabatan',
   'security_logs','tugasPokok','bahanKerja','perangkatKerja','tanggungJawab',
   'wewenang','korelasiJabatan','kondisiLingkungan','risikoBahaya','syaratJabatan',
-  'kualifikasi','hasilKerja','prestasiKerja','verification_logs','sianjab_export'
+  'kualifikasi','hasilKerja','prestasiKerja','verification_logs','sianjab_export','anomaliExclusion'
 ];
 
 function getFirebasePath_(entity, id) {
@@ -373,6 +374,9 @@ function handleRequest_(e) {
       case 'saveMultiEntity':
         result = saveMultiEntity_(entity, parentId, data);
         break;
+      case 'updateUrutanBatch':
+        result = updateUrutanBatch_(entity, data);
+        break;
       case 'saveBulkAnjabData':
         result = saveBulkAnjabData_(parentId, data);
         break;
@@ -469,6 +473,13 @@ function handleRequest_(e) {
       case 'getBulkData':
         var bulkEntities = (params.entities || '').split(',');
         result = readMultipleEntities_(bulkEntities);
+        break;
+
+      case 'exportFullDatabase':
+        result = exportFullDatabase_();
+        break;
+      case 'restoreFullDatabase':
+        result = restoreFullDatabase_(params.data || data, params._user || currentUser);
         break;
 
       default:
@@ -885,6 +896,39 @@ function saveMultiEntity_(entity, parentId, rows) {
     fbPatch_(getFirebasePath_(entity), patchPayload);
     invalidateCache_(entity);
     return { success: true, count: rows ? rows.length : 0 };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// Batch update urutan property without mutating/recreating items
+function updateUrutanBatch_(entity, updates) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    throw new Error("Server sibuk: Operasi penyimpanan bersamaan terdeteksi. Silakan coba beberapa saat lagi.");
+  }
+
+  try {
+    var basePath = getFirebasePath_(entity);
+    var patchPayload = {};
+    var now = new Date().toISOString();
+
+    if (updates && Array.isArray(updates)) {
+      updates.forEach(function (item) {
+        if (item && item.id && typeof item.urutan === 'number') {
+          patchPayload[item.id + '/urutan'] = item.urutan;
+          patchPayload[item.id + '/updatedAt'] = now;
+        }
+      });
+    }
+
+    if (Object.keys(patchPayload).length > 0) {
+      fbPatch_(basePath, patchPayload);
+    }
+    invalidateCache_(entity);
+    return { success: true, count: updates ? updates.length : 0 };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
@@ -3240,7 +3284,7 @@ function readMultipleEntities_(entities) {
   var misses = [];
   var requests = [];
   
-  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja'];
+  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion'];
   var cacheEntityTTL = {
     'unitKerja': 600,          // 10 menit
     'referensiJabatan': 1800,  // 30 menit
@@ -3251,7 +3295,8 @@ function readMultipleEntities_(entities) {
     'kualifikasi': 300,        // 5 menit
     'bahanKerja': 300,         // 5 menit
     'users': 300,              // 5 menit
-    'settings': 300            // 5 menit
+    'settings': 300,           // 5 menit
+    'anomaliExclusion': 300    // 5 menit
   };
 
   entities.forEach(function(ent) {
@@ -3362,6 +3407,53 @@ function runBenchmark_() {
   }
   
   return report;
+}
+
+// =============================================
+// DATABASE BACKUP & RESTORE
+// =============================================
+
+function exportFullDatabase_() {
+  var fullData = fbGet_('') || {};
+  return {
+    app: 'SIANJAB_ABK',
+    version: '1.0',
+    timestamp: new Date().toISOString(),
+    exportedAt: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+    data: fullData
+  };
+}
+
+function restoreFullDatabase_(backupPayload, currentUser) {
+  if (!backupPayload || !backupPayload.data) {
+    throw new Error('Payload backup tidak valid: Node data utama tidak ditemukan.');
+  }
+  var restoredData = backupPayload.data;
+  var rootKeys = Object.keys(restoredData);
+  for (var i = 0; i < rootKeys.length; i++) {
+    var key = rootKeys[i];
+    fbPut_(key, restoredData[key]);
+  }
+  invalidateAllCaches_();
+  logSecurityEvent_({
+    timestamp: new Date().toISOString(),
+    event: 'RESTORE_DATABASE',
+    user: currentUser ? (currentUser.username || currentUser.nama) : 'System Admin',
+    details: 'Database restored from JSON backup (' + rootKeys.length + ' top-level nodes restored)'
+  });
+  return {
+    success: true,
+    message: 'Database berhasil dipulihkan (' + rootKeys.length + ' node utama ter-update)',
+    restoredKeysCount: rootKeys.length
+  };
+}
+
+function logSecurityEvent_(eventObj) {
+  try {
+    fbPost_('security_logs', eventObj);
+  } catch (err) {
+    Logger.log('Failed to log security event: ' + err.message);
+  }
 }
 
 

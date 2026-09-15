@@ -1,6 +1,6 @@
-import { Jabatan, ReferensiJabatan, UnitKerja } from '@/lib/types';
+import { Jabatan, ReferensiJabatan, UnitKerja, AnomaliExclusion } from '@/lib/types';
 
-export type AnomaliType = 'TYPO_SPACE' | 'FUZZY_TYPO' | 'UNREFERENCED' | 'DISPARITAS_KELAS' | 'OUTLIER_STRUKTURAL';
+export type AnomaliType = 'TYPO_SPACE' | 'FUZZY_TYPO' | 'UNREFERENCED' | 'DISPARITAS_KELAS' | 'OUTLIER_STRUKTURAL' | 'DATA_YATIM';
 export type SeverityLevel = 'Tinggi' | 'Sedang' | 'Rendah';
 
 export interface AnomaliItem {
@@ -19,6 +19,9 @@ export interface AnomaliItem {
   parsedJenjang?: string | null;
   kelasDominan?: number;
   kelasStandar?: string;
+  exclusionId?: string;
+  exclusionDate?: string;
+  isExcluded?: boolean;
 }
 
 export interface AuditResult {
@@ -27,10 +30,14 @@ export interface AuditResult {
     totalTypo: number;
     totalDisparitas: number;
     totalOutlier: number;
+    totalYatim: number;
+    totalDikecualikan: number;
   };
   anomaliTypo: AnomaliItem[];
   anomaliDisparitas: AnomaliItem[];
   anomaliOutlier: AnomaliItem[];
+  anomaliYatim: AnomaliItem[];
+  anomaliDikecualikan: AnomaliItem[];
 }
 
 export const JENJANG_FUNGSIONAL = [
@@ -99,7 +106,8 @@ export function normalizeName(name: string): string {
 export function analyzeAnomali(
   jabatans: Jabatan[],
   referensis: ReferensiJabatan[],
-  unitKerjas: UnitKerja[]
+  unitKerjas: UnitKerja[],
+  exclusions: AnomaliExclusion[] = []
 ): AuditResult {
   const opdMap = new Map<string, string>();
   unitKerjas.forEach(u => opdMap.set(u.id, u.nama));
@@ -109,20 +117,57 @@ export function analyzeAnomali(
     refNameMap.set(normalizeName(r.namaBase), r);
   });
 
+  const exclusionMap = new Map<string, AnomaliExclusion>();
+  exclusions.forEach(ex => {
+    exclusionMap.set(`${ex.jabatanId}_${ex.type}`, ex);
+    exclusionMap.set(`${ex.jabatanId}_ALL`, ex);
+  });
+
+  const processedExclusionIds = new Set<string>();
+
+  const rawAnomaliTypo: AnomaliItem[] = [];
+  const rawAnomaliDisparitas: AnomaliItem[] = [];
+  const rawAnomaliOutlier: AnomaliItem[] = [];
+  const rawAnomaliYatim: AnomaliItem[] = [];
+
   const anomaliTypo: AnomaliItem[] = [];
   const anomaliDisparitas: AnomaliItem[] = [];
   const anomaliOutlier: AnomaliItem[] = [];
+  const anomaliYatim: AnomaliItem[] = [];
+  const anomaliDikecualikan: AnomaliItem[] = [];
+
+  // Filter orphan data vs valid jabatans
+  const validJabatans: Jabatan[] = [];
+  jabatans.forEach(j => {
+    if (!j.unitKerjaId || !opdMap.has(j.unitKerjaId)) {
+      rawAnomaliYatim.push({
+        id: `yatim-${j.id}`,
+        jabatanId: j.id,
+        unitKerjaId: j.unitKerjaId || '',
+        opdNama: 'OPD Tidak Diketahui',
+        namaJabatan: j.namaJabatan,
+        jenisJabatan: j.jenisJabatan || 'Tidak Diketahui',
+        kelasJabatan: j.kelasJabatan || 0,
+        type: 'DATA_YATIM',
+        severity: 'Tinggi',
+        pesan: 'Jabatan tidak terikat ke Unit Kerja / OPD manapun (Data Yatim)',
+        rekomendasi: 'Koreksi OPD atau Hapus Permanen',
+      });
+    } else {
+      validJabatans.push(j);
+    }
+  });
 
   // Grouping by normalized name
   const nameGroups = new Map<string, Jabatan[]>();
-  jabatans.forEach(j => {
+  validJabatans.forEach(j => {
     const norm = normalizeName(j.namaJabatan);
     if (!nameGroups.has(norm)) nameGroups.set(norm, []);
     nameGroups.get(norm)!.push(j);
   });
 
   // 1. Check Typo & Reference
-  jabatans.forEach(j => {
+  validJabatans.forEach(j => {
     const opdNama = opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui';
     const jenis = (j.jenisJabatan || '').toLowerCase();
 
@@ -139,9 +184,8 @@ export function analyzeAnomali(
           ? matchExactRef.namaBase
           : `${matchExactRef.namaBase}${parsed.jenjang ? ' ' + parsed.jenjang : ''}`;
 
-        // Teks sama secara huruf, cek apakah ada spasi berlebih atau case tidak konsisten
         if (j.namaJabatan !== standardName) {
-          anomaliTypo.push({
+          rawAnomaliTypo.push({
             id: `typo-case-${j.id}`,
             jabatanId: j.id,
             unitKerjaId: j.unitKerjaId,
@@ -171,7 +215,7 @@ export function analyzeAnomali(
 
         if (bestMatch && highestSim >= 0.78) {
           const standardName = `${(bestMatch as ReferensiJabatan).namaBase}${parsed.jenjang ? ' ' + parsed.jenjang : ''}`;
-          anomaliTypo.push({
+          rawAnomaliTypo.push({
             id: `typo-fuzzy-${j.id}`,
             jabatanId: j.id,
             unitKerjaId: j.unitKerjaId,
@@ -187,7 +231,7 @@ export function analyzeAnomali(
             parsedJenjang: parsed.jenjang,
           });
         } else {
-          anomaliTypo.push({
+          rawAnomaliTypo.push({
             id: `typo-unref-${j.id}`,
             jabatanId: j.id,
             unitKerjaId: j.unitKerjaId,
@@ -210,7 +254,6 @@ export function analyzeAnomali(
   nameGroups.forEach((group, normName) => {
     if (group.length < 2) return;
 
-    // Hitung frekuensi kelas (Modus)
     const gradeCounts = new Map<number, number>();
     group.forEach(j => {
       const g = j.kelasJabatan || 0;
@@ -226,12 +269,11 @@ export function analyzeAnomali(
       }
     });
 
-    // Jika ada lebih dari 1 kelas yang dipakai
     if (gradeCounts.size > 1) {
       group.forEach(j => {
         if ((j.kelasJabatan || 0) !== modeGrade) {
           const opdNama = opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui';
-          anomaliDisparitas.push({
+          rawAnomaliDisparitas.push({
             id: `disparitas-${j.id}`,
             jabatanId: j.id,
             unitKerjaId: j.unitKerjaId,
@@ -250,13 +292,12 @@ export function analyzeAnomali(
   });
 
   // 3. Check Outlier Kelas Jabatan Struktural
-  jabatans.forEach(j => {
+  validJabatans.forEach(j => {
     const jenis = (j.jenisJabatan || '').toLowerCase();
     const nama = (j.namaJabatan || '').toLowerCase();
     const kelas = j.kelasJabatan || 0;
     const opdNama = opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui';
 
-    // JPT Pratama / Madya / Utama (Eselon I / II) - exclude functional roles
     const isFungsional = jenis.includes('fungsional');
     const isJpt = !isFungsional && (
       jenis.includes('pimpinan tinggi') ||
@@ -269,7 +310,7 @@ export function analyzeAnomali(
       const isSekda = nama.includes('sekretaris daerah');
       const targetGrade = isSekda ? 15 : 14;
       if (kelas !== targetGrade) {
-        anomaliOutlier.push({
+        rawAnomaliOutlier.push({
           id: `outlier-jpt-${j.id}`,
           jabatanId: j.id,
           unitKerjaId: j.unitKerjaId,
@@ -284,10 +325,9 @@ export function analyzeAnomali(
         });
       }
     }
-    // Administrator (Eselon III)
     else if (jenis.includes('administrator') || nama.includes('kabid') || nama.includes('camat') || nama.includes('sekretaris dinas') || nama.includes('kepala bidang')) {
       if (kelas < 11 || kelas > 12) {
-        anomaliOutlier.push({
+        rawAnomaliOutlier.push({
           id: `outlier-admin-${j.id}`,
           jabatanId: j.id,
           unitKerjaId: j.unitKerjaId,
@@ -302,10 +342,9 @@ export function analyzeAnomali(
         });
       }
     }
-    // Pengawas (Eselon IV)
     else if (jenis.includes('pengawas') || nama.includes('kasubag') || nama.includes('kasi') || nama.includes('kepala seksi') || nama.includes('kepala subbagian')) {
       if (kelas < 8 || kelas > 9) {
-        anomaliOutlier.push({
+        rawAnomaliOutlier.push({
           id: `outlier-pengawas-${j.id}`,
           jabatanId: j.id,
           unitKerjaId: j.unitKerjaId,
@@ -322,17 +361,68 @@ export function analyzeAnomali(
     }
   });
 
+  // Filter out excluded items and route them to anomaliDikecualikan
+  const processList = (rawList: AnomaliItem[], targetList: AnomaliItem[]) => {
+    rawList.forEach(item => {
+      const matchEx = exclusionMap.get(`${item.jabatanId}_${item.type}`) || exclusionMap.get(`${item.jabatanId}_ALL`);
+      if (matchEx) {
+        processedExclusionIds.add(matchEx.id);
+        anomaliDikecualikan.push({
+          ...item,
+          exclusionId: matchEx.id,
+          exclusionDate: matchEx.createdAt,
+          isExcluded: true,
+        });
+      } else {
+        targetList.push(item);
+      }
+    });
+  };
+
+  processList(rawAnomaliTypo, anomaliTypo);
+  processList(rawAnomaliDisparitas, anomaliDisparitas);
+  processList(rawAnomaliOutlier, anomaliOutlier);
+  processList(rawAnomaliYatim, anomaliYatim);
+
+  // Include any remaining exclusions stored in database that might not be matched to raw findings
+  exclusions.forEach(ex => {
+    if (!processedExclusionIds.has(ex.id)) {
+      const j = jabatans.find(jab => jab.id === ex.jabatanId);
+      const opdNama = j && j.unitKerjaId ? (opdMap.get(j.unitKerjaId) || 'OPD Tidak Diketahui') : (opdMap.get(ex.unitKerjaId || '') || 'OPD Tidak Diketahui');
+      anomaliDikecualikan.push({
+        id: `excluded-${ex.id}`,
+        jabatanId: ex.jabatanId,
+        unitKerjaId: j?.unitKerjaId || ex.unitKerjaId || '',
+        opdNama,
+        namaJabatan: j?.namaJabatan || ex.namaJabatan || 'Jabatan Dikecualikan',
+        jenisJabatan: j?.jenisJabatan || '-',
+        kelasJabatan: j?.kelasJabatan || 0,
+        type: (ex.type as AnomaliType) || 'OUTLIER_STRUKTURAL',
+        severity: 'Rendah',
+        pesan: ex.pesan || 'Kondisi dikecualikan dari temuan anomali',
+        exclusionId: ex.id,
+        exclusionDate: ex.createdAt,
+        isExcluded: true,
+      });
+    }
+  });
+
   return {
     summary: {
-      totalAnomali: anomaliTypo.length + anomaliDisparitas.length + anomaliOutlier.length,
+      totalAnomali: anomaliTypo.length + anomaliDisparitas.length + anomaliOutlier.length + anomaliYatim.length,
       totalTypo: anomaliTypo.length,
       totalDisparitas: anomaliDisparitas.length,
       totalOutlier: anomaliOutlier.length,
+      totalYatim: anomaliYatim.length,
+      totalDikecualikan: anomaliDikecualikan.length,
     },
     anomaliTypo,
     anomaliDisparitas,
     anomaliOutlier,
+    anomaliYatim,
+    anomaliDikecualikan,
   };
 }
 
 export const detectAnomali = analyzeAnomali;
+
