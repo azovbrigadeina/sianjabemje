@@ -4,6 +4,13 @@ import { useState, useEffect } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { ReferensiJabatan } from "@/lib/types";
+import { stringSimilarity, normalizeName } from "@/lib/investigasiUtils";
+
+interface SimilarMatch {
+  newItem: ReferensiJabatan;
+  existingItem: ReferensiJabatan;
+  similarity: number;
+}
 
 export default function ReferensiPage() {
   const [activeTab, setActiveTab] = useState<'Pelaksana' | 'Fungsional'>('Pelaksana');
@@ -26,10 +33,15 @@ export default function ReferensiPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  const [searchQuerySaved, setSearchQuerySaved] = useState("");
+
   const [editingItem, setEditingItem] = useState<ReferensiJabatan | null>(null);
   const [editNamaBase, setEditNamaBase] = useState("");
   const [editKategori, setEditKategori] = useState<'Keahlian' | 'Keterampilan'>('Keahlian');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Safety similarity check state
+  const [similarWarningMatches, setSimilarWarningMatches] = useState<SimilarMatch[]>([]);
 
   const fetchSavedData = async () => {
     setIsLoadingData(true);
@@ -58,6 +70,16 @@ export default function ReferensiPage() {
     if (!editNamaBase.trim()) {
       setMessage({ type: 'error', text: 'Nama jabatan tidak boleh kosong.' });
       return;
+    }
+
+    // Safety check for similarity on edit
+    const normEdit = normalizeName(editNamaBase);
+    const similarExisting = savedData.find(item => item.id !== editingItem.id && stringSimilarity(normEdit, normalizeName(item.namaBase)) >= 0.75);
+    if (similarExisting) {
+      const simPct = (stringSimilarity(normEdit, normalizeName(similarExisting.namaBase)) * 100).toFixed(0);
+      if (!confirm(`⚠️ PENGAMAN KEMIRIPAN JABATAN:\nNama jabatan "${editNamaBase.trim()}" memiliki kemiripan ${simPct}% dengan referensi "${similarExisting.namaBase}" (${similarExisting.jenisJabatan}) yang sudah tersimpan.\n\nYakin ingin tetap memperbarui data ini?`)) {
+        return;
+      }
     }
 
     setIsSavingEdit(true);
@@ -129,12 +151,23 @@ export default function ReferensiPage() {
     setMessage(null);
   };
 
-  const handleSave = async () => {
-    if (previewData.length === 0) {
-      setMessage({ type: 'error', text: 'Tidak ada data untuk disimpan. Silakan klik Preview terlebih dahulu.' });
-      return;
-    }
-    
+  const checkSimilarityBeforeSave = (): SimilarMatch[] => {
+    const matches: SimilarMatch[] = [];
+    previewData.forEach(newItem => {
+      const normNew = normalizeName(newItem.namaBase);
+      savedData.forEach(existingItem => {
+        const normExisting = normalizeName(existingItem.namaBase);
+        const sim = stringSimilarity(normNew, normExisting);
+        if (sim >= 0.75) {
+          matches.push({ newItem, existingItem, similarity: sim });
+        }
+      });
+    });
+    return matches;
+  };
+
+  const executeActualSave = async () => {
+    if (previewData.length === 0) return;
     setIsLoading(true);
     setMessage(null);
     try {
@@ -148,12 +181,28 @@ export default function ReferensiPage() {
       else setInputFungsional("");
       
       setPreviewData([]);
+      setSimilarWarningMatches([]);
       fetchSavedData();
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Gagal menyimpan data referensi' });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSave = async () => {
+    if (previewData.length === 0) {
+      setMessage({ type: 'error', text: 'Tidak ada data untuk disimpan. Silakan klik Preview terlebih dahulu.' });
+      return;
+    }
+
+    const matches = checkSimilarityBeforeSave();
+    if (matches.length > 0) {
+      setSimilarWarningMatches(matches);
+      return;
+    }
+    
+    await executeActualSave();
   };
 
   return (
@@ -276,17 +325,37 @@ export default function ReferensiPage() {
       </div>
 
       <div className="glass-panel p-6" style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div className={styles.header} style={{ marginBottom: '0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Daftar Referensi {activeTab} Tersimpan</h2>
-          <span className={styles.subtitle}>Total: {savedData.filter(item => item.jenisJabatan === activeTab).length} data</span>
+        <div className={styles.header} style={{ marginBottom: '0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Daftar Referensi {activeTab} Tersimpan</h2>
+            <span className={styles.subtitle}>Total: {savedData.filter(item => item.jenisJabatan === activeTab).length} data</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <input
+              type="text"
+              className={styles.textarea}
+              style={{ minHeight: 'auto', height: '40px', padding: '0.5rem 1rem', width: '250px' }}
+              placeholder="🔍 Cari nama jabatan..."
+              value={searchQuerySaved}
+              onChange={(e) => {
+                setSearchQuerySaved(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
         </div>
 
         {isLoadingData ? (
           <p className={styles.subtitle}>Memuat data referensi...</p>
         ) : (() => {
-          const filteredData = savedData.filter(item => item.jenisJabatan === activeTab);
+          const filteredData = savedData.filter(item => {
+            const matchTab = item.jenisJabatan === activeTab;
+            const matchQuery = !searchQuerySaved.trim() || item.namaBase.toLowerCase().includes(searchQuerySaved.toLowerCase().trim());
+            return matchTab && matchQuery;
+          });
+
           if (filteredData.length === 0) {
-            return <p className={styles.subtitle}>Belum ada data referensi {activeTab} yang tersimpan.</p>;
+            return <p className={styles.subtitle}>Belum ada data referensi {activeTab} {searchQuerySaved ? 'yang cocok dengan pencarian' : 'yang tersimpan'}.</p>;
           }
           
           const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -364,6 +433,54 @@ export default function ReferensiPage() {
         })()}
       </div>
 
+      {/* Safety Confirmation Modal for Similar Names */}
+      {similarWarningMatches.length > 0 && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent} style={{ maxWidth: '600px' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              ⚠️ Pengaman Kemiripan Nama Jabatan
+            </h3>
+            <p className={styles.subtitle} style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
+              Ditemukan nama jabatan yang persis atau mirip dengan referensi yang sudah ada di database. Harap periksa ejaan untuk mencegah duplikasi data.
+            </p>
+
+            <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', paddingRight: '0.25rem' }}>
+              {similarWarningMatches.map((m, idx) => (
+                <div key={idx} style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', padding: '0.75rem 1rem', fontSize: '0.85rem' }}>
+                  <div style={{ fontWeight: 700, color: '#f59e0b' }}>
+                    📌 Input Baru: &quot;{m.newItem.namaBase}&quot; ({m.newItem.jenisJabatan} {m.newItem.kategori || ''})
+                  </div>
+                  <div style={{ marginTop: '0.25rem', color: 'var(--foreground)' }}>
+                    ↔️ Sudah Ada: <strong>&quot;{m.existingItem.namaBase}&quot;</strong> ({m.existingItem.jenisJabatan} {m.existingItem.kategori || ''})
+                  </div>
+                  <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.25rem', color: '#f59e0b' }}>
+                    Tingkat Kemiripan Ejaan: <strong>{(m.similarity * 100).toFixed(0)}%</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className={styles.buttonGroup} style={{ justifyContent: 'flex-end', display: 'flex', gap: '0.5rem' }}>
+              <button 
+                className={styles.btnSecondary} 
+                onClick={() => setSimilarWarningMatches([])}
+                disabled={isLoading}
+              >
+                Batal &amp; Perbaiki Ejaan
+              </button>
+              <button 
+                className={styles.btnPrimary}
+                style={{ background: '#f59e0b' }} 
+                onClick={() => executeActualSave()}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Menyimpan...' : 'Tetap Simpan ke Database'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingItem && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
@@ -420,3 +537,4 @@ export default function ReferensiPage() {
     </div>
   );
 }
+
