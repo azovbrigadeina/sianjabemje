@@ -436,43 +436,58 @@ export default function ReferensiPage() {
       {/* Safety Confirmation Modal for Similar Names */}
       {similarWarningMatches.length > 0 && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: '600px' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <div className={styles.modalContent} style={{ maxWidth: '600px', background: '#1e293b', color: '#f8fafc', border: '1px solid #334155' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               ⚠️ Pengaman Kemiripan Nama Jabatan
             </h3>
-            <p className={styles.subtitle} style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
+            <p style={{ fontSize: '0.9rem', color: '#cbd5e1', marginBottom: '1.25rem', lineHeight: '1.4' }}>
               Ditemukan nama jabatan yang persis atau mirip dengan referensi yang sudah ada di database. Harap periksa ejaan untuk mencegah duplikasi data.
             </p>
 
-            <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', paddingRight: '0.25rem' }}>
+            <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', paddingRight: '0.25rem' }}>
               {similarWarningMatches.map((m, idx) => (
-                <div key={idx} style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', padding: '0.75rem 1rem', fontSize: '0.85rem' }}>
-                  <div style={{ fontWeight: 700, color: '#f59e0b' }}>
-                    📌 Input Baru: &quot;{m.newItem.namaBase}&quot; ({m.newItem.jenisJabatan} {m.newItem.kategori || ''})
+                <div key={idx} style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.35)', borderRadius: '8px', padding: '0.85rem 1rem', fontSize: '0.9rem' }}>
+                  <div style={{ fontWeight: 700, color: '#fbbf24', marginBottom: '0.35rem' }}>
+                    📌 Input Baru: &quot;{m.newItem.namaBase}&quot; <span style={{ color: '#94a3b8', fontWeight: 400 }}>({m.newItem.jenisJabatan} {m.newItem.kategori || ''})</span>
                   </div>
-                  <div style={{ marginTop: '0.25rem', color: 'var(--foreground)' }}>
-                    ↔️ Sudah Ada: <strong>&quot;{m.existingItem.namaBase}&quot;</strong> ({m.existingItem.jenisJabatan} {m.existingItem.kategori || ''})
+                  <div style={{ color: '#f8fafc', marginBottom: '0.35rem' }}>
+                    ↔️ Sudah Ada: <strong style={{ color: '#60a5fa' }}>&quot;{m.existingItem.namaBase}&quot;</strong> <span style={{ color: '#94a3b8' }}>({m.existingItem.jenisJabatan} {m.existingItem.kategori || ''})</span>
                   </div>
-                  <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.25rem', color: '#f59e0b' }}>
-                    Tingkat Kemiripan Ejaan: <strong>{(m.similarity * 100).toFixed(0)}%</strong>
+                  <div style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 600 }}>
+                    Tingkat Kemiripan Ejaan: <span style={{ color: '#f59e0b', fontSize: '0.85rem', fontWeight: 700 }}>{(m.similarity * 100).toFixed(0)}%</span>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className={styles.buttonGroup} style={{ justifyContent: 'flex-end', display: 'flex', gap: '0.5rem' }}>
+            <div className={styles.buttonGroup} style={{ justifyContent: 'flex-end', display: 'flex', gap: '0.75rem' }}>
               <button 
-                className={styles.btnSecondary} 
                 onClick={() => setSimilarWarningMatches([])}
                 disabled={isLoading}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
+                  padding: '0.75rem 1.25rem',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
               >
                 Batal &amp; Perbaiki Ejaan
               </button>
               <button 
-                className={styles.btnPrimary}
-                style={{ background: '#f59e0b' }} 
                 onClick={() => executeActualSave()}
                 disabled={isLoading}
+                style={{
+                  background: '#f59e0b',
+                  color: '#000000',
+                  border: 'none',
+                  padding: '0.75rem 1.25rem',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
               >
                 {isLoading ? 'Menyimpan...' : 'Tetap Simpan ke Database'}
               </button>
@@ -483,17 +498,17 @@ export default function ReferensiPage() {
 
       {editingItem && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modalContent}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>
+          <div className={styles.modalContent} style={{ background: '#1e293b', color: '#f8fafc', border: '1px solid #334155' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem', color: '#f8fafc' }}>
               Edit Referensi {editingItem.jenisJabatan}
             </h3>
 
             <div className={styles.formGroup} style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Nama Jabatan</label>
+              <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#e2e8f0' }}>Nama Jabatan</label>
               <input 
                 type="text"
                 className={styles.textarea}
-                style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem' }}
+                style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem', background: '#0f172a', color: '#ffffff', border: '1px solid #334155' }}
                 value={editNamaBase}
                 onChange={(e) => setEditNamaBase(e.target.value)}
                 placeholder="Nama jabatan..."
@@ -502,10 +517,10 @@ export default function ReferensiPage() {
 
             {editingItem.jenisJabatan === 'Fungsional' && (
               <div className={styles.formGroup} style={{ marginBottom: '1rem' }}>
-                <label style={{ fontSize: '0.9rem', fontWeight: 600 }}>Kategori Jenjang Fungsional</label>
+                <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#e2e8f0' }}>Kategori Jenjang Fungsional</label>
                 <select 
                   className={styles.textarea}
-                  style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.95)' }}
+                  style={{ minHeight: 'auto', height: '42px', padding: '0.5rem 1rem', background: '#0f172a', color: '#ffffff', border: '1px solid #334155' }}
                   value={editKategori}
                   onChange={(e) => setEditKategori(e.target.value as 'Keahlian' | 'Keterampilan')}
                 >
@@ -517,9 +532,17 @@ export default function ReferensiPage() {
 
             <div className={styles.buttonGroup} style={{ justifyContent: 'flex-end', display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
               <button 
-                className={styles.btnSecondary} 
                 onClick={() => setEditingItem(null)}
                 disabled={isSavingEdit}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
+                  padding: '0.6rem 1.2rem',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
               >
                 Batal
               </button>
