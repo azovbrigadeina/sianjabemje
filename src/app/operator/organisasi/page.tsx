@@ -205,18 +205,16 @@ export default function OperatorOrganisasiPage() {
     }
     try {
       const [bulkData, orgSetting] = await Promise.all([
-        api.getBulkData(['unitKerja', 'jabatan', 'referensiJabatan']),
+        api.getBulkData(['unitKerja', 'jabatan']),
         api.getOrgSetting().catch(() => null)
       ]);
 
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const jabatans = (bulkData.jabatan || []) as any[];
-      const referensi = (bulkData.referensiJabatan || []) as ReferensiJabatan[];
 
       setRawOpds(opds);
       setRawJabatans(jabatans);
-      setRawReferensi(referensi);
 
       if (orgSetting) {
         setOrgEditEnabled(orgSetting.enabled !== false);

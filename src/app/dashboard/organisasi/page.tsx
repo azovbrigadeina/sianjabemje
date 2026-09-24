@@ -213,18 +213,16 @@ export default function OrganisasiPage() {
     }
     try {
       const [bulkData, orgSetting] = await Promise.all([
-        api.getBulkData(['unitKerja', 'jabatan', 'referensiJabatan']),
+        api.getBulkData(['unitKerja', 'jabatan']),
         api.getOrgSetting().catch(() => null)
       ]);
 
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const jabatans = (bulkData.jabatan || []) as any[];
-      const referensi = (bulkData.referensiJabatan || []) as ReferensiJabatan[];
 
       setRawOpds(opds);
       setRawJabatans(jabatans);
-      setRawReferensi(referensi);
 
       if (orgSetting) {
         setOrgEditEnabled(orgSetting.enabled !== false);
@@ -456,9 +454,23 @@ export default function OrganisasiPage() {
     setModalMode('add');
   };
 
+  const ensureReferensiLoaded = async () => {
+    if (rawReferensi.length === 0) {
+      try {
+        const res = await api.getBulkData(['referensiJabatan']) as { referensiJabatan?: ReferensiJabatan[] };
+        if (res && res.referensiJabatan) {
+          setRawReferensi(res.referensiJabatan);
+        }
+      } catch (e) {
+        console.warn("Gagal memuat referensiJabatan:", e);
+      }
+    }
+  };
+
   const openAddModal = (parentNode: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    ensureReferensiLoaded();
     console.log("openAddModal called for", parentNode);
     setModalData({
       ...EMPTY_MODAL,

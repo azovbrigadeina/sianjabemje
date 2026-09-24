@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes } from "@/lib/utils";
+import { filterTreeNodes, calculateFormasiPembulatan } from "@/lib/utils";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -360,7 +360,7 @@ export default function BebanKerjaPage() {
         waktuSatuan: waktuSatuan,
         totalWaktuEfektif: totalWaktuEfektif,
         totalKebutuhan: totalRequired,
-        formasiPembulatan: Math.ceil(totalRequired)
+        formasiPembulatan: calculateFormasiPembulatan(totalRequired)
       };
       await api.saveABK(activeJob, payload);
 
@@ -724,7 +724,7 @@ export default function BebanKerjaPage() {
                           </tr>
                           <tr style={{ background: 'hsla(var(--primary), 0.2)', fontWeight: 'bold' }}>
                             <td colSpan={6} style={{ textAlign: 'right', paddingRight: '20px' }}>Pembulatan Formasi</td>
-                            <td className={styles.resultCell} style={{ fontSize: '1.25rem' }}>{Math.ceil(totalRequired)}</td>
+                            <td className={styles.resultCell} style={{ fontSize: '1.25rem' }}>{calculateFormasiPembulatan(totalRequired)}</td>
                             <td></td>
                           </tr>
                         </>

@@ -5,7 +5,7 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
 import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
-import { generateKodeJabatan } from './utils';
+import { generateKodeJabatan, calculateFormasiPembulatan } from './utils';
 import { INSTANSI_NAME } from './constants';
 
 // Helper to convert base64 string to ArrayBuffer
@@ -264,8 +264,15 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   };
 
   // Custom mapping for tugasPokok with ABK injection
-  const abkRows = abkData?.rows || [];
-  const wke = abkData?.wke || 1250;
+  const abkRows = Array.isArray(abkData?.rows) ? abkData.rows : [];
+  let wke = Number(abkData?.wke) || 0;
+  const isMenit = abkData?.waktuSatuan === 'menit';
+  if (wke <= 0) {
+    wke = isMenit ? 72000 : 1250;
+  } else if (isMenit && wke === 1250) {
+    wke = 72000;
+  }
+
   const tpMapping = mappings.tugasPokok || {};
   const tugasPokokLoopKey = tpMapping.loop || 'tugasPokok';
   
@@ -277,13 +284,34 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     row[tpMapping.no || 'no'] = idx + 1;
     row[tpMapping.uraianTugas || 'uraianTugas'] = tp.uraianTugas || "-";
     row[tpMapping.hasilKerja || 'hasilKerja'] = tp.hasilKerja || "-";
-    row[tpMapping.jumlahHasil || 'jumlahHasil'] = tp.jumlahHasil !== undefined ? tp.jumlahHasil : (tp as any).jumlahHasil || 0;
-    row[tpMapping.waktuPenyelesaian || 'waktuPenyelesaian'] = tp.waktuPenyelesaian !== undefined ? tp.waktuPenyelesaian : (tp as any).waktuPenyelesaian || 0;
-    
-    // Inject ABK fields
-    const abkRow = abkRows[idx];
-    const waktu = abkRow ? abkRow.waktu : (tp.waktuPenyelesaian || 0);
-    const volume = abkRow ? abkRow.volume : (tp.jumlahHasil || 0);
+
+    // Match ABK row by task description (tugas/uraianTugas/task) first, fallback to index
+    let abkRow = abkRows.find((r: any) => {
+      const taskName = (r?.tugas || r?.uraianTugas || r?.task || "").toString().trim().toLowerCase();
+      const tpName = (tp.uraianTugas || "").toString().trim().toLowerCase();
+      return taskName && tpName && taskName === tpName;
+    });
+
+    if (!abkRow && idx < abkRows.length) {
+      abkRow = abkRows[idx];
+    }
+
+    const rawWaktu = abkRow
+      ? (abkRow.waktu !== undefined ? abkRow.waktu : abkRow.waktuPenyelesaian)
+      : tp.waktuPenyelesaian;
+    const rawVolume = abkRow
+      ? (abkRow.volume !== undefined ? abkRow.volume : abkRow.jumlahHasil)
+      : tp.jumlahHasil;
+
+    const waktu = Number(rawWaktu) || 0;
+    const volume = Number(rawVolume) || 0;
+
+    row[tpMapping.jumlahHasil || 'jumlahHasil'] = volume;
+    row[tpMapping.waktuPenyelesaian || 'waktuPenyelesaian'] = waktu;
+    row['waktu'] = waktu;
+    row['volume'] = volume;
+    row['satuan'] = (abkRow && abkRow.satuan) || tp.hasilKerja || "-";
+
     const waktuEfektif = waktu * volume;
     const kebutuhanPegawai = wke > 0 ? (waktuEfektif / wke) : 0;
     
@@ -294,7 +322,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
       minimumFractionDigits: 3, 
       maximumFractionDigits: 4 
     });
-    const formattedWaktuEfektif = waktuEfektif.toLocaleString('id-ID');
+    const formattedWaktuEfektif = Number(waktuEfektif.toFixed(2)).toLocaleString('id-ID');
     
     row[tpMapping.waktuEfektif || 'waktuEfektif'] = formattedWaktuEfektif;
     row[tpMapping.kebutuhanPegawai || 'kebutuhanPegawai'] = formattedKebutuhan;
@@ -303,15 +331,21 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   });
 
   // Summary ABK
-  result[mappings.totalWaktuEfektif || 'totalWaktuEfektif'] = sumWaktuEfektif.toLocaleString('id-ID');
-  result[mappings.totalKebutuhanPegawai || 'totalKebutuhanPegawai'] = sumKebutuhan.toLocaleString('id-ID', {
+  const formattedTotalWaktuEfektif = Number(sumWaktuEfektif.toFixed(2)).toLocaleString('id-ID');
+  const formattedTotalKebutuhan = sumKebutuhan.toLocaleString('id-ID', {
     minimumFractionDigits: 3,
     maximumFractionDigits: 4
   });
-  const pembulatan = Math.ceil(sumKebutuhan);
+  const pembulatan = calculateFormasiPembulatan(sumKebutuhan);
+
+  result[mappings.totalWaktuEfektif || 'totalWaktuEfektif'] = formattedTotalWaktuEfektif;
+  result[mappings.totalKebutuhanPegawai || 'totalKebutuhanPegawai'] = formattedTotalKebutuhan;
+  result['totalKebutuhan'] = formattedTotalKebutuhan;
   result[mappings.pembulatanFormasi || 'pembulatanFormasi'] = pembulatan;
+  result['formasiPembulatan'] = pembulatan;
   result[mappings.jumlahPegawaiOrang || 'jumlahPegawaiOrang'] = `${pembulatan.toLocaleString('id-ID')} Orang`;
   result[mappings.wke || 'wke'] = wke;
+  result['waktuSatuan'] = isMenit ? 'Menit' : 'Jam';
 
   mapLoopArray(jabatan.bahanKerja || [], mappings.bahanKerja, 'bahanKerja');
   mapLoopArray(jabatan.perangkatKerja || [], mappings.perangkatKerja, 'perangkatKerja');
@@ -436,7 +470,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
 export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[], abkList?: any[]) => {
   for (let i = 0; i < jabatans.length; i++) {
     const jabatan = jabatans[i];
-    const abkData = abkList ? abkList.find(a => a.id === jabatan.id) : undefined;
+    const abkData = abkList ? abkList.find(a => a.id === jabatan.id || a.jabatanId === jabatan.id) : undefined;
     await exportJabatanToDocx(jabatan, abkData);
     // Simple delay to prevent simultaneous download prompt blocking
     await new Promise(resolve => setTimeout(resolve, 800));

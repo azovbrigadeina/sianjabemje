@@ -143,10 +143,18 @@ function invalidateCache_(entity) {
 }
 
 function invalidateAllCaches_() {
-  var entities = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion'];
+  var entities = [
+    'unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 
+    'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion',
+    'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan',
+    'kondisiLingkungan', 'risikoBahaya', 'prestasiKerja', 'hasilKerja'
+  ];
+  var years = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
   entities.forEach(function(ent) {
     removeLargeCache_('fb_' + ent);
-    removeLargeCache_('fb_' + CURRENT_TAHUN + '_' + ent);
+    years.forEach(function(y) {
+      removeLargeCache_('fb_' + y + '_' + ent);
+    });
   });
 }
 
@@ -575,7 +583,12 @@ function readRecord_(entity, id) {
 function readAllRecords_(entity, parentId) {
   // Gunakan cache untuk entity data master yang sering dibaca
   // TTL disesuaikan: entity yang jarang berubah di-cache lebih lama
-  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja'];
+  var cacheable = [
+    'unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan',
+    'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'perangkatKerja',
+    'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan',
+    'risikoBahaya', 'prestasiKerja', 'hasilKerja', 'anomaliExclusion'
+  ];
   var cacheEntityTTL = {
     'unitKerja': 600,          // 10 menit — jarang berubah
     'referensiJabatan': 1800,  // 30 menit — sangat jarang berubah
@@ -585,6 +598,14 @@ function readAllRecords_(entity, parentId) {
     'syaratJabatan': 300,      // 5 menit
     'kualifikasi': 300,        // 5 menit
     'bahanKerja': 300,         // 5 menit
+    'perangkatKerja': 300,     // 5 menit
+    'tanggungJawab': 300,      // 5 menit
+    'wewenang': 300,           // 5 menit
+    'korelasiJabatan': 300,    // 5 menit
+    'kondisiLingkungan': 300,  // 5 menit
+    'risikoBahaya': 300,       // 5 menit
+    'prestasiKerja': 300,      // 5 menit
+    'hasilKerja': 300,         // 5 menit
     'users': 300,              // 5 menit
     'settings': 300            // 5 menit
   };
@@ -673,6 +694,12 @@ function getDashboardStats_() {
     return hasIkhtisar || !!filledMap[jbt.id];
   }).length;
 
+  var abkFilledMap = {};
+  abks.forEach(function(a) {
+    var jId = a.jabatanId || a.id;
+    if (jId) abkFilledMap[jId] = true;
+  });
+
   return {
     totalOpdMain: mainOpds.length,
     totalOpdSub: subOpds.length,
@@ -687,7 +714,7 @@ function getDashboardStats_() {
     opdRevisi: opdRevisi,
     opdDraft: opdDraft,
     anjabSelesai: anjabSelesai,
-    abkSelesai: abks.length
+    abkSelesai: Object.keys(abkFilledMap).length
   };
 }
 
@@ -1118,69 +1145,41 @@ function getJabatanFull_(jabatanId) {
     'kondisiLingkungan', 'risikoBahaya'
   ];
   var singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
-  var entities = multiEntities.concat(singleEntities);
+  var allReqEntities = ['jabatan'].concat(multiEntities).concat(singleEntities);
 
-  var baseUrl = FIREBASE_URL + '/';
-  var authQuery = '.json?auth=' + FIREBASE_SECRET;
-
-  var requests = [
-    { url: baseUrl + getFirebasePath_('jabatan', jabatanId) + authQuery, method: 'get', muteHttpExceptions: true }
-  ];
-
-  entities.forEach(function(ent) {
-    requests.push({
-      url: baseUrl + getFirebasePath_(ent) + authQuery,
-      method: 'get',
-      muteHttpExceptions: true
-    });
-  });
-
-  var responses = UrlFetchApp.fetchAll(requests);
-
-  // Parse response 0 (jabatan)
-  var jabatanRes = responses[0];
-  if (jabatanRes.getResponseCode() !== 200) return null;
-  var jabatan = JSON.parse(jabatanRes.getContentText());
-  if (!jabatan) return null;
-  jabatan.id = jabatanId;
-
-  // Parse other responses
-  for (var i = 0; i < entities.length; i++) {
-    var ent = entities[i];
-    var res = responses[i + 1];
-    var data = null;
-    if (res.getResponseCode() === 200) {
-      data = JSON.parse(res.getContentText());
-    }
-
-    var isMulti = i < multiEntities.length;
-    if (isMulti) {
-      if (data) {
-        jabatan[ent] = Object.keys(data)
-          .map(function (key) { var d = data[key]; d.id = key; return d; })
-          .filter(function (item) { return item.jabatanId === jabatanId; })
-          .sort(function (a, b) { return (a.nomorUrut || 0) - (b.nomorUrut || 0); });
-      } else {
-        jabatan[ent] = [];
-      }
-    } else {
-      var found = null;
-      if (data) {
-        var keys = Object.keys(data);
-        for (var k = 0; k < keys.length; k++) {
-          if (data[keys[k]].jabatanId === jabatanId) {
-            found = data[keys[k]];
-            found.id = keys[k];
-            break;
-          }
-        }
-      }
-      jabatan[ent] = found;
+  var bulk = readMultipleEntities_(allReqEntities);
+  var jabatans = bulk.jabatan || [];
+  var jabatan = null;
+  for (var i = 0; i < jabatans.length; i++) {
+    if (jabatans[i].id === jabatanId) {
+      jabatan = JSON.parse(JSON.stringify(jabatans[i]));
+      break;
     }
   }
+  if (!jabatan) return null;
+
+  multiEntities.forEach(function(ent) {
+    var items = bulk[ent] || [];
+    jabatan[ent] = items
+      .filter(function(item) { return item.jabatanId === jabatanId; })
+      .sort(function(a, b) { return (a.nomorUrut || 0) - (b.nomorUrut || 0); });
+  });
+
+  singleEntities.forEach(function(ent) {
+    var items = bulk[ent] || [];
+    var found = null;
+    for (var j = 0; j < items.length; j++) {
+      if (items[j].jabatanId === jabatanId) {
+        found = items[j];
+        break;
+      }
+    }
+    jabatan[ent] = found;
+  });
 
   // Get hierarchy auto-fill in memory
-  var allJabatanMap = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+  var allJabatanMap = {};
+  jabatans.forEach(function(j) { allJabatanMap[j.id] = j; });
   jabatan.hierarchy = getJabatanHierarchy_(jabatanId, allJabatanMap);
 
   return jabatan;
@@ -3284,7 +3283,12 @@ function readMultipleEntities_(entities) {
   var misses = [];
   var requests = [];
   
-  var cacheable = ['unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion'];
+  var cacheable = [
+    'unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 
+    'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion',
+    'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan',
+    'kondisiLingkungan', 'risikoBahaya', 'prestasiKerja', 'hasilKerja'
+  ];
   var cacheEntityTTL = {
     'unitKerja': 600,          // 10 menit
     'referensiJabatan': 1800,  // 30 menit
@@ -3294,6 +3298,14 @@ function readMultipleEntities_(entities) {
     'syaratJabatan': 300,      // 5 menit
     'kualifikasi': 300,        // 5 menit
     'bahanKerja': 300,         // 5 menit
+    'perangkatKerja': 300,     // 5 menit
+    'tanggungJawab': 300,      // 5 menit
+    'wewenang': 300,           // 5 menit
+    'korelasiJabatan': 300,    // 5 menit
+    'kondisiLingkungan': 300,  // 5 menit
+    'risikoBahaya': 300,       // 5 menit
+    'prestasiKerja': 300,      // 5 menit
+    'hasilKerja': 300,         // 5 menit
     'users': 300,              // 5 menit
     'settings': 300,           // 5 menit
     'anomaliExclusion': 300    // 5 menit

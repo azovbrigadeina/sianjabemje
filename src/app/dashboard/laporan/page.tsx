@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
+import { calculateFormasiPembulatan } from "@/lib/utils";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
 
 const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
@@ -325,9 +326,31 @@ export default function LaporanPage() {
     setShowBulkModal(false);
     try {
       const opdName = opds.find(o => o.id === selectedOpd1)?.nama || "OPD";
-      const fullJabatans = await Promise.all(
-        jobsToDownload.map(j => api.getJabatanFull(j.id) as Promise<JabatanFull>)
-      );
+      const bulkData = await api.getBulkData([
+        'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
+        'tanggungJawab', 'wewenang', 'korelasiJabatan',
+        'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
+        'kualifikasi', 'prestasiKerja', 'hasilKerja'
+      ]);
+
+      const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
+      const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
+
+      const fullJabatans: JabatanFull[] = jobsToDownload.map(j => {
+        const full: any = { ...j };
+        multiEntities.forEach(ent => {
+          const list = bulkData[ent] || [];
+          full[ent] = list
+            .filter((item: any) => item.jabatanId === j.id)
+            .sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0));
+        });
+        singleEntities.forEach(ent => {
+          const list = bulkData[ent] || [];
+          full[ent] = list.find((item: any) => item.jabatanId === j.id) || null;
+        });
+        return full as JabatanFull;
+      });
+
       const abkList = jobsToDownload.map(j => abkMap.get(j.id));
       
       const { exportJabatansToDocx } = await import("@/lib/exportDocx");
@@ -352,12 +375,40 @@ export default function LaporanPage() {
         return;
       }
 
-      const fullJabatans = await Promise.all(
-        targetJabatans.map(j => api.getJabatanFull(j.id) as Promise<JabatanFull>)
-      );
-      const abkList = await Promise.all(
-        targetJabatans.map(j => api.getABK(j.id).catch(() => null) as Promise<any>)
-      );
+      const bulkData = await api.getBulkData([
+        'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
+        'tanggungJawab', 'wewenang', 'korelasiJabatan',
+        'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
+        'kualifikasi', 'prestasiKerja', 'hasilKerja'
+      ]);
+
+      const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
+      const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
+
+      const abkMapByJbt = new Map<string, any>();
+      if (bulkData.abk && Array.isArray(bulkData.abk)) {
+        bulkData.abk.forEach((a: any) => {
+          if (a.id) abkMapByJbt.set(a.id, a);
+          if (a.jabatanId) abkMapByJbt.set(a.jabatanId, a);
+        });
+      }
+
+      const fullJabatans: JabatanFull[] = targetJabatans.map(j => {
+        const full: any = { ...j };
+        multiEntities.forEach(ent => {
+          const list = bulkData[ent] || [];
+          full[ent] = list
+            .filter((item: any) => item.jabatanId === j.id)
+            .sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0));
+        });
+        singleEntities.forEach(ent => {
+          const list = bulkData[ent] || [];
+          full[ent] = list.find((item: any) => item.jabatanId === j.id) || null;
+        });
+        return full as JabatanFull;
+      });
+
+      const abkList = targetJabatans.map(j => abkMapByJbt.get(j.id) || null);
 
       const rows = fullJabatans.map((j, idx) => {
         const abk = abkList[idx];
@@ -376,7 +427,7 @@ export default function LaporanPage() {
             totalWaktuEfektif += we;
           });
           kebutuhanPegawai = totalWaktuEfektif / 1250;
-          pembulatanFormasi = Math.ceil(kebutuhanPegawai);
+          pembulatanFormasi = calculateFormasiPembulatan(kebutuhanPegawai);
         }
 
         return {

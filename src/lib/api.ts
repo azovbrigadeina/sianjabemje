@@ -210,8 +210,8 @@ async function executeActualRequest<T = unknown>(
           throw new Error(json.error || 'API request failed');
         }
 
-        // Simpan ke cache jika ini GET request yang cacheable (kecuali getJabatanFull)
-        if (!isWriteOperation && !url.includes('action=getJabatanFull')) {
+        // Simpan ke cache jika ini GET request yang cacheable
+        if (!isWriteOperation) {
           await setCache(url, json.data);
         }
 
@@ -286,9 +286,8 @@ async function apiCall<T = unknown>(
 
   const url = `${API_BASE}?${searchParams.toString()}`;
 
-  // Cek cache untuk GET request (non-write, kecuali getJabatanFull) — memory + IndexedDB
-  const noCacheActions = ['getJabatanFull'];
-  if (!isWriteOperation && !noCacheActions.includes(action)) {
+  // Cek cache untuk GET request (non-write) — memory + IndexedDB
+  if (!isWriteOperation) {
     const cached = await getFromCache<T>(url);
     if (cached !== null) {
       return cached;

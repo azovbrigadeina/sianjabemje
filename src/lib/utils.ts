@@ -115,3 +115,17 @@ export function filterTreeNodes<T extends { label: string; children?: T[] }>(nod
   
   return filter(nodes);
 }
+
+/**
+ * Calculates formasi pembulatan for ABK:
+ * - If totalKebutuhan <= 0 -> 0
+ * - If 0 < totalKebutuhan < 1.5 -> 1
+ * - If totalKebutuhan >= 1.5 -> Math.round(totalKebutuhan) (standard >= 0.5 threshold)
+ */
+export function calculateFormasiPembulatan(totalKebutuhan: number): number {
+  const val = Number(totalKebutuhan) || 0;
+  if (val <= 0) return 0;
+  if (val < 1.5) return 1;
+  return Math.round(val);
+}
+

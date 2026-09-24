@@ -12,6 +12,8 @@ import TabTugasPokok from "./components/TabTugasPokok";
 import TabBahanPerangkat from "./components/TabBahanPerangkat";
 import TabKorelasiLingkungan from "./components/TabKorelasiLingkungan";
 import TabSyaratJabatan from "./components/TabSyaratJabatan";
+import EditorHeader from "./components/EditorHeader";
+import QuickAbkModal from "@/components/QuickAbkModal";
 
 export type TreeNode = {
   id: string;
@@ -55,6 +57,9 @@ export default function AnalisisPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [downloadingWord, setDownloadingWord] = useState(false);
   const [downloadingSiasn, setDownloadingSiasn] = useState(false);
+  const [abkMap, setAbkMap] = useState<Record<string, any>>({});
+  const [isAbkModalOpen, setIsAbkModalOpen] = useState(false);
+  const [selectedJabatanForAbk, setSelectedJabatanForAbk] = useState<JabatanFull | null>(null);
   const [progressStatus, setProgressStatus] = useState<{
     show: boolean;
     title: string;
@@ -89,13 +94,22 @@ export default function AnalisisPage() {
   const loadTree = useCallback(async () => {
     setIsLoadingTree(true);
     try {
-      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']);
+      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']);
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatans = (bulkData.jabatan || []) as Jabatan[];
       const tugasPokoks = (bulkData.tugasPokok || []) as any[];
       const syaratList = (bulkData.syaratJabatan || []) as any[];
       const kualifikasiList = (bulkData.kualifikasi || []) as any[];
       const bahanList = (bulkData.bahanKerja || []) as any[];
+
+      const aMap: Record<string, any> = {};
+      if (bulkData.abk && Array.isArray(bulkData.abk)) {
+        bulkData.abk.forEach((a: any) => {
+          if (a.id) aMap[a.id] = a;
+          if (a.jabatanId) aMap[a.jabatanId] = a;
+        });
+      }
+      setAbkMap(aMap);
 
       const filledMap: Record<string, boolean> = {};
       if (tugasPokoks && Array.isArray(tugasPokoks)) {
@@ -750,8 +764,23 @@ export default function AnalisisPage() {
       const refreshed = await api.getJabatanFull(jabatanData.id) as JabatanFull;
       setJabatanData(refreshed);
       setVersionKey(prev => prev + 1);
-      setJabatanData(updatedJabatan);
-      setVersionKey(prev => prev + 1);
+      
+      const isTerisi = !!((refreshed.ikhtisarJabatan && refreshed.ikhtisarJabatan.trim().length > 5) || 
+                         (refreshed.tugasPokok && refreshed.tugasPokok.length > 0) ||
+                         (refreshed.bahanKerja && refreshed.bahanKerja.length > 0));
+      const updateNodeInTree = (nodes: TreeNode[]): TreeNode[] => {
+        return nodes.map(node => {
+          if (node.id === refreshed.id) {
+            return { ...node, ikhtisar: refreshed.ikhtisarJabatan || "", anjabTerisi: isTerisi };
+          }
+          if (node.children && node.children.length > 0) {
+            return { ...node, children: updateNodeInTree(node.children) };
+          }
+          return node;
+        });
+      };
+      setTreeData(prev => updateNodeInTree(prev));
+
       await new Promise(r => setTimeout(r, 300));
       updateStep(5, 'success', [
         `${getTimestamp()} SUCCESS: Impor file Excel selesai dengan sukses!`,
@@ -936,7 +965,30 @@ export default function AnalisisPage() {
 
         <div className={treeStyles.treeContainerWrapper} style={{ overflowX: 'auto', minWidth: '800px' }}>
           {isLoadingTree ? (
-            <div style={{ padding: '4rem', textAlign: 'center', opacity: 0.5 }}>Memuat silsilah pohon organisasi...</div>
+            <div style={{ padding: '2rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              <style>{`
+                @keyframes shimmerAnim {
+                  0% { background-position: -200% 0; }
+                  100% { background-position: 200% 0; }
+                }
+                .skeleton-shimmer {
+                  background: linear-gradient(90deg, #f1f5f9 25%, #cbd5e1 50%, #f1f5f9 75%);
+                  background-size: 200% 100%;
+                  animation: shimmerAnim 1.4s infinite ease-in-out;
+                  border-radius: 8px;
+                }
+              `}</style>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '0.5rem' }}>
+                <div className="skeleton-shimmer" style={{ width: '120px', height: '14px' }} />
+                <div className="skeleton-shimmer" style={{ flex: 1, height: '4px' }} />
+              </div>
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingLeft: `${(i % 3) * 1.5}rem` }}>
+                  <div className="skeleton-shimmer" style={{ width: '28px', height: '28px', borderRadius: '6px' }} />
+                  <div className="skeleton-shimmer" style={{ flex: 1, height: '42px', borderRadius: '10px' }} />
+                </div>
+              ))}
+            </div>
           ) : (
             <>
               {renderTreeNodes(paginatedTree)}
@@ -978,121 +1030,61 @@ export default function AnalisisPage() {
               ✕
             </button>
             <div className={styles.mainPanel}>
-              <div className={styles.panelHeader}>
-            <div className={styles.panelHeaderContent}>
-              <span className={styles.jobBadge}>{jabatanData?.jenisJabatan || "Jabatan"}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-              <div className={styles.jobTitle}>{jabatanData?.namaJabatan || "— Memuat Jabatan —"}</div>
-              {jabatanData && (
-                <button 
-                  onClick={handleResetAnjab}
-                  disabled={loadingEditor}
-                  style={{ 
-                    background: '#fff3f3', 
-                    color: '#e11d48', 
-                    border: '1px solid #fecdd3', 
-                    padding: '0.4rem 1rem', 
-                    borderRadius: '6px', 
-                    cursor: 'pointer', 
-                    fontWeight: 600, 
-                    fontSize: '0.8rem', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '0.4rem',
-                    transition: 'all 0.2s'
-                  }}
-                  title="Reset seluruh isian manual"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#ffe4e6';
-                    e.currentTarget.style.borderColor = '#fda4af';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff3f3';
-                    e.currentTarget.style.borderColor = '#fecdd3';
-                  }}
-                >
-                  <span>🧹</span> Reset Isian
-                </button>
-              )}
-            </div>
-            {jabatanData && (
-              <div style={{ fontSize: "0.85rem", opacity: 0.7, marginTop: "0.25rem", display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <span>Kode: <span style={{ fontFamily: "monospace" }}>{jabatanData.kodeJabatan}</span></span>
-                <span>{' · '} Kelas: <strong>{jabatanData.kelasJabatan}</strong></span>
-
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-                  <button 
-                    onClick={handleTriggerAI}
-                    disabled={aiLoading}
-                    style={{ background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                    title="Susun draf Anjab otomatis dengan Engine AI"
-                  >
-                    <span>✨</span> {aiLoading ? "Memproses AI..." : "Draf AI"}
-                  </button>
-                  <button 
-                    onClick={async () => {
-                      const { downloadTemplateXlsx } = await import("@/lib/importXlsx");
-                      downloadTemplateXlsx(jabatanData);
-                    }}
-                    style={{ background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <span>📥</span> Unduh Template
-                  </button>
-                  <label 
-                    style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <span>📤</span> Impor Excel
-                    <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportExcel} />
-                  </label>
-                  <label 
-                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <span>📤</span> Import Anjab Asli
-                    <input type="file" accept=".xlsx, .xls" style={{ display: 'none' }} onChange={handleImportAnjabAsli} />
-                  </label>
-                  <button 
-                    onClick={async () => {
-                      if (!jabatanData) return;
-                      setDownloadingWord(true);
-                      try {
-                        const { exportJabatanToDocx } = await import("@/lib/exportDocx");
-                        await exportJabatanToDocx(jabatanData);
-                        showToast("✨ Berhasil mengunduh Word");
-                      } catch (err: any) {
-                        alert("Gagal mengunduh Word: " + err.message);
-                      } finally {
-                        setDownloadingWord(false);
-                      }
-                    }}
-                    disabled={downloadingWord}
-                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: downloadingWord ? 0.7 : 1 }}
-                  >
-                    <span>📄</span> {downloadingWord ? "Mengunduh..." : "Unduh Word"}
-                  </button>
-                  <button 
-                    onClick={async () => {
-                      if (!jabatanData) return;
-                      setDownloadingSiasn(true);
-                      try {
-                        const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
-                        exportJabatanToSiasn(jabatanData);
-                        showToast("✨ Berhasil mengekspor SIASN");
-                      } catch (err: any) {
-                        alert("Gagal mengekspor SIASN: " + err.message);
-                      } finally {
-                        setDownloadingSiasn(false);
-                      }
-                    }}
-                    disabled={downloadingSiasn}
-                    style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: downloadingSiasn ? 0.7 : 1 }}
-                  >
-                    <span>📊</span> {downloadingSiasn ? "Mengekspor..." : "Unduh SIASN"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              <EditorHeader
+                jabatanData={jabatanData}
+                abkMap={abkMap}
+                aiLoading={aiLoading}
+                downloadingWord={downloadingWord}
+                downloadingSiasn={downloadingSiasn}
+                loadingEditor={loadingEditor}
+                onResetAnjab={handleResetAnjab}
+                onTriggerAI={handleTriggerAI}
+                onImportExcel={handleImportExcel}
+                onImportAnjabAsli={handleImportAnjabAsli}
+                onDownloadTemplate={async () => {
+                  if (!jabatanData) return;
+                  const { downloadTemplateXlsx } = await import("@/lib/importXlsx");
+                  downloadTemplateXlsx(jabatanData);
+                }}
+                onDownloadWord={async () => {
+                  if (!jabatanData) return;
+                  const existingAbk = abkMap[jabatanData.id];
+                  if (!existingAbk) {
+                    setSelectedJabatanForAbk(jabatanData);
+                    setIsAbkModalOpen(true);
+                    return;
+                  }
+                  setDownloadingWord(true);
+                  try {
+                    const { exportJabatanToDocx } = await import("@/lib/exportDocx");
+                    await exportJabatanToDocx(jabatanData, existingAbk);
+                    showToast("✨ Berhasil mengunduh Word");
+                  } catch (err: any) {
+                    alert("Gagal mengunduh Word: " + err.message);
+                  } finally {
+                    setDownloadingWord(false);
+                  }
+                }}
+                onDownloadSiasn={async () => {
+                  if (!jabatanData) return;
+                  setDownloadingSiasn(true);
+                  try {
+                    const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
+                    exportJabatanToSiasn(jabatanData);
+                    showToast("✨ Berhasil mengekspor SIASN");
+                  } catch (err: any) {
+                    alert("Gagal mengekspor SIASN: " + err.message);
+                  } finally {
+                    setDownloadingSiasn(false);
+                  }
+                }}
+                onOpenAbkModal={() => {
+                  if (jabatanData) {
+                    setSelectedJabatanForAbk(jabatanData);
+                    setIsAbkModalOpen(true);
+                  }
+                }}
+              />
 
           <div className={styles.tabs}>
             {TABS.map((tab) => (
@@ -1333,6 +1325,23 @@ export default function AnalisisPage() {
           `}} />
         </div>
       )}
+      <QuickAbkModal
+        isOpen={isAbkModalOpen}
+        onClose={() => setIsAbkModalOpen(false)}
+        jabatan={selectedJabatanForAbk}
+        onSuccess={async (newAbk) => {
+          if (selectedJabatanForAbk) {
+            setAbkMap(prev => ({ ...prev, [selectedJabatanForAbk.id]: newAbk }));
+            try {
+              const { exportJabatanToDocx } = await import("@/lib/exportDocx");
+              await exportJabatanToDocx(selectedJabatanForAbk, newAbk);
+              showToast("✨ ABK berhasil disimpan & dokumen Word diunduh");
+            } catch (e: any) {
+              alert("ABK tersimpan, namun gagal mengunduh Word: " + e.message);
+            }
+          }
+        }}
+      />
     </div>
   );
 }
