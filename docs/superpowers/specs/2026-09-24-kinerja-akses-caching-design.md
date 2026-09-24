@@ -10,6 +10,8 @@ Sianjab digunakan bersamaan oleh 42+ OPD dengan kuota Google Apps Script (GAS) s
    Klien meng-cache berdasarkan string URL mentah, sehingga data `unitKerja` atau `jabatan` tidak bisa dibagi antar-halaman yang memanggil daftar entitas berbeda. Selain itu, setiap simpan data apapun memicu `invalidateAllCache()` yang menghapus seluruh memori & IndexedDB.
 4. **Redundant Fetch di Layout**:
    `dashboard/layout.tsx` dan `operator/layout.tsx` melakukan fetch terpisah untuk tema, tahun aktif, dan nama unit kerja pada setiap mount.
+5. **Ketiadaan Optimistic Loading**:
+   Ketika berpindah halaman atau membuka pohon data, pengguna harus menunggu loading/skeleton selama beberapa detik sebelum data muncul, meskipun data tersebut sudah pernah dimuat sebelumnya.
 
 ---
 
@@ -40,8 +42,10 @@ Sianjab digunakan bersamaan oleh 42+ OPD dengan kuota Google Apps Script (GAS) s
 2. **Targeted / Granular Invalidation**:
    - Ketika menyimpan sub-entitas jabatan (tugas pokok, syarat jabatan, kualifikasi, dsb.), hanya hapus cache entitas tersebut dan cache spesifik `jabatanFull_{jabatanId}`.
    - Cache `unitKerja`, `referensiJabatan`, dan `settings` tetap utuh.
-3. **Optimistic Tree Status Update**:
-   - Saat pengguna menyimpan tugas pokok atau syarat pertama kali pada suatu jabatan di editor, state pohon lokal langsung di-update menjadi `anjabTerisi = true` seketika tanpa perlu memuat ulang pohon se-kabupaten.
+3. **Optimistic Loading & Stale-While-Revalidate (SWR)**:
+   - **Immediate Cache Hydration (0 ms)**: Untuk semua pemuatan data (pohon organisasi, pohon anjab, pohon beban kerja, referensi, dashboard), jika data cache sudah ada di memori/IndexedDB, langsung tampilkan ke layar seketika dalam 0 milidetik tanpa memblokir UI dengan loading spinner.
+   - **Background Silent Revalidation**: Setelah UI menampilkan data cache, browser melakukan pengecekan/sinkronisasi di latar belakang secara hening tanpa mengganggu interaksi pengguna.
+   - **Optimistic UI pada Mutasi/Simpan**: Ketika pengguna menyimpan perubahan (misal: tugas pokok, syarat, kualifikasi, reorder urutan), UI layar dan badge centang hijau pohon langsung diperbarui secara instan mendahului respons server (optimistic update). Jika terjadi kegagalan jaringan, sistem mengembalikan state semula dan menampilkan notifikasi toast error.
 
 ### C. Konsolidasi Layout (`layout.tsx`)
 1. Menggunakan data OPD dan setting yang tersimpan di sesi lokal (`sianjab_user` dan `localStorage`) saat inisialisasi awal.
@@ -65,5 +69,5 @@ Sianjab digunakan bersamaan oleh 42+ OPD dengan kuota Google Apps Script (GAS) s
    - Edit tugas pokok pada Jabatan A -> Simpan -> Pindah ke tab lain -> Pindah ke Jabatan B -> Kembali ke Jabatan A -> Pastikan data terbaru muncul.
 3. Verifikasi badge pohon:
    - Pastikan indikator status centang hijau terisi muncul dengan benar menggunakan ringkasan status ringan.
-4. Uji perpindahan halaman:
-   - Dari Organisasi ke Analisis ke Beban Kerja: pastikan data master `unitKerja` dan `jabatan` langsung instan dari cache lokal.
+4. Uji perpindahan halaman & Optimistic Loading:
+   - Dari Organisasi ke Analisis ke Beban Kerja: pastikan data master `unitKerja` dan `jabatan` langsung muncul instan (0 ms) tanpa layar putih/spinner lama.
