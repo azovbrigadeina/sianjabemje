@@ -326,12 +326,14 @@ export default function LaporanPage() {
     setShowBulkModal(false);
     try {
       const opdName = opds.find(o => o.id === selectedOpd1)?.nama || "OPD";
-      const bulkData = await api.getBulkData([
-        'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
-        'tanggungJawab', 'wewenang', 'korelasiJabatan',
-        'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
-        'kualifikasi', 'prestasiKerja', 'hasilKerja'
-      ]);
+      const bulkData = await api.getBulkAnjabByUnit(selectedOpd1).catch(async () => {
+        return await api.getBulkData([
+          'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
+          'tanggungJawab', 'wewenang', 'korelasiJabatan',
+          'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
+          'kualifikasi', 'prestasiKerja', 'hasilKerja'
+        ]);
+      });
 
       const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
       const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
@@ -375,12 +377,14 @@ export default function LaporanPage() {
         return;
       }
 
-      const bulkData = await api.getBulkData([
-        'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
-        'tanggungJawab', 'wewenang', 'korelasiJabatan',
-        'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
-        'kualifikasi', 'prestasiKerja', 'hasilKerja'
-      ]);
+      const bulkData = await api.getBulkAnjabByUnit(selectedOpd3).catch(async () => {
+        return await api.getBulkData([
+          'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
+          'tanggungJawab', 'wewenang', 'korelasiJabatan',
+          'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
+          'kualifikasi', 'prestasiKerja', 'hasilKerja'
+        ]);
+      });
 
       const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
       const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];

@@ -83,15 +83,23 @@ export default function OperatorLayout({
     }
   }, [user, isLoading, router]);
 
-  // Fetch OPD name
+  // Fetch OPD name with optimistic cache
   useEffect(() => {
-    if (user?.unitKerjaId) {
-      api.getUnitKerja().then((raw) => {
-        const opds = (raw as UnitKerja[]) || [];
-        const found = opds.find((o) => o.id === user.unitKerjaId);
-        if (found) setOpdName(found.nama);
-      }).catch(() => {});
-    }
+    if (!user?.unitKerjaId) return;
+
+    // 1. Optimistic instant check from local cache
+    api.getCachedBulkData(['unitKerja']).then((cached) => {
+      const opds = (cached?.unitKerja as UnitKerja[]) || [];
+      const found = opds.find((o) => o.id === user.unitKerjaId);
+      if (found) setOpdName(found.nama);
+    }).catch(() => {});
+
+    // 2. Fetch fresh data
+    api.getUnitKerja().then((raw) => {
+      const opds = (raw as UnitKerja[]) || [];
+      const found = opds.find((o) => o.id === user.unitKerjaId);
+      if (found) setOpdName(found.nama);
+    }).catch(() => {});
   }, [user]);
 
   const handleLogout = () => {

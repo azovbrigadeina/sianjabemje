@@ -102,6 +102,89 @@ async function invalidateAllCache() {
   await clearIndexedDbStore();
 }
 
+/** Hapus entri cache yang cocok dengan prefix tertentu (memory + IndexedDB) */
+async function deleteCacheByPrefix(prefix: string): Promise<void> {
+  // Clear from in-memory cache
+  for (const k of Array.from(API_CACHE.keys())) {
+    if (k.includes(prefix)) {
+      API_CACHE.delete(k);
+    }
+  }
+
+  // Clear from IndexedDB
+  try {
+    const db = await openDB();
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.openCursor();
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        if (typeof cursor.key === 'string' && cursor.key.includes(prefix)) {
+          cursor.delete();
+        }
+        cursor.continue();
+      }
+    };
+  } catch (e) {
+    console.warn('IndexedDB delete prefix error:', e);
+  }
+}
+
+/** Invalidation Terarah (Granular / Targeted) untuk mencegah penghapusan cache yang tidak perlu */
+async function invalidateTargetedCache(
+  action: string,
+  entity: string,
+  opts?: { params?: Record<string, string>; data?: unknown }
+) {
+  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+  const parentId = opts?.params?.parentId || opts?.params?.id || (opts?.data as any)?.jabatanId || (opts?.data as any)?.id;
+
+  // Operasi reset global yang membutuhkan wipe menyeluruh
+  const globalResetActions = [
+    'cloneYearData', 'deleteYearData', 'restoreFullDatabase',
+    'restoreBatchJabatans', 'restoreBatchEntities', 'cleanupOrphanedRecords',
+    'syncFromSheet', 'syncToSheet'
+  ];
+
+  if (globalResetActions.includes(action) || entity === 'unitKerja') {
+    await invalidateAllCache();
+    return;
+  }
+
+  // Hapus cache entitas spesifik
+  if (entity) {
+    await deleteCacheByPrefix(`entity_${activeYear}_${entity}`);
+    await deleteCacheByPrefix(`entity=${entity}`);
+  }
+
+  // Jika mutasi terkait jabatan, hapus cache detail jabatan tersebut
+  if (parentId) {
+    await deleteCacheByPrefix(`jfull_${activeYear}_${parentId}`);
+    await deleteCacheByPrefix(`id=${parentId}`);
+    await deleteCacheByPrefix(`parentId=${parentId}`);
+  }
+
+  // Invalidate ringkasan status dan bulk data yang terpengaruh
+  await deleteCacheByPrefix(`getAnjabStatusSummary`);
+  await deleteCacheByPrefix(`getBulkData`);
+  await deleteCacheByPrefix(`statusSummary`);
+  await deleteCacheByPrefix(`getBulkAnjabByUnit`);
+
+  // Hapus dari memori cepat (in-memory)
+  for (const key of Array.from(API_CACHE.keys())) {
+    if (
+      key.includes('getBulkData') ||
+      key.includes('getAnjabStatusSummary') ||
+      key.includes('getBulkAnjabByUnit') ||
+      (entity && key.includes(entity)) ||
+      (parentId && key.includes(parentId))
+    ) {
+      API_CACHE.delete(key);
+    }
+  }
+}
+
 /** Ambil dari cache jika masih valid (memory first, then IndexedDB) */
 async function getFromCache<T>(key: string): Promise<T | null> {
   // Check memory first (fastest)
@@ -176,7 +259,12 @@ async function executeActualRequest<T = unknown>(
   options: {
     data?: unknown;
     signal?: AbortSignal;
-  } = {}
+  } = {},
+  context?: {
+    action: string;
+    entity: string;
+    opts: any;
+  }
 ): Promise<T> {
   const timeoutMs = 30000; // 30 detik timeout default
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -213,12 +301,25 @@ async function executeActualRequest<T = unknown>(
         // Simpan ke cache jika ini GET request yang cacheable
         if (!isWriteOperation) {
           await setCache(url, json.data);
+          const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+          if (context?.action === 'getBulkData' && json.data && typeof json.data === 'object' && !Array.isArray(json.data)) {
+            for (const [entName, entData] of Object.entries(json.data)) {
+              await setCache(`entity_${activeYear}_${entName}`, entData);
+            }
+          } else if (context?.action === 'getJabatanFull' && json.data && (json.data as any).id) {
+            await setCache(`jfull_${activeYear}_${(json.data as any).id}`, json.data);
+          } else if (context?.action === 'getAnjabStatusSummary' && json.data) {
+            await setCache(`statusSummary_${activeYear}`, json.data);
+          }
         }
 
-        // Setelah write berhasil, hapus cache lagi untuk memastikan
-        // GET berikutnya ambil data segar dari server
+        // Setelah write berhasil, hapus cache terarah
         if (isWriteOperation) {
-          await invalidateAllCache();
+          if (context) {
+            await invalidateTargetedCache(context.action, context.entity, context.opts);
+          } else {
+            await invalidateAllCache();
+          }
         }
 
         return json.data;
@@ -288,6 +389,15 @@ async function apiCall<T = unknown>(
 
   // Cek cache untuk GET request (non-write) — memory + IndexedDB
   if (!isWriteOperation) {
+    if (action === 'getJabatanFull' && opts.params?.id) {
+      const cached = await getFromCache<T>(`jfull_${activeYear}_${opts.params.id}`);
+      if (cached !== null) return cached;
+    }
+    if (action === 'getAnjabStatusSummary') {
+      const cached = await getFromCache<T>(`statusSummary_${activeYear}`);
+      if (cached !== null) return cached;
+    }
+
     const cached = await getFromCache<T>(url);
     if (cached !== null) {
       return cached;
@@ -300,10 +410,9 @@ async function apiCall<T = unknown>(
     }
   }
 
-  // Jika ini operasi write → langsung hapus SELURUH cache
-  // supaya setelah save/delete, data yang ditampilkan pasti fresh
+  // Jika ini operasi write → langsung bersihkan cache terkait
   if (isWriteOperation) {
-    await invalidateAllCache();
+    await invalidateTargetedCache(action, entity, opts);
   }
 
   if (isWriteOperation) {
@@ -311,14 +420,14 @@ async function apiCall<T = unknown>(
     const result = await new Promise<T>((resolve, reject) => {
       writeQueuePromise = writeQueuePromise.then(async () => {
         try {
-          const resData = await executeActualRequest<T>(url, true, opts);
+          const resData = await executeActualRequest<T>(url, true, opts, { action, entity, opts });
           resolve(resData);
         } catch (err) {
           reject(err);
         }
       }).catch(async () => {
         try {
-          const resData = await executeActualRequest<T>(url, true, opts);
+          const resData = await executeActualRequest<T>(url, true, opts, { action, entity, opts });
           resolve(resData);
         } catch (err) {
           reject(err);
@@ -328,7 +437,7 @@ async function apiCall<T = unknown>(
     return result;
   } else {
     // READ: jalankan langsung (paralel), dengan in-flight deduplication
-    const requestPromise = executeActualRequest<T>(url, false, opts)
+    const requestPromise = executeActualRequest<T>(url, false, opts, { action, entity, opts })
       .finally(() => {
         inFlightRequests.delete(url);
       });
@@ -386,6 +495,39 @@ export const api = {
   // Mengurangi jumlah round-trip secara drastis.
   getBulkData: <T = Record<string, any[]>>(entities: string[], signal?: AbortSignal) =>
     apiCall<T>('getBulkData', '', { params: { entities: entities.join(',') }, signal }),
+
+  // -- Ringkasan Status Anjab/ABK (Payload Ringan untuk Render Instan Pohon) --
+  getAnjabStatusSummary: (signal?: AbortSignal) =>
+    apiCall<{ anjabFilled: string[]; abkFilled: string[] }>('getAnjabStatusSummary', '', { signal }),
+
+  // -- Bulk Anjab per Unit Kerja (Untuk Cetak Laporan Cepat Tanpa Muat Seluruh Kabupaten) --
+  getBulkAnjabByUnit: (unitKerjaId: string, signal?: AbortSignal) =>
+    apiCall<Record<string, any[]>>('getBulkAnjabByUnit', '', { params: { unitKerjaId }, signal }),
+
+  // -- Optimistic Hydration Helpers (Render Instan 0ms dari Cache Lokal) --
+  getCachedBulkData: async <T = Record<string, any[]>>(entities: string[]): Promise<T | null> => {
+    if (typeof window === 'undefined') return null;
+    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    const result: Record<string, any[]> = {};
+    for (const ent of entities) {
+      const cached = await getFromCache<any[]>(`entity_${activeYear}_${ent}`);
+      if (!cached) return null;
+      result[ent] = cached;
+    }
+    return result as T;
+  },
+
+  getCachedJabatanFull: async (jabatanId: string): Promise<any | null> => {
+    if (typeof window === 'undefined' || !jabatanId) return null;
+    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    return getFromCache<any>(`jfull_${activeYear}_${jabatanId}`);
+  },
+
+  getCachedStatusSummary: async (): Promise<{ anjabFilled: string[]; abkFilled: string[] } | null> => {
+    if (typeof window === 'undefined') return null;
+    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    return getFromCache<{ anjabFilled: string[]; abkFilled: string[] }>(`statusSummary_${activeYear}`);
+  },
 
 
   getDashboardStats: (signal?: AbortSignal) =>

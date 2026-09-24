@@ -142,6 +142,13 @@ function invalidateCache_(entity) {
   removeLargeCache_(key2);
 }
 
+function invalidateJabatanCache_(jabatanId) {
+  if (jabatanId) {
+    removeLargeCache_('fb_' + CURRENT_TAHUN + '_jfull_' + jabatanId);
+  }
+  removeLargeCache_('fb_' + CURRENT_TAHUN + '_statusSummary');
+}
+
 function invalidateAllCaches_() {
   var entities = [
     'unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 
@@ -156,6 +163,7 @@ function invalidateAllCaches_() {
       removeLargeCache_('fb_' + y + '_' + ent);
     });
   });
+  removeLargeCache_('fb_' + CURRENT_TAHUN + '_statusSummary');
 }
 
 // =============================================
@@ -483,6 +491,14 @@ function handleRequest_(e) {
         result = readMultipleEntities_(bulkEntities);
         break;
 
+      case 'getAnjabStatusSummary':
+        result = getAnjabStatusSummary_();
+        break;
+
+      case 'getBulkAnjabByUnit':
+        result = getBulkAnjabByUnit_(params.unitKerjaId || (data ? data.unitKerjaId : ''));
+        break;
+
       case 'exportFullDatabase':
         result = exportFullDatabase_();
         break;
@@ -749,6 +765,9 @@ function updateRecord_(entity, id, data) {
   data.updatedAt = new Date().toISOString();
   fbPatch_(getFirebasePath_(entity, id), data);
   invalidateCache_(entity);
+  if (entity === 'jabatan') {
+    invalidateJabatanCache_(id);
+  }
   data.id = id;
   return data;
 }
@@ -817,6 +836,9 @@ function deleteRecord_(entity, id) {
 
   fbDelete_(getFirebasePath_(entity, id));
   invalidateCache_(entity);
+  if (entity === 'jabatan') {
+    invalidateJabatanCache_(id);
+  }
   return { id: id, deleted: true };
 }
 
@@ -876,6 +898,7 @@ function saveSingleEntity_(entity, jabatanId, data) {
   }
 
   data.jabatanId = jabatanId;
+  invalidateJabatanCache_(jabatanId);
 
   if (existingId) {
     return updateRecord_(entity, existingId, data);
@@ -922,6 +945,7 @@ function saveMultiEntity_(entity, parentId, rows) {
     // 3. Perform atomic patch update
     fbPatch_(getFirebasePath_(entity), patchPayload);
     invalidateCache_(entity);
+    invalidateJabatanCache_(parentId);
     return { success: true, count: rows ? rows.length : 0 };
   } finally {
     try { lock.releaseLock(); } catch (e) {}
@@ -1107,6 +1131,7 @@ function saveBulkAnjabData_(parentId, payload) {
     cacheEntities.forEach(function(ent) {
       invalidateCache_(ent);
     });
+    invalidateJabatanCache_(parentId);
 
     return { success: true, requestCount: writeRequests.length };
   } finally {
@@ -1139,6 +1164,13 @@ function getJabatanByUnit_(unitId) {
 }
 
 function getJabatanFull_(jabatanId) {
+  if (!jabatanId) return null;
+  var cacheKey = 'fb_' + CURRENT_TAHUN + '_jfull_' + jabatanId;
+  var cached = getLargeCache_(cacheKey);
+  if (cached !== null && cached !== undefined) {
+    return cached;
+  }
+
   var multiEntities = [
     'tugasPokok', 'bahanKerja', 'perangkatKerja',
     'tanggungJawab', 'wewenang', 'korelasiJabatan',
@@ -1181,6 +1213,8 @@ function getJabatanFull_(jabatanId) {
   var allJabatanMap = {};
   jabatans.forEach(function(j) { allJabatanMap[j.id] = j; });
   jabatan.hierarchy = getJabatanHierarchy_(jabatanId, allJabatanMap);
+
+  putLargeCache_(cacheKey, jabatan, 300);
 
   return jabatan;
 }
@@ -1791,6 +1825,7 @@ function saveABK_(jabatanId, data) {
   data.updatedAt = new Date().toISOString();
   fbPut_(getFirebasePath_('abk', jabatanId), data);
   invalidateCache_('abk');
+  invalidateJabatanCache_(jabatanId);
   return { jabatanId: jabatanId, saved: true };
 }
 
@@ -3381,6 +3416,109 @@ function readMultipleEntities_(entities) {
   }
   
   return result;
+}
+
+function getAnjabStatusSummary_() {
+  var cacheKey = 'fb_' + CURRENT_TAHUN + '_statusSummary';
+  var cached = getLargeCache_(cacheKey);
+  if (cached !== null && cached !== undefined) {
+    return cached;
+  }
+
+  // 1. ABK filled IDs
+  var abkData = cachedFbGet_(getFirebasePath_('abk'), 300) || {};
+  var abkFilledSet = {};
+  Object.keys(abkData).forEach(function(k) {
+    var item = abkData[k];
+    var jId = (item && item.jabatanId) ? item.jabatanId : k;
+    if (jId) abkFilledSet[jId] = true;
+  });
+
+  // 2. Anjab filled IDs (tugasPokok, syaratJabatan, kualifikasi, bahanKerja)
+  var anjabFilledSet = {};
+  var entities = ['tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja'];
+  var requests = [];
+  var misses = [];
+
+  entities.forEach(function(ent) {
+    var p = getFirebasePath_(ent);
+    var cKey = 'fb_' + p.replace(/\//g, '_');
+    var cData = getLargeCache_(cKey);
+    if (cData !== null && cData !== undefined) {
+      Object.keys(cData).forEach(function(k) {
+        var row = cData[k];
+        if (row && row.jabatanId) anjabFilledSet[row.jabatanId] = true;
+      });
+    } else {
+      misses.push({ entity: ent, cacheKey: cKey, path: p });
+      requests.push({
+        url: FIREBASE_URL + '/' + p + '.json?auth=' + FIREBASE_SECRET,
+        method: 'get',
+        muteHttpExceptions: true
+      });
+    }
+  });
+
+  if (requests.length > 0) {
+    var responses = UrlFetchApp.fetchAll(requests);
+    for (var i = 0; i < requests.length; i++) {
+      var miss = misses[i];
+      var res = responses[i];
+      if (res.getResponseCode() === 200) {
+        var text = res.getContentText();
+        if (text && text !== 'null') {
+          var data = JSON.parse(text);
+          putLargeCache_(miss.cacheKey, data, 300);
+          Object.keys(data).forEach(function(k) {
+            var row = data[k];
+            if (row && row.jabatanId) anjabFilledSet[row.jabatanId] = true;
+          });
+        }
+      }
+    }
+  }
+
+  var result = {
+    anjabFilled: Object.keys(anjabFilledSet),
+    abkFilled: Object.keys(abkFilledSet)
+  };
+
+  putLargeCache_(cacheKey, result, 300);
+  return result;
+}
+
+function getBulkAnjabByUnit_(unitKerjaId) {
+  var allReqEntities = [
+    'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja',
+    'tanggungJawab', 'wewenang', 'korelasiJabatan',
+    'kondisiLingkungan', 'risikoBahaya', 'syaratJabatan',
+    'kualifikasi', 'prestasiKerja', 'hasilKerja'
+  ];
+
+  var bulk = readMultipleEntities_(allReqEntities);
+  if (!unitKerjaId) {
+    return bulk;
+  }
+
+  var allJabatan = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+  var jbtIdSet = {};
+  Object.keys(allJabatan).forEach(function(key) {
+    var j = allJabatan[key];
+    if (j.unitKerjaId === unitKerjaId) {
+      jbtIdSet[key] = true;
+    }
+  });
+
+  var filteredResult = {};
+  allReqEntities.forEach(function(ent) {
+    var items = bulk[ent] || [];
+    filteredResult[ent] = items.filter(function(item) {
+      var jId = item.jabatanId || item.id;
+      return !!jbtIdSet[jId];
+    });
+  });
+
+  return filteredResult;
 }
 
 function runBenchmark_() {

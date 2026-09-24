@@ -95,21 +95,169 @@ export default function OperatorAnalisisPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // LOAD TREE
+  // OPERATOR TREE BUILDER HELPER
+  const buildOperatorTreeNodes = (
+    allOpds: UnitKerja[],
+    allJabatans: Jabatan[],
+    unitKerjaId: string,
+    anjabFilledSet: Set<string>
+  ): { roots: TreeNode[]; expandState: Record<string, boolean> } => {
+    const userOpd = allOpds.find(o => o.id === unitKerjaId || (o.kode && o.kode.trim() === unitKerjaId));
+    const targetUnitId = userOpd ? userOpd.id : unitKerjaId;
+    const targetUnitKode = userOpd && userOpd.kode ? userOpd.kode.trim() : "";
+
+    const myOpdKeys = new Set<string>();
+    if (unitKerjaId) myOpdKeys.add(unitKerjaId);
+    if (targetUnitId) myOpdKeys.add(targetUnitId);
+    if (targetUnitKode) myOpdKeys.add(targetUnitKode);
+
+    allOpds.forEach(opd => {
+      if (opd.parentId === targetUnitId || (targetUnitKode && opd.parentId === targetUnitKode)) {
+        myOpdKeys.add(opd.id);
+        if (opd.kode) myOpdKeys.add(opd.kode.trim());
+      }
+    });
+
+    const opds = allOpds.filter(opd => myOpdKeys.has(opd.id) || (opd.kode && myOpdKeys.has(opd.kode.trim())));
+    const jabatans = allJabatans.filter(jbt => myOpdKeys.has(jbt.unitKerjaId || ""));
+
+    const map: Record<string, TreeNode> = {};
+    const roots: TreeNode[] = [];
+    const expandState: Record<string, boolean> = {};
+
+    opds.forEach(opd => {
+      const node: TreeNode = {
+        id: opd.id, type: 'OPD', label: opd.nama || opd.id,
+        parentId: opd.parentId, urutan: opd.urutan || 0, children: []
+      };
+      map[opd.id] = node;
+      if (opd.kode) map[opd.kode.trim()] = node;
+      expandState[opd.id] = false;
+    });
+
+    jabatans.forEach(jbt => {
+      map[jbt.id] = {
+        id: jbt.id, type: 'JABATAN', label: jbt.namaJabatan || jbt.id,
+        eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
+        parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
+        urutan: jbt.urutan || 0, ikhtisar: jbt.ikhtisarJabatan || "", 
+        anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) || anjabFilledSet.has(jbt.id),
+        children: []
+      };
+    });
+
+    const opdToExternalParentJbt: Record<string, string> = {};
+    const jbtToReroute: Record<string, boolean> = {};
+
+    const jabatanById = new Map<string, any>();
+    jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
+
+    jabatans.forEach(jbt => {
+      if (jbt.parentId && jbt.unitKerjaId) {
+        const parentJbt = jabatanById.get(jbt.parentId);
+        if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
+          opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
+          jbtToReroute[jbt.id] = true;
+        }
+      }
+    });
+
+    opds.forEach(opd => {
+      if (opdToExternalParentJbt[opd.id] && map[opdToExternalParentJbt[opd.id]]) {
+        map[opdToExternalParentJbt[opd.id]].children.push(map[opd.id]);
+      } else if (opd.parentId && map[opd.parentId]) {
+        map[opd.parentId].children.push(map[opd.id]);
+      } else {
+        roots.push(map[opd.id]);
+      }
+    });
+
+    jabatans.forEach(jbt => {
+      if (jbt.parentId && map[jbt.parentId] && !jbtToReroute[jbt.id]) {
+        map[jbt.parentId].children.push(map[jbt.id]);
+      } else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) {
+        map[jbt.unitKerjaId].children.push(map[jbt.id]);
+      } else if (opds.length === 0) {
+        roots.push(map[jbt.id]);
+      }
+    });
+
+    const getEselonWeight = (eselon?: string) => {
+      const val = (eselon || '').toLowerCase().trim();
+      if (val.includes('pimpinan tinggi')) return 5;
+      if (val === 'administrator') return 4;
+      if (val === 'pengawas') return 3;
+      if (val.includes('fungsional')) return 2;
+      if (val === 'pelaksana') return 1;
+      return 0;
+    };
+
+    const sortNodes = (nodes: TreeNode[]) => {
+      nodes.sort((a, b) => {
+        const urutA = a.urutan || 999;
+        const urutB = b.urutan || 999;
+        if (urutA !== urutB) return urutA - urutB;
+        const kelasA = Number(a.kelas) || 0;
+        const kelasB = Number(b.kelas) || 0;
+        if (kelasA !== kelasB) return kelasB - kelasA;
+        const wA = getEselonWeight(a.eselon);
+        const wB = getEselonWeight(b.eselon);
+        if (wA !== wB) return wB - wA;
+        return a.label.localeCompare(b.label);
+      });
+      nodes.forEach(n => { if (n.children.length > 0) sortNodes(n.children); });
+    };
+
+    sortNodes(roots);
+    return { roots, expandState };
+  };
+
+  // LOAD TREE WITH OPTIMISTIC HYDRATION (0 ms Display)
   const loadTree = useCallback(async () => {
     if (!user?.unitKerjaId) return;
-    setIsLoadingTree(true);
+
+    // 1. Optimistic Cache Hydration
     try {
-      const [bulkData, deadlineData] = await Promise.all([
-        api.getBulkData(['unitKerja', 'jabatan', 'abk', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja']),
+      const [cachedBulk, cachedSummary] = await Promise.all([
+        api.getCachedBulkData(['unitKerja', 'jabatan', 'abk']),
+        api.getCachedStatusSummary()
+      ]);
+
+      if (cachedBulk && cachedBulk.unitKerja && cachedBulk.jabatan) {
+        const cOpds = cachedBulk.unitKerja as UnitKerja[];
+        const cJabatans = cachedBulk.jabatan as Jabatan[];
+        const cAnjabSet = new Set(cachedSummary?.anjabFilled || []);
+
+        const aMap: Record<string, any> = {};
+        if (cachedBulk.abk && Array.isArray(cachedBulk.abk)) {
+          cachedBulk.abk.forEach((a: any) => {
+            if (a.id) aMap[a.id] = a;
+            if (a.jabatanId) aMap[a.jabatanId] = a;
+          });
+        }
+        setAbkMap(aMap);
+
+        const { roots, expandState } = buildOperatorTreeNodes(cOpds, cJabatans, user.unitKerjaId, cAnjabSet);
+        setTreeData(roots);
+        setExpandedNodes(prev => Object.keys(prev).length > 0 ? prev : expandState);
+        setIsLoadingTree(false); // 0 ms instant render!
+      } else {
+        setIsLoadingTree(true);
+      }
+    } catch {
+      setIsLoadingTree(true);
+    }
+
+    // 2. Light Network Fetch
+    try {
+      const [bulkData, summary, deadlineData] = await Promise.all([
+        api.getBulkData(['unitKerja', 'jabatan', 'abk']),
+        api.getAnjabStatusSummary().catch(() => ({ anjabFilled: [], abkFilled: [] })),
         api.getDeadline().catch(() => null)
       ]);
+
       const opdsRaw = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatansRaw = (bulkData.jabatan || []) as Jabatan[];
-      const tugasPokoks = (bulkData.tugasPokok || []) as any[];
-      const syaratList = (bulkData.syaratJabatan || []) as any[];
-      const kualifikasiList = (bulkData.kualifikasi || []) as any[];
-      const bahanList = (bulkData.bahanKerja || []) as any[];
 
       const aMap: Record<string, any> = {};
       if (bulkData.abk && Array.isArray(bulkData.abk)) {
@@ -145,138 +293,15 @@ export default function OperatorAnalisisPage() {
       setIsReadOnly(readOnlyActive);
       setLockReason(reason);
 
-      const filledMap: Record<string, boolean> = {};
-      if (tugasPokoks && Array.isArray(tugasPokoks)) {
-        tugasPokoks.forEach(tp => { if (tp.jabatanId) filledMap[tp.jabatanId] = true; });
-      }
-      if (syaratList && Array.isArray(syaratList)) {
-        syaratList.forEach(s => { if (s.jabatanId) filledMap[s.jabatanId] = true; });
-      }
-      if (kualifikasiList && Array.isArray(kualifikasiList)) {
-        kualifikasiList.forEach(k => { if (k.jabatanId) filledMap[k.jabatanId] = true; });
-      }
-      if (bahanList && Array.isArray(bahanList)) {
-        bahanList.forEach(b => { if (b.jabatanId) filledMap[b.jabatanId] = true; });
-      }
-
-      const allOpds = opdsRaw || [];
-      const allJabatans = jabatansRaw || [];
-
-      // Filter: Only include the user's OPD and its sub-units (matching by ID or Kode)
-      const userOpd = allOpds.find(o => o.id === user.unitKerjaId || (o.kode && o.kode.trim() === user.unitKerjaId));
-      const targetUnitId = userOpd ? userOpd.id : user.unitKerjaId;
-      const targetUnitKode = userOpd && userOpd.kode ? userOpd.kode.trim() : "";
-
-      const myOpdKeys = new Set<string>();
-      if (user.unitKerjaId) myOpdKeys.add(user.unitKerjaId);
-      if (targetUnitId) myOpdKeys.add(targetUnitId);
-      if (targetUnitKode) myOpdKeys.add(targetUnitKode);
-
-      allOpds.forEach(opd => {
-        if (opd.parentId === targetUnitId || (targetUnitKode && opd.parentId === targetUnitKode)) {
-          myOpdKeys.add(opd.id);
-          if (opd.kode) myOpdKeys.add(opd.kode.trim());
-        }
-      });
-
-      const opds = allOpds.filter(opd => myOpdKeys.has(opd.id) || (opd.kode && myOpdKeys.has(opd.kode.trim())));
-      const jabatans = allJabatans.filter(jbt => myOpdKeys.has(jbt.unitKerjaId || ""));
-
-      const map: Record<string, TreeNode> = {};
-      const roots: TreeNode[] = [];
-      const expandState: Record<string, boolean> = {};
-
-      opds.forEach(opd => {
-        const node: TreeNode = {
-          id: opd.id, type: 'OPD', label: opd.nama || opd.id,
-          parentId: opd.parentId, urutan: opd.urutan || 0, children: []
-        };
-        map[opd.id] = node;
-        if (opd.kode) map[opd.kode.trim()] = node;
-        expandState[opd.id] = false; // Collapsed by default
-      });
-
-      jabatans.forEach(jbt => {
-        map[jbt.id] = {
-          id: jbt.id, type: 'JABATAN', label: jbt.namaJabatan || jbt.id,
-          eselon: jbt.jenisJabatan, kelas: jbt.kelasJabatan,
-          parentId: jbt.parentId, unitKerjaId: jbt.unitKerjaId,
-          urutan: jbt.urutan || 0, ikhtisar: jbt.ikhtisarJabatan || "", 
-          anjabTerisi: (jbt.ikhtisarJabatan && jbt.ikhtisarJabatan.trim().length > 5) || !!filledMap[jbt.id],
-          children: []
-        };
-      });
-
-      // --- TIPUAN VISUAL UNTUK SUB-UNIT (BAGIAN/UPTD) ---
-      const opdToExternalParentJbt: Record<string, string> = {};
-      const jbtToReroute: Record<string, boolean> = {};
-
-      const jabatanById = new Map<string, any>();
-      jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
-
-      jabatans.forEach(jbt => {
-        if (jbt.parentId && jbt.unitKerjaId) {
-          const parentJbt = jabatanById.get(jbt.parentId);
-          if (parentJbt && parentJbt.unitKerjaId && parentJbt.unitKerjaId !== jbt.unitKerjaId) {
-            opdToExternalParentJbt[jbt.unitKerjaId] = jbt.parentId;
-            jbtToReroute[jbt.id] = true;
-          }
-        }
-      });
-
-      opds.forEach(opd => {
-        if (opdToExternalParentJbt[opd.id] && map[opdToExternalParentJbt[opd.id]]) {
-          map[opdToExternalParentJbt[opd.id]].children.push(map[opd.id]);
-        } else if (opd.parentId && map[opd.parentId]) {
-          map[opd.parentId].children.push(map[opd.id]);
-        } else {
-          roots.push(map[opd.id]);
-        }
-      });
-
-      jabatans.forEach(jbt => {
-        if (jbt.parentId && map[jbt.parentId] && !jbtToReroute[jbt.id]) {
-          map[jbt.parentId].children.push(map[jbt.id]);
-        } else if (jbt.unitKerjaId && map[jbt.unitKerjaId]) {
-          map[jbt.unitKerjaId].children.push(map[jbt.id]);
-        } else if (opds.length === 0) {
-          roots.push(map[jbt.id]);
-        }
-      });
-
-      const getEselonWeight = (eselon?: string) => {
-        const val = (eselon || '').toLowerCase().trim();
-        if (val.includes('pimpinan tinggi')) return 5;
-        if (val === 'administrator') return 4;
-        if (val === 'pengawas') return 3;
-        if (val.includes('fungsional')) return 2;
-        if (val === 'pelaksana') return 1;
-        return 0;
-      };
-
-      const sortNodes = (nodes: TreeNode[]) => {
-        nodes.sort((a, b) => {
-          const urutA = a.urutan || 999;
-          const urutB = b.urutan || 999;
-          if (urutA !== urutB) return urutA - urutB;
-          const kelasA = Number(a.kelas) || 0;
-          const kelasB = Number(b.kelas) || 0;
-          if (kelasA !== kelasB) return kelasB - kelasA;
-          const wA = getEselonWeight(a.eselon);
-          const wB = getEselonWeight(b.eselon);
-          if (wA !== wB) return wB - wA;
-          return a.label.localeCompare(b.label);
-        });
-        nodes.forEach(n => { if (n.children.length > 0) sortNodes(n.children); });
-      };
-
-      sortNodes(roots);
+      const anjabSet = new Set(summary?.anjabFilled || []);
+      const { roots, expandState } = buildOperatorTreeNodes(opdsRaw, jabatansRaw, user.unitKerjaId, anjabSet);
       setTreeData(roots);
-      setExpandedNodes(expandState);
+      setExpandedNodes(prev => Object.keys(prev).length > 0 ? prev : expandState);
     } catch (err) {
-      console.error(err);
+      console.error("Gagal memuat pohon operator:", err);
+    } finally {
+      setIsLoadingTree(false);
     }
-    setIsLoadingTree(false);
   }, [user]);
 
   useEffect(() => {
@@ -625,6 +650,23 @@ export default function OperatorAnalisisPage() {
     }
   };
 
+  const markJabatanFilledInTree = (jId: string) => {
+    setTreeData(prevTree => {
+      const updateNode = (nodes: TreeNode[]): TreeNode[] => {
+        return nodes.map(n => {
+          if (n.id === jId) {
+            return { ...n, anjabTerisi: true };
+          }
+          if (n.children && n.children.length > 0) {
+            return { ...n, children: updateNode(n.children) };
+          }
+          return n;
+        });
+      };
+      return updateNode(prevTree);
+    });
+  };
+
   // SAVE HANDLERS
   const handleSaveIdentitas = async (data: Partial<JabatanFull>) => {
     if (!jabatanData) return;
@@ -633,6 +675,9 @@ export default function OperatorAnalisisPage() {
       return;
     }
     setJabatanData(prev => prev ? { ...prev, ...data } : null);
+    if (data.ikhtisarJabatan && data.ikhtisarJabatan.trim().length > 5) {
+      markJabatanFilledInTree(jabatanData.id);
+    }
     showToast("⏳ Menyimpan identitas di latar belakang...");
     
     api.updateJabatan(jabatanData.id, {
@@ -654,6 +699,7 @@ export default function OperatorAnalisisPage() {
       return;
     }
     setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as any } : null);
+    markJabatanFilledInTree(jabatanData.id);
     showToast("⏳ Menyimpan tugas...");
     
     try {
@@ -674,6 +720,7 @@ export default function OperatorAnalisisPage() {
       ...prev,
       kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } as any : { jabatanId: prev.id, ...data } as any
     } : null);
+    markJabatanFilledInTree(jabatanData.id);
     try {
       await api.saveSingleEntity('kualifikasi', jabatanData.id, data);
       showToast("✅ Kualifikasi berhasil disimpan");
@@ -692,6 +739,7 @@ export default function OperatorAnalisisPage() {
       ...prev,
       hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as any
     } : null);
+    markJabatanFilledInTree(jabatanData.id);
     try {
       await api.saveSingleEntity('hasilKerja', jabatanData.id, { uraian });
       showToast("✅ Hasil kerja berhasil disimpan");
@@ -707,6 +755,7 @@ export default function OperatorAnalisisPage() {
       return;
     }
     setJabatanData(prev => prev ? { ...prev, [entity]: rows } : null);
+    markJabatanFilledInTree(jabatanData.id);
     showToast(`⏳ Menyimpan ${entity}...`);
     
     try {
@@ -727,6 +776,7 @@ export default function OperatorAnalisisPage() {
       ...prev,
       syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } as any : { jabatanId: prev.id, ...data } as any
     } : null);
+    markJabatanFilledInTree(jabatanData.id);
     try {
       await api.saveSingleEntity('syaratJabatan', jabatanData.id, data);
       showToast("✅ Syarat jabatan berhasil disimpan");
@@ -745,6 +795,7 @@ export default function OperatorAnalisisPage() {
       ...prev,
       prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as any
     } : null);
+    markJabatanFilledInTree(jabatanData.id);
     try {
       await api.saveSingleEntity('prestasiKerja', jabatanData.id, { uraian });
       showToast("✅ Prestasi kerja berhasil disimpan");
