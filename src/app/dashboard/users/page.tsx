@@ -340,7 +340,7 @@ export default function UsersPage() {
           Pengaturan Tampilan
         </h2>
         <p style={{ fontSize: "0.85rem", opacity: 0.7, marginBottom: "1.5rem" }}>
-          Konfigurasi elemen visual aplikasi Sianjab.
+          Konfigurasi elemen visual aplikasi SI-PRABU Muaro Jambi.
         </p>
 
         {showSecretSetting ? (

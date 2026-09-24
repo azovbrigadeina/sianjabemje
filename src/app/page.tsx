@@ -6,6 +6,8 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import { api } from "@/lib/api";
 import type { UnitKerja, Jabatan } from "@/lib/types";
+import { BRANDING } from "@/config/branding";
+import AppLogo from "@/components/AppLogo";
 
 export default function Home() {
   const [stats, setStats] = useState({
@@ -79,9 +81,8 @@ export default function Home() {
       {loading && <div className={styles.topLoadingBar} />}
       <main className={styles.container}>
         <nav className={`${styles.nav} glass-panel`}>
-          <div className={styles.logo} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            <span className="text-gradient">SianjabABK EM-JE</span>
-            <span style={{ fontSize: '0.625rem', background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)', color: 'white', padding: '0.15rem 0.45rem', borderRadius: '6px', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.07em', boxShadow: '0 2px 8px rgba(168, 85, 247, 0.2)' }}>AI Powered</span>
+          <div className={styles.logo}>
+            <AppLogo showBadge />
           </div>
           <div className={styles.navLinks}>
             <Link href="/">Beranda</Link>
@@ -101,7 +102,7 @@ export default function Home() {
               <span className="text-gradient">Analisis Jabatan & Beban Kerja</span>
             </h1>
             <p className={styles.subtitle}>
-              Berdasarkan Permenpan RB No. 1 Tahun 2020. Aplikasi komprehensif yang ditenagai oleh <strong>Kecerdasan Buatan (AI)</strong> untuk merumuskan, memetakan, dan menyusun draf analisis jabatan secara instan, presisi, dan efisien.
+              <strong>SI-PRABU (Sistem Informasi Perencanaan, Rekapitulasi, Analisis Beban & Unit Kerja)</strong> merupakan platform terpadu Pemerintah Kabupaten Muaro Jambi berdasarkan <strong>Permenpan RB No. 1 Tahun 2020</strong>. Aplikasi komprehensif ini ditenagai oleh <strong>Kecerdasan Buatan (AI)</strong> untuk merumuskan, memetakan, dan menyusun draf analisis jabatan serta perhitungan beban kerja secara instan, presisi, dan efisien.
             </p>
             <div className={styles.heroActions}>
               <Link href="/login" className="btn-primary">Masuk / Login</Link>

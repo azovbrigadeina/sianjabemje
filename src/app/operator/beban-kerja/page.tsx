@@ -58,6 +58,11 @@ export default function OperatorBebanKerjaPage() {
   const [loadingEditor, setLoadingEditor] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [alertModal, setAlertModal] = useState<{
+    title: string;
+    message: string;
+    type?: 'success' | 'warning' | 'error';
+  } | null>(null);
 
   // Read-Only lock state
   const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
@@ -448,8 +453,19 @@ export default function OperatorBebanKerjaPage() {
       setTreeData(prev => updateNodeInTree(prev));
 
       showToast("✅ Beban Kerja berhasil disimpan!");
+      setAlertModal({
+        title: "Berhasil",
+        message: "Berhasil Disimpan",
+        type: "success"
+      });
     } catch (err) {
-      showToast("❌ Gagal menyimpan beban kerja: " + err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast("❌ Gagal menyimpan beban kerja: " + errMsg);
+      setAlertModal({
+        title: "Gagal Menyimpan",
+        message: "Gagal menyimpan beban kerja: " + errMsg,
+        type: "error"
+      });
     }
     setSaving(false);
   };
@@ -660,7 +676,15 @@ export default function OperatorBebanKerjaPage() {
                             if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
                               const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
                               const tp = fullData?.tugasPokok || [];
-                              if (tp.length === 0) return showToast("⚠️ Anjab masih kosong!");
+                              if (tp.length === 0) {
+                                showToast("⚠️ Anjab masih kosong!");
+                                setAlertModal({
+                                  title: "Perhatian",
+                                  message: "Anjab masih kosong!",
+                                  type: "warning"
+                                });
+                                return;
+                              }
                               setAbkRows(tp.map(t => ({
                                 tugas: t.uraianTugas || '',
                                 satuan: t.hasilKerja || '',
@@ -670,6 +694,11 @@ export default function OperatorBebanKerjaPage() {
                               setWaktuSatuan('jam');
                               setWke(1250);
                               showToast("✅ Berhasil menarik data dari Anjab");
+                              setAlertModal({
+                                title: "Berhasil",
+                                message: "Tarik Anjab berhasil",
+                                type: "success"
+                              });
                             }
                           }}>🔄 Tarik dari Anjab</button>
                         <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
@@ -798,6 +827,38 @@ export default function OperatorBebanKerjaPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {alertModal && (
+        <div className={styles.alertOverlay} onClick={() => setAlertModal(null)}>
+          <div className={styles.alertCard} onClick={(e) => e.stopPropagation()}>
+            <button 
+              type="button" 
+              className={styles.alertClose} 
+              onClick={() => setAlertModal(null)}
+              aria-label="Tutup"
+            >
+              ✕
+            </button>
+            <div className={
+              alertModal.type === 'error' ? styles.alertIconError :
+              alertModal.type === 'warning' ? styles.alertIconWarning :
+              styles.alertIconSuccess
+            }>
+              {alertModal.type === 'error' ? '✕' : alertModal.type === 'warning' ? '!' : '✓'}
+            </div>
+            <div className={styles.alertTitle}>{alertModal.title}</div>
+            <div className={styles.alertMessage}>{alertModal.message}</div>
+            <button 
+              type="button" 
+              className={styles.alertButton} 
+              onClick={() => setAlertModal(null)}
+              autoFocus
+            >
+              OK
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

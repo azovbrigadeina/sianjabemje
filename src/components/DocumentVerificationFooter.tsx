@@ -1,6 +1,7 @@
 'use client';
 import React from 'react';
 import { VerificationRecord } from '@/lib/verification';
+import { BRANDING } from '@/config/branding';
 
 interface Props {
   record: VerificationRecord;
@@ -34,7 +35,7 @@ export const DocumentVerificationFooter: React.FC<Props> = ({ record, token }) =
       <img src={qrImageUrl} alt="QR Code Verifikasi" width={75} height={75} style={{ borderRadius: '4px' }} />
       <div>
         <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#0F172A' }}>
-          Sistem Terpadu Analisis Jabatan & Beban Kerja (SianjabABK EM-JE)
+          {BRANDING.fullName}
         </div>
         <div style={{ fontSize: '10px', color: '#64748B', marginBottom: '4px' }}>
           Pemerintah Kabupaten Muaro Jambi — Bagian Organisasi

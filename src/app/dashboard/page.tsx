@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import type { UnitKerja } from "@/lib/types";
+import { BRANDING } from "@/config/branding";
 
 export default function DashboardHome() {
   const [stats, setStats] = useState({
@@ -60,7 +61,7 @@ export default function DashboardHome() {
     <div className="animate-fade-in">
       {loading && <div className={styles.topLoadingBar} />}
       <div className={styles.welcomeSection}>
-        <h1 className={styles.title}>Selamat Datang di <span className="text-gradient">SianjabABK EM-JE</span></h1>
+        <h1 className={styles.title}>Selamat Datang di <span className="text-gradient">{BRANDING.displayName}</span></h1>
         <p className={styles.subtitle}>Pantau progres penyusunan dokumen Analisis Jabatan dan Beban Kerja seluruh unit kerja.</p>
       </div>
 
@@ -251,7 +252,7 @@ export default function DashboardHome() {
             <div className={styles.activityItem}>
               <div className={styles.activityDot} style={{ background: 'hsl(142, 71%, 45%)' }}></div>
               <div className={styles.activityContent}>
-                <p>Sistem SianjabABK EM-JE siap digunakan untuk penginputan Analisis Jabatan dan Beban Kerja terintegrasi.</p>
+                <p>Sistem {BRANDING.displayName} siap digunakan untuk penginputan Analisis Jabatan dan Beban Kerja terintegrasi.</p>
                 <span className={styles.time}>Otomatis</span>
               </div>
             </div>

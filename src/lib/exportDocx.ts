@@ -419,7 +419,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
         children: [
           new TextRun({ text: "--------------------------------------------------------------------------------------------------\n", color: "CCCCCC" }),
           new TextRun({ text: "BAGIAN ORGANISASI PEMERINTAH KABUPATEN MUARO JAMBI\n", bold: true, size: 18 }),
-          new TextRun({ text: `Dokumen Resmi SianjabABK EM-JE. Kode Keabsahan: ${verifyRecord.code}\n`, size: 18, color: "0284C7" }),
+          new TextRun({ text: `Dokumen Resmi SI-PRABU Muaro Jambi. Kode Keabsahan: ${verifyRecord.code}\n`, size: 18, color: "0284C7" }),
           new TextRun({ text: `Verifikasi keaslian: ${verifyResult.verifyUrl}`, size: 16, italics: true, color: "64748B" }),
         ],
         spacing: { before: 400 },

@@ -3,6 +3,8 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchVerificationRecordFromServer, VerificationRecord } from '@/lib/verification';
+import { BRANDING } from '@/config/branding';
+import AppLogo from '@/components/AppLogo';
 import styles from './verify.module.css';
 
 function VerificationContent() {
@@ -50,9 +52,8 @@ function VerificationContent() {
     <div className={styles.verifyContainer}>
       {/* Header Navigation Bar */}
       <nav className={`${styles.nav} glass-panel`}>
-        <Link href="/" className={styles.logo}>
-          <span className="text-gradient">SianjabABK EM-JE</span>
-          <span className={styles.aiBadgeLogo}>AI Powered</span>
+        <Link href="/" className={styles.logo} style={{ textDecoration: 'none' }}>
+          <AppLogo showBadge />
         </Link>
         <div className={styles.navLinks}>
           <Link href="/">Beranda</Link>
@@ -81,7 +82,7 @@ function VerificationContent() {
             </div>
             <h1 className={styles.pageTitle}>Layanan Cek Keabsahan Dokumen</h1>
             <p className={styles.pageSubtitle}>
-              Sistem Terpadu Analisis Jabatan & Beban Kerja (SianjabABK EM-JE)<br/>
+              {BRANDING.fullName}<br/>
               <strong>Bagian Organisasi Pemerintah Kabupaten Muaro Jambi</strong>
             </p>
           </div>
@@ -113,7 +114,7 @@ function VerificationContent() {
           <div className={styles.guideBox}>
             <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '0.35rem' }}>📌 Panduan Pengecekan Dokumen Resmi:</div>
             <div>
-              Masukkan Kode Verifikasi unik berawalan <span className={styles.codeBadge}>BAGORMJ-</span> yang tertera di bagian footer cetakan atau dokumen fisik hasil unduhan SianjabABK.
+              Masukkan Kode Verifikasi unik berawalan <span className={styles.codeBadge}>BAGORMJ-</span> yang tertera di bagian footer cetakan atau dokumen fisik hasil unduhan {BRANDING.displayName}.
             </div>
           </div>
         ) : record ? (
@@ -121,7 +122,7 @@ function VerificationContent() {
             <div className={styles.validHeader}>
               <div className={styles.validIcon}>✓</div>
               <div className={styles.validTitle}>DOKUMEN RESMI & TERVERIFIKASI</div>
-              <div className={styles.validSubtitle}>Dokumen ini terdaftar sah dalam Sistem Informasi SianjabABK Kabupaten Muaro Jambi</div>
+              <div className={styles.validSubtitle}>Dokumen ini terdaftar sah dalam Sistem Informasi {BRANDING.displayName}</div>
             </div>
 
             <div className={styles.detailsList}>
@@ -152,7 +153,7 @@ function VerificationContent() {
 
               <div className={styles.detailRow}>
                 <span className={styles.detailLabel}>Pencetak Dokumen (User)</span>
-                <span className={styles.detailValue}>{record.printedBy || 'Operator Sianjab'}</span>
+                <span className={styles.detailValue}>{record.printedBy || `Operator ${BRANDING.shortName}`}</span>
               </div>
             </div>
 
@@ -191,7 +192,7 @@ function VerificationContent() {
             <div style={{ background: 'rgba(15, 23, 42, 0.03)', padding: '1rem', borderRadius: '12px', fontSize: '0.85rem', lineHeight: 1.7 }}>
               <div>📍 <strong>Alamat:</strong> Kompleks Perkantoran Pemkab Muaro Jambi, Sengeti</div>
               <div>✉️ <strong>Email:</strong> organisasi@muarojambikab.go.id</div>
-              <div>🏛️ <strong>Layanan:</strong> Analisis Jabatan & Beban Kerja (SianjabABK EM-JE)</div>
+              <div>🏛️ <strong>Layanan:</strong> {BRANDING.fullName}</div>
             </div>
           </div>
         </div>

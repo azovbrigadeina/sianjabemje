@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { calculateFormasiPembulatan } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
+import { BRANDING } from "@/config/branding";
 
 export type QuickAbkModalProps = {
   isOpen: boolean;
@@ -136,7 +137,7 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
         {/* Content */}
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
-            💡 <strong>Sianjab Info:</strong> Dokumen Anjab & ABK merupakan satu kesatuan laporan. Mohon verifikasi WKE dan volume beban kerja di bawah ini untuk menghasilkan dokumen laporan yang sah.
+            💡 <strong>Info {BRANDING.shortName}:</strong> Dokumen Anjab & ABK merupakan satu kesatuan laporan. Mohon verifikasi WKE dan volume beban kerja di bawah ini untuk menghasilkan dokumen laporan yang sah.
           </div>
 
           {/* Settings Bar */}

@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { api } from "@/lib/api";
 import { SUPPORTED_YEARS } from "@/lib/constants";
+import { BRANDING } from "@/config/branding";
 
 
 export default function DashboardLayout({
@@ -118,7 +119,7 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
-  const displayName = user?.namaLengkap || user?.username || "Admin SianjabABK EM-JE";
+  const displayName = user?.namaLengkap || user?.username || `Admin ${BRANDING.displayName}`;
   const avatarChar = displayName.charAt(0).toUpperCase();
 
   // Dynamic header title based on route
@@ -146,10 +147,10 @@ export default function DashboardLayout({
       <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''}`}>
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarLogo}>
-            <div className={styles.logoMark}>S</div>
+            <div className={styles.logoMark}>P</div>
             <span className={styles.logoText}>
-              SianjabABK
-              <span className={styles.logoAccent}>EM-JE</span>
+              {BRANDING.shortName}
+              <span className={styles.logoAccent}>Muaro Jambi</span>
             </span>
           </div>
           {!isCollapsed && (

@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import type { UnitKerja } from "@/lib/types";
 import Footer from "@/components/Footer";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { BRANDING } from "@/config/branding";
 
 
 export default function OperatorLayout({
@@ -127,10 +128,10 @@ export default function OperatorLayout({
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarLogo}>
-            <div className={styles.logoMark}>S</div>
+            <div className={styles.logoMark}>P</div>
             <span className={styles.logoText}>
-              SianjabABK
-              <span className={styles.logoAccent}>EM-JE</span>
+              {BRANDING.shortName}
+              <span className={styles.logoAccent}>Muaro Jambi</span>
             </span>
           </div>
         </div>

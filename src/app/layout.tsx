@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import "./globals.css";
 import { UserProvider } from "@/lib/UserContext";
+import { BRANDING } from "@/config/branding";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -13,11 +14,14 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://anjabmj-44141.web.a
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "SianjabABK EM-JE | Analisis Jabatan & Beban Kerja Kabupaten Muaro Jambi",
-    template: "%s | SianjabABK EM-JE",
+    default: `${BRANDING.displayName} | ${BRANDING.tagline}`,
+    template: `%s | ${BRANDING.displayName}`,
   },
-  description: "Sistem Terpadu Analisis Jabatan (ANJAB) dan Analisis Beban Kerja (ABK) Pemerintah Kabupaten Muaro Jambi berdasarkan Permenpan RB No. 1 Tahun 2020.",
+  description: `${BRANDING.fullName}. Sistem Terpadu Analisis Jabatan (ANJAB) dan Analisis Beban Kerja (ABK) Pemerintah Kabupaten Muaro Jambi berdasarkan Permenpan RB No. 1 Tahun 2020.`,
   keywords: [
+    BRANDING.shortName,
+    BRANDING.displayName,
+    "SI-PRABU",
     "Sianjab",
     "SianjabABK",
     "EM-JE",
@@ -31,8 +35,8 @@ export const metadata: Metadata = {
     "SIASN",
     "SIMONA",
   ],
-  authors: [{ name: "Pemerintah Kabupaten Muaro Jambi" }],
-  creator: "Pemerintah Kabupaten Muaro Jambi",
+  authors: [{ name: BRANDING.government }],
+  creator: BRANDING.government,
   publisher: "Bagian Organisasi Sekretariat Daerah Kabupaten Muaro Jambi",
   robots: {
     index: true,
@@ -46,17 +50,17 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "SianjabABK EM-JE | Analisis Jabatan & Beban Kerja Kabupaten Muaro Jambi",
-    description: "Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020",
+    title: `${BRANDING.displayName} | ${BRANDING.tagline}`,
+    description: `Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020 - ${BRANDING.government}`,
     url: siteUrl,
-    siteName: "SianjabABK EM-JE",
+    siteName: BRANDING.displayName,
     locale: "id_ID",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "SianjabABK EM-JE | Analisis Jabatan & Beban Kerja Kabupaten Muaro Jambi",
-    description: "Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020",
+    title: `${BRANDING.displayName} | ${BRANDING.tagline}`,
+    description: `Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020 - ${BRANDING.government}`,
   },
   alternates: {
     canonical: siteUrl,
@@ -69,14 +73,14 @@ export const metadata: Metadata = {
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "GovernmentOrganization",
-  "name": "SianjabABK EM-JE Kabupaten Muaro Jambi",
-  "alternateName": "SianjabABK Muaro Jambi",
+  "name": `${BRANDING.displayName} Kabupaten Muaro Jambi`,
+  "alternateName": BRANDING.fullName,
   "url": siteUrl,
-  "description": "Sistem Terpadu Analisis Jabatan dan Analisis Beban Kerja berdasarkan Permenpan RB No. 1 Tahun 2020 Kabupaten Muaro Jambi",
+  "description": `${BRANDING.fullName} berdasarkan Permenpan RB No. 1 Tahun 2020 Kabupaten Muaro Jambi`,
   "areaServed": "Kabupaten Muaro Jambi",
   "parentOrganization": {
     "@type": "GovernmentOrganization",
-    "name": "Pemerintah Kabupaten Muaro Jambi"
+    "name": BRANDING.government
   }
 };
 

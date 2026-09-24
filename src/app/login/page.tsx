@@ -7,6 +7,7 @@ import styles from "./login.module.css";
 import { api } from "@/lib/api";
 import { useUser, type SessionUser } from "@/lib/UserContext";
 import Footer from "@/components/Footer";
+import { BRANDING } from "@/config/branding";
 
 export default function Login() {
   const router = useRouter();
@@ -77,10 +78,10 @@ export default function Login() {
         <div className={`${styles.loginCard} glass-panel animate-fade-in`}>
           <div className={styles.cardHeader}>
             <div className={styles.logoMark}>
-              <span>S</span>
+              <span>P</span>
             </div>
-            <h1 className="text-gradient">SianjabABK EM-JE</h1>
-            <p>Sistem Analisis Jabatan &amp; Beban Kerja</p>
+            <h1 className="text-gradient">{BRANDING.displayName}</h1>
+            <p>{BRANDING.tagline}</p>
             <p style={{ fontSize: "0.75rem", opacity: 0.6, marginTop: "0.25rem" }}>
               Silakan masuk menggunakan kredensial Anda
             </p>

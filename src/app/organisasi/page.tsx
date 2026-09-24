@@ -6,6 +6,8 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import { api } from "@/lib/api";
 import type { UnitKerja, Jabatan } from "@/lib/types";
+import { BRANDING } from "@/config/branding";
+import AppLogo from "@/components/AppLogo";
 
 interface StructuralNode {
   id: string;
@@ -468,7 +470,7 @@ export default function PublicOrganisasiPage() {
         {/* Navigation Header */}
         <nav className={`${styles.nav} glass-panel`}>
           <div className={styles.logo}>
-            <span className="text-gradient">SianjabABK EM-JE</span>
+            <AppLogo />
           </div>
           <div className={styles.navLinks}>
             <Link href="/">Beranda</Link>
