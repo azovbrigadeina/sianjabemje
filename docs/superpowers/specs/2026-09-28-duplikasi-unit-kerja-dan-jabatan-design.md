@@ -10,12 +10,14 @@
 
 ## 1. Latar Belakang & Tujuan
 
-Pada susunan organisasi Pemerintah Kabupaten Muaro Jambi, banyak unit kerja yang memiliki struktur nomenklatur jabatan dan uraian tugas yang identik, seperti:
-- **Puskesmas**: Memiliki susunan seragam (Kepala Puskesmas, Kasubag Tata Usaha, Dokter, Dokter Gigi, Bidan, Perawat, Sanitarian, Nutrisionis, dll).
-- **Sekolah**: Memiliki susunan seragam (Kepala Sekolah, Guru Kelas/Mapel, Tenaga Administrasi).
+Pada susunan organisasi Pemerintah Kabupaten Muaro Jambi, banyak unit kerja di berbagai tingkatan yang memiliki struktur nomenklatur jabatan dan uraian tugas yang identik, seperti:
+- **Bagian-Bagian di bawah Sekretariat Daerah (Setda)**: Memiliki pola struktur seragam (Kepala Bagian, Pengawas/Kasubag, Perencana, Analis Kebijakan, Pengelola Pengadaan, Pranata Komputer, Pengadministrasi Perkantoran).
+- **Bidang-Bidang di bawah OPD/Dinas**: Memiliki pola struktur seragam (Kepala Bidang, Pengawas/Subkoordinator, Penata Kelola, Penyusun Program, Pengadministrasi, Jabatan Fungsional terkait).
+- **Puskesmas & Fasilitas Kesehatan**: Memiliki susunan seragam (Kepala Puskesmas, Kasubag Tata Usaha, Dokter, Dokter Gigi, Bidan, Perawat, Sanitarian, Nutrisionis, dll).
+- **Sekolah & Satuan Pendidikan**: Memiliki susunan seragam (Kepala Sekolah, Guru Kelas/Mapel, Tenaga Administrasi).
 - **Kecamatan**: Memiliki susunan seragam (Camat, Sekcam, Kasi Tata Pemerintahan, Kasi Trantib, Kasubag Umum/Kepegawaian, dll).
 
-Ketika dibentuk unit kerja baru (misal pemekaran kecamatan atau pembangunan puskesmas baru), admin atau operator sebelumnya harus menginput puluhan jabatan dan ratusan butir uraian tugas (anjab) satu per satu secara manual, yang memakan waktu berhari-hari dan rawan salah ketik.
+Ketika dibentuk unit kerja baru (misal: pembentukan **Bidang Baru di sebuah Dinas**, pembentukan **Bagian Baru di Setda**, pemekaran **Kecamatan**, maupun pembangunan **Puskesmas Baru**), admin atau operator sebelumnya harus menginput puluhan jabatan dan ratusan butir uraian tugas (anjab) satu per satu secara manual, yang memakan waktu berhari-hari dan rawan salah ketik.
 
 Fitur **Duplikasi Unit Kerja & Struktur Jabatan** memungkinkan Administrator untuk:
 1. Menyalin seluruh pohon jabatan dari satu Unit Kerja (OPD maupun Sub-Unit) ke unit kerja lain dalam hitungan detik.
