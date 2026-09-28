@@ -1,6 +1,6 @@
-import { Jabatan, ReferensiJabatan, UnitKerja, AnomaliExclusion } from '@/lib/types';
+import { Jabatan, ReferensiJabatan, UnitKerja, AnomaliExclusion } from './types';
 
-export type AnomaliType = 'TYPO_SPACE' | 'FUZZY_TYPO' | 'UNREFERENCED' | 'DISPARITAS_KELAS' | 'OUTLIER_STRUKTURAL' | 'DATA_YATIM';
+export type AnomaliType = 'TYPO_SPACE' | 'FUZZY_TYPO' | 'UNREFERENCED' | 'DISPARITAS_KELAS' | 'OUTLIER_STRUKTURAL' | 'OUTLIER_JENJANG_UTAMA' | 'DATA_YATIM';
 export type SeverityLevel = 'Tinggi' | 'Sedang' | 'Rendah';
 
 export interface AnomaliItem {
@@ -358,6 +358,26 @@ export function analyzeAnomali(
           kelasStandar: 'Kelas 8 - 9',
         });
       }
+    }
+
+    // Deteksi Jabatan Fungsional Jenjang Ahli Utama (Tidak diperkenankan di level Kabupaten)
+    const parsed = parseJenjangJabatan(j.namaJabatan);
+    const isAhliUtama = (parsed.jenjang === 'Ahli Utama' || /\bahli\s+utama\b/i.test(j.namaJabatan)) && !isJpt;
+    if (isAhliUtama) {
+      rawAnomaliOutlier.push({
+        id: `outlier-utama-${j.id}`,
+        jabatanId: j.id,
+        unitKerjaId: j.unitKerjaId,
+        opdNama,
+        namaJabatan: j.namaJabatan,
+        jenisJabatan: j.jenisJabatan || 'Fungsional',
+        kelasJabatan: kelas,
+        type: 'OUTLIER_JENJANG_UTAMA',
+        severity: 'Tinggi',
+        pesan: 'Jabatan Fungsional jenjang Ahli Utama tidak diperkenankan pada instansi tingkat Kabupaten',
+        rekomendasi: 'Hapus jabatan ini jika tidak ada formasi di Kabupaten, atau sesuaikan ke jenjang Madya/Muda/Pertama',
+        parsedJenjang: 'Ahli Utama',
+      });
     }
   });
 
