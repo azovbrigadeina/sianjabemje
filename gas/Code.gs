@@ -421,6 +421,9 @@ function handleRequest_(e) {
       case 'duplicateUnitKerja':
         result = duplicateUnitKerja_(data || params);
         break;
+      case 'createBatchJabatans':
+        result = createBatchJabatans_(data && data.items ? data.items : data);
+        break;
       case 'cleanupOrphanedRecords':
         result = cleanupOrphanedRecords_();
         break;
@@ -591,6 +594,38 @@ function createRecord_(entity, data) {
   var result = fbPost_(getFirebasePath_(entity), data);
   invalidateCache_(entity);
   return { id: result.name, data: data };
+}
+
+function createBatchJabatans_(items) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new Error("Daftar jabatan baru tidak boleh kosong.");
+  }
+
+  var patchPayload = {};
+  var createdItems = [];
+  var now = new Date().toISOString();
+
+  items.forEach(function(data) {
+    var newId = Utilities.getUuid();
+    var record = JSON.parse(JSON.stringify(data));
+    record.createdAt = now;
+    record.updatedAt = now;
+    patchPayload[newId] = record;
+
+    var returnItem = JSON.parse(JSON.stringify(record));
+    returnItem.id = newId;
+    createdItems.push(returnItem);
+  });
+
+  fbPatch_(getFirebasePath_('jabatan'), patchPayload);
+  invalidateCache_('jabatan');
+  removeLargeCache_('fb_' + CURRENT_TAHUN + '_statusSummary');
+
+  return {
+    success: true,
+    count: createdItems.length,
+    items: createdItems
+  };
 }
 
 function readRecord_(entity, id) {
@@ -810,32 +845,64 @@ function deleteRecord_(entity, id) {
       throw new Error("GAGAL HAPUS: Jabatan ini masih memiliki " + childJbtCount + " bawahan langsung. Pindahkan atasan bawahan tersebut terlebih dahulu.");
     }
 
-    // 2. Cascading Delete entitas anak (mencegah zombie/orphaned records di Firebase)
+    // 2. Cascading Delete entitas anak (mencegah zombie/orphaned records di Firebase) menggunakan UrlFetchApp.fetchAll paralel
     var childEntities = [
       'kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja', 'abk',
       'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
       'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'
     ];
 
-    childEntities.forEach(function(ent) {
-      var tableData = fbGet_(getFirebasePath_(ent));
-      if (!tableData) return;
+    var baseUrl = FIREBASE_URL + '/';
+    var authQuery = '.json?auth=' + FIREBASE_SECRET;
 
-      var patchPayload = {};
-      var count = 0;
-      Object.keys(tableData).forEach(function(key) {
-        var item = tableData[key];
-        if (item && (item.jabatanId === id || item.parentId === id)) {
-          patchPayload[key] = null;
-          count++;
-        }
-      });
-
-      if (count > 0) {
-        fbPatch_(getFirebasePath_(ent), patchPayload);
-        invalidateCache_(ent);
-      }
+    var readRequests = childEntities.map(function(ent) {
+      return {
+        url: baseUrl + getFirebasePath_(ent) + authQuery,
+        method: 'get',
+        muteHttpExceptions: true
+      };
     });
+
+    var responses = UrlFetchApp.fetchAll(readRequests);
+    var writeRequests = [];
+    var entitiesToInvalidate = [];
+
+    for (var i = 0; i < childEntities.length; i++) {
+      var ent = childEntities[i];
+      var res = responses[i];
+      if (res && res.getResponseCode() === 200) {
+        var tableData = JSON.parse(res.getContentText());
+        if (tableData) {
+          var patchPayload = {};
+          var count = 0;
+          Object.keys(tableData).forEach(function(key) {
+            var item = tableData[key];
+            if (item && (item.jabatanId === id || item.parentId === id)) {
+              patchPayload[key] = null;
+              count++;
+            }
+          });
+
+          if (count > 0) {
+            writeRequests.push({
+              url: baseUrl + getFirebasePath_(ent) + authQuery,
+              method: 'patch',
+              contentType: 'application/json',
+              payload: JSON.stringify(patchPayload),
+              muteHttpExceptions: true
+            });
+            entitiesToInvalidate.push(ent);
+          }
+        }
+      }
+    }
+
+    if (writeRequests.length > 0) {
+      UrlFetchApp.fetchAll(writeRequests);
+      entitiesToInvalidate.forEach(function(ent) {
+        invalidateCache_(ent);
+      });
+    }
   }
 
   fbDelete_(getFirebasePath_(entity, id));

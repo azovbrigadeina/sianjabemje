@@ -373,7 +373,7 @@ async function apiCall<T = unknown>(
     'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
     'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
     'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase',
-    'duplicateUnitKerja'
+    'duplicateUnitKerja', 'createBatchJabatans'
   ];
   const isWriteOperation = writeActions.includes(action) || !!opts.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
@@ -476,6 +476,13 @@ export const api = {
 
   createJabatan: (data: unknown) =>
     apiCall('create', 'jabatan', { data }),
+
+  createBatchJabatans: (items: any[]) =>
+    apiCall<{ success: boolean; count: number; items: any[] }>(
+      'createBatchJabatans',
+      'jabatan',
+      { data: { items } }
+    ),
 
   updateJabatan: (id: string, data: unknown) =>
     apiCall('update', 'jabatan', { data, params: { id } }),

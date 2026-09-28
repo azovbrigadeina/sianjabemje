@@ -546,11 +546,18 @@ export default function OrganisasiPage() {
     try {
       if (node.type === 'OPD') {
         await api.deleteEntity('unitKerja', node.id);
+        const updatedOpds = rawOpds.filter(o => o.id !== node.id);
+        setRawOpds(updatedOpds);
+        const { roots } = buildOrgTreeNodes(updatedOpds, rawJabatans);
+        setTreeData(roots);
       } else {
         await api.deleteJabatan(node.id);
+        const updatedJabatans = rawJabatans.filter(j => j.id !== node.id);
+        setRawJabatans(updatedJabatans);
+        const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
+        setTreeData(roots);
       }
       showToast(`✅ ${type} "${node.label}" berhasil dihapus.`);
-      await loadData(true);
     } catch (error) {
       alert("Gagal menghapus: " + error);
     }
@@ -585,15 +592,31 @@ export default function OrganisasiPage() {
         const opdPayload = {
           nama: modalData.nama,
           kode: modalData.kode,
-          parentId: modalData.parentId || null,
+          parentId: modalData.parentId || undefined,
           urutan: modalData.urutan || 0,
           tahun: activeYear
         };
         if (modalMode === 'edit' && modalData.id) {
           await api.updateEntity('unitKerja', modalData.id, opdPayload);
+          const updatedOpds: UnitKerja[] = rawOpds.map(o => (o.id === modalData.id ? { ...o, ...opdPayload, id: modalData.id } : o));
+          setRawOpds(updatedOpds);
+          const { roots } = buildOrgTreeNodes(updatedOpds, rawJabatans);
+          setTreeData(roots);
           showToast("✅ Unit Kerja berhasil diperbarui.");
         } else {
-          await api.createEntity('unitKerja', opdPayload);
+          const res = await api.createEntity<UnitKerja>('unitKerja', opdPayload);
+          const newOpd: UnitKerja = {
+            id: res?.id || modalData.kode,
+            nama: modalData.nama,
+            kode: modalData.kode,
+            parentId: modalData.parentId || undefined,
+            urutan: modalData.urutan || 0,
+            tahun: activeYear
+          };
+          const updatedOpds = [...rawOpds, newOpd];
+          setRawOpds(updatedOpds);
+          const { roots } = buildOrgTreeNodes(updatedOpds, rawJabatans);
+          setTreeData(roots);
           showToast("✅ Unit Kerja baru berhasil ditambahkan.");
         }
       } else {
@@ -622,6 +645,10 @@ export default function OrganisasiPage() {
             level: 1,
             tahun: activeYear
           });
+          const updatedJabatans = rawJabatans.map(j => (j.id === modalData.id ? { ...j, ...jabatanPayload, id: modalData.id } : j));
+          setRawJabatans(updatedJabatans);
+          const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
+          setTreeData(roots);
           showToast("✅ Jabatan berhasil diperbarui.");
         } else {
           if (modalData.jenisJabatan === 'Fungsional Keahlian') {
@@ -632,22 +659,25 @@ export default function OrganisasiPage() {
               { suffix: 'Ahli Pertama', kelas: 8 }
             ];
             const pId = modalData.parentId || null;
-            for (let i = 0; i < levels.length; i++) {
-              const lvl = levels[i];
-              const payload = {
-                namaJabatan: `${modalData.nama} ${lvl.suffix}`,
-                kodeJabatan: modalData.kode || '',
-                jenisJabatan: modalData.jenisJabatan,
-                kelasJabatan: lvl.kelas,
-                parentId: pId,
-                unitKerjaId: modalData.unitKerjaId || null,
-                urutan: modalData.urutan || 0,
-                ikhtisarJabatan: '',
-                level: 1,
-                tahun: activeYear
-              };
-              await api.createJabatan(payload);
-            }
+            const payloads = levels.map(lvl => ({
+              namaJabatan: `${modalData.nama} ${lvl.suffix}`,
+              kodeJabatan: modalData.kode || '',
+              jenisJabatan: modalData.jenisJabatan,
+              kelasJabatan: lvl.kelas,
+              parentId: pId,
+              unitKerjaId: modalData.unitKerjaId || null,
+              urutan: modalData.urutan || 0,
+              ikhtisarJabatan: '',
+              level: 1,
+              tahun: activeYear
+            }));
+            const res = await api.createBatchJabatans(payloads);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const createdItems = (res && res.items) ? res.items : payloads.map((p, idx) => ({ ...p, id: `temp_${Date.now()}_${idx}` }));
+            const updatedJabatans = [...rawJabatans, ...createdItems];
+            setRawJabatans(updatedJabatans);
+            const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
+            setTreeData(roots);
             showToast("✅ Jabatan Fungsional Keahlian baru berhasil ditambahkan.");
           } else if (modalData.jenisJabatan === 'Fungsional Keterampilan') {
             const levels = [
@@ -657,25 +687,37 @@ export default function OrganisasiPage() {
               { suffix: 'Pemula', kelas: 5 }
             ];
             const pId = modalData.parentId || null;
-            for (let i = 0; i < levels.length; i++) {
-              const lvl = levels[i];
-              const payload = {
-                namaJabatan: `${modalData.nama} ${lvl.suffix}`,
-                kodeJabatan: modalData.kode || '',
-                jenisJabatan: modalData.jenisJabatan,
-                kelasJabatan: lvl.kelas,
-                parentId: pId,
-                unitKerjaId: modalData.unitKerjaId || null,
-                urutan: modalData.urutan || 0,
-                ikhtisarJabatan: '',
-                level: 1,
-                tahun: activeYear
-              };
-              await api.createJabatan(payload);
-            }
+            const payloads = levels.map(lvl => ({
+              namaJabatan: `${modalData.nama} ${lvl.suffix}`,
+              kodeJabatan: modalData.kode || '',
+              jenisJabatan: modalData.jenisJabatan,
+              kelasJabatan: lvl.kelas,
+              parentId: pId,
+              unitKerjaId: modalData.unitKerjaId || null,
+              urutan: modalData.urutan || 0,
+              ikhtisarJabatan: '',
+              level: 1,
+              tahun: activeYear
+            }));
+            const res = await api.createBatchJabatans(payloads);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const createdItems = (res && res.items) ? res.items : payloads.map((p, idx) => ({ ...p, id: `temp_${Date.now()}_${idx}` }));
+            const updatedJabatans = [...rawJabatans, ...createdItems];
+            setRawJabatans(updatedJabatans);
+            const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
+            setTreeData(roots);
             showToast("✅ Jabatan Fungsional Keterampilan baru berhasil ditambahkan.");
           } else {
-            await api.createJabatan(jabatanPayload);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const res = await api.createJabatan(jabatanPayload) as any;
+            const newJabatan = {
+              ...jabatanPayload,
+              id: (res && res.id) ? res.id : `temp_${Date.now()}`
+            };
+            const updatedJabatans = [...rawJabatans, newJabatan];
+            setRawJabatans(updatedJabatans);
+            const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
+            setTreeData(roots);
             showToast("✅ Jabatan baru berhasil ditambahkan.");
           }
         }
@@ -688,7 +730,6 @@ export default function OrganisasiPage() {
       }
 
       setModalMode(null);
-      await loadData(true);
     } catch (error) {
       alert("Gagal menyimpan: " + error);
     }
