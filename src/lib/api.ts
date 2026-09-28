@@ -3,6 +3,8 @@
 // Calls Next.js API route which proxies to GAS
 // =============================================
 
+import { DuplicateUnitKerjaParams } from './types';
+
 const API_BASE = process.env.NEXT_PUBLIC_GAS_DEPLOYMENT_URL || '';
 
 interface ApiResponse<T = unknown> {
@@ -144,7 +146,7 @@ async function invalidateTargetedCache(
   const globalResetActions = [
     'cloneYearData', 'deleteYearData', 'restoreFullDatabase',
     'restoreBatchJabatans', 'restoreBatchEntities', 'cleanupOrphanedRecords',
-    'syncFromSheet', 'syncToSheet'
+    'syncFromSheet', 'syncToSheet', 'duplicateUnitKerja'
   ];
 
   if (globalResetActions.includes(action) || entity === 'unitKerja') {
@@ -370,7 +372,8 @@ async function apiCall<T = unknown>(
     'syncToSheet', 'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords',
     'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
     'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
-    'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase'
+    'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase',
+    'duplicateUnitKerja'
   ];
   const isWriteOperation = writeActions.includes(action) || !!opts.data;
   const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
@@ -661,6 +664,13 @@ export const api = {
 
   cleanupOrphanedRecords: () =>
     apiCall<{ success: boolean; deletedOrphans: number }>('cleanupOrphanedRecords', ''),
+
+  duplicateUnitKerja: (data: DuplicateUnitKerjaParams) =>
+    apiCall<{ success: boolean; message: string; targetUnitId: string; totalJabatans: number }>(
+      'duplicateUnitKerja',
+      'unitKerja',
+      { data }
+    ),
 
   // -- AI Generation --
   generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string) => {

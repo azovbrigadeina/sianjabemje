@@ -179,7 +179,8 @@ var ADMIN_ONLY_ACTIONS_ = [
   'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords', 'migrateRootTo2026',
   'syncToSheet', 'syncFromSheet',
   'saveTemplate', 'saveTagMappings', 'saveDeadline',
-  'exportFullDatabase', 'restoreFullDatabase'
+  'exportFullDatabase', 'restoreFullDatabase',
+  'duplicateUnitKerja'
 ];
 
 function computeHmacHex_(dataStr, secretKey) {
@@ -416,6 +417,9 @@ function handleRequest_(e) {
         break;
       case 'deleteYearData':
         result = deleteYearData_(params.tahun);
+        break;
+      case 'duplicateUnitKerja':
+        result = duplicateUnitKerja_(data || params);
         break;
       case 'cleanupOrphanedRecords':
         result = cleanupOrphanedRecords_();
@@ -2538,6 +2542,190 @@ function migrateRootTo2026_() {
     success: true,
     message: "Migrasi data root ke tahun 2026 berhasil.",
     migratedEntities: migrated
+  };
+}
+
+function duplicateUnitKerja_(params) {
+  if (!params) throw new Error("Parameter duplikasi tidak boleh kosong.");
+  var sourceUnitId = params.sourceUnitId;
+  var mode = params.mode || 'createNew';
+  var targetData = params.targetData || {};
+
+  if (!sourceUnitId) throw new Error("Unit sumber wajib dipilih.");
+
+  // 1. Ambil data Unit Kerja & Jabatan aktif
+  var allUnits = fbGet_(getFirebasePath_('unitKerja')) || {};
+  var allJbt = fbGet_(getFirebasePath_('jabatan')) || {};
+
+  var sourceUnit = allUnits[sourceUnitId];
+  if (!sourceUnit) throw new Error("Unit kerja sumber tidak ditemukan di database.");
+
+  // 2. Filter seluruh jabatan yang terikat ke unit sumber
+  var sourceJabatans = [];
+  Object.keys(allJbt).forEach(function(k) {
+    var j = allJbt[k];
+    if (j && j.unitKerjaId === sourceUnitId) {
+      j.id = k;
+      sourceJabatans.push(j);
+    }
+  });
+
+  if (sourceJabatans.length === 0) {
+    throw new Error("Unit kerja sumber (" + (sourceUnit.nama || sourceUnitId) + ") tidak memiliki data jabatan untuk diduplikasi.");
+  }
+
+  // 3. Tentukan Target Unit ID & Buat Unit Baru jika mode createNew
+  var targetUnitId = '';
+  var patchPayloadUnitKerja = {};
+
+  if (mode === 'createNew') {
+    if (!targetData.nama || !targetData.nama.trim()) {
+      throw new Error("Nama unit kerja baru wajib diisi.");
+    }
+    var kodeRaw = targetData.kode ? targetData.kode.toString().trim() : '';
+    var kodeClean = kodeRaw ? kodeRaw.replace(/[^a-zA-Z0-9_-]/g, '_') : '';
+    if (!kodeClean) {
+      kodeClean = 'UNIT_' + Utilities.getUuid().substring(0, 8);
+    }
+
+    // Periksa keunikan ID/kode di unitKerja
+    if (allUnits[kodeClean]) {
+      throw new Error("Kode unit kerja '" + (targetData.kode || kodeClean) + "' sudah digunakan. Harap gunakan kode lain.");
+    }
+
+    targetUnitId = kodeClean;
+    var newUnitObj = {
+      nama: targetData.nama.trim(),
+      kode: targetData.kode ? targetData.kode.trim() : kodeClean,
+      parentId: targetData.parentId || '',
+      urutan: targetData.urutan || 0,
+      tahun: CURRENT_TAHUN || '2026',
+      statusValidasi: 'Draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    patchPayloadUnitKerja[targetUnitId] = newUnitObj;
+  } else {
+    targetUnitId = targetData.targetUnitId;
+    if (!targetUnitId || !allUnits[targetUnitId]) {
+      throw new Error("Unit kerja target sasaran tidak valid atau tidak ditemukan.");
+    }
+  }
+
+  // 4. Bangun ID Translation Map (oldJabatanId -> newJabatanId)
+  var idMap = {};
+  var newJabatansList = [];
+
+  sourceJabatans.forEach(function(oldJbt) {
+    var newId = Utilities.getUuid();
+    idMap[oldJbt.id] = newId;
+    newJabatansList.push({
+      oldJbt: oldJbt,
+      newId: newId
+    });
+  });
+
+  // 5. Susun payload Jabatan Baru dengan parentId yang telah dipetakan
+  var patchPayloadJabatan = {};
+  newJabatansList.forEach(function(item) {
+    var oldJbt = item.oldJbt;
+    var newId = item.newId;
+
+    var newParentId = '';
+    if (oldJbt.parentId) {
+      if (idMap[oldJbt.parentId]) {
+        // Parent internal unit: arahkan ke ID jabatan baru yang sepadan
+        newParentId = idMap[oldJbt.parentId];
+      } else {
+        // Parent eksternal (misal atasan di OPD induk): pertahankan
+        newParentId = oldJbt.parentId;
+      }
+    }
+
+    var newJbtObj = {
+      namaJabatan: oldJbt.namaJabatan || '',
+      kodeJabatan: oldJbt.kodeJabatan || '',
+      jenisJabatan: oldJbt.jenisJabatan || 'Fungsional',
+      kelasJabatan: oldJbt.kelasJabatan || 1,
+      level: oldJbt.level || 4,
+      ikhtisarJabatan: oldJbt.ikhtisarJabatan || '',
+      urutan: oldJbt.urutan || 0,
+      tahun: CURRENT_TAHUN || '2026',
+      unitKerjaId: targetUnitId,
+      parentId: newParentId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    ['jptUtama', 'jptMadya', 'jptPratama', 'administrator', 'pengawas', 'pelaksana', 'jabatanFungsional'].forEach(function(f) {
+      if (oldJbt[f]) newJbtObj[f] = oldJbt[f];
+    });
+
+    patchPayloadJabatan[newId] = newJbtObj;
+  });
+
+  // 6. Salin Uraian Anjab Anak (13 Tabel) & Reset ABK Pegawai Riil
+  var childEntities = [
+    'kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja',
+    'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
+    'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya', 'abk'
+  ];
+
+  var childPatches = {};
+  childEntities.forEach(function(ent) {
+    childPatches[ent] = {};
+    var tableData = fbGet_(getFirebasePath_(ent)) || {};
+
+    Object.keys(tableData).forEach(function(k) {
+      var row = tableData[k];
+      if (!row) return;
+
+      var targetOldJabId = row.jabatanId || row.parentId;
+      if (targetOldJabId && idMap[targetOldJabId]) {
+        var newJabId = idMap[targetOldJabId];
+        var newChildId = Utilities.getUuid();
+        var clonedRow = JSON.parse(JSON.stringify(row));
+        delete clonedRow.id;
+
+        if (clonedRow.jabatanId) clonedRow.jabatanId = newJabId;
+        if (clonedRow.parentId) clonedRow.parentId = newJabId;
+        clonedRow.createdAt = new Date().toISOString();
+        clonedRow.updatedAt = new Date().toISOString();
+
+        // Reset nilai pegawai riil jika tabel abk
+        if (ent === 'abk') {
+          if ('jumlahPegawai' in clonedRow) clonedRow.jumlahPegawai = 0;
+          if ('pegawaiSaatIni' in clonedRow) clonedRow.pegawaiSaatIni = 0;
+          if ('bebanKerja' in clonedRow) clonedRow.bebanKerja = 0;
+        }
+
+        childPatches[ent][newChildId] = clonedRow;
+      }
+    });
+  });
+
+  // 7. Eksekusi Batch Writes ke Firebase
+  if (mode === 'createNew' && Object.keys(patchPayloadUnitKerja).length > 0) {
+    fbPatch_(getFirebasePath_('unitKerja'), patchPayloadUnitKerja);
+  }
+  if (Object.keys(patchPayloadJabatan).length > 0) {
+    fbPatch_(getFirebasePath_('jabatan'), patchPayloadJabatan);
+  }
+
+  childEntities.forEach(function(ent) {
+    if (Object.keys(childPatches[ent]).length > 0) {
+      fbPatch_(getFirebasePath_(ent), childPatches[ent]);
+    }
+  });
+
+  // 8. Invalidasi Seluruh Cache
+  invalidateAllCaches_();
+
+  return {
+    success: true,
+    message: "Berhasil menduplikasi " + sourceJabatans.length + " jabatan beserta uraian tugas Anjab.",
+    targetUnitId: targetUnitId,
+    totalJabatans: sourceJabatans.length
   };
 }
 

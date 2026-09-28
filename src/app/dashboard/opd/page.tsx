@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { UnitKerja } from "@/lib/types";
+import ModalDuplikasiUnit from "@/components/ModalDuplikasiUnit";
 
 type TreeNode = {
   id: string;
@@ -45,6 +46,7 @@ export default function OPDManagementPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [modalData, setModalData] = useState<ModalData>(EMPTY_MODAL);
   const [modalSaving, setModalSaving] = useState(false);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
 
   // Raw data for parent selection and filtering
   const [rawOpds, setRawOpds] = useState<UnitKerja[]>([]);
@@ -524,6 +526,16 @@ export default function OPDManagementPage() {
           </button>
           
           <button 
+            type="button"
+            className={styles.btnSecondary} 
+            onClick={() => setIsDuplicateModalOpen(true)}
+            title="Duplikasi seluruh jabatan dan uraian tugas Anjab dari satu unit ke unit lain"
+            style={{ border: '1px solid #3b82f6', color: '#1d4ed8', background: '#eff6ff' }}
+          >
+            📋 Duplikasi Unit & Jabatan
+          </button>
+          
+          <button 
             className={styles.btnSecondary} 
             onClick={handleCloneYear} 
             title="Salin seluruh data tahun aktif ini ke tahun anggaran baru"
@@ -641,6 +653,17 @@ export default function OPDManagementPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL DUPLIKASI UNIT KERJA & JABATAN */}
+      <ModalDuplikasiUnit
+        isOpen={isDuplicateModalOpen}
+        onClose={() => setIsDuplicateModalOpen(false)}
+        onSuccess={() => {
+          showToast("✅ Berhasil menduplikasi unit kerja dan seluruh jabatannya!");
+          loadData(true);
+        }}
+        unitKerjas={rawOpds}
+      />
     </div>
   );
 }

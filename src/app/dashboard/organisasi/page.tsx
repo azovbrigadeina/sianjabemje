@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { UnitKerja, ReferensiJabatan } from "@/lib/types";
+import ModalDuplikasiUnit from "@/components/ModalDuplikasiUnit";
 
 type TreeNode = {
   id: string;
@@ -54,6 +55,7 @@ export default function OrganisasiPage() {
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [draggedNode, setDraggedNode] = useState<TreeNode | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
 
   const handleDragStart = (e: React.DragEvent, node: TreeNode) => {
     if (!isReorderMode) return;
@@ -898,6 +900,15 @@ export default function OrganisasiPage() {
           >
             ⇄ Mode Atur Urutan {isReorderMode ? '(Aktif)' : ''}
           </button>
+          <button 
+            type="button" 
+            className={styles.btnSecondary} 
+            onClick={() => setIsDuplicateModalOpen(true)}
+            style={{ marginLeft: '12px', whiteSpace: 'nowrap', border: '1px solid #3b82f6', color: '#1d4ed8', background: '#eff6ff' }}
+            title="Duplikasi seluruh jabatan dan uraian tugas Anjab dari satu unit ke unit lain"
+          >
+            📋 Duplikasi Unit & Jabatan
+          </button>
         </div>
 
         <div className={styles.treeContainer} style={{ padding: '20px', overflowX: 'auto' }}>
@@ -1352,6 +1363,18 @@ export default function OrganisasiPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL DUPLIKASI UNIT KERJA & JABATAN */}
+      <ModalDuplikasiUnit
+        isOpen={isDuplicateModalOpen}
+        onClose={() => setIsDuplicateModalOpen(false)}
+        onSuccess={() => {
+          showToast("✅ Berhasil menduplikasi unit kerja dan seluruh jabatannya!");
+          loadData(true);
+        }}
+        unitKerjas={rawOpds}
+        jabatans={rawJabatans}
+      />
     </div>
   );
 }

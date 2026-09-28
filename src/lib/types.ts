@@ -257,3 +257,15 @@ export interface AnomaliExclusion {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface DuplicateUnitKerjaParams {
+  sourceUnitId: string;
+  mode: 'createNew' | 'existing';
+  targetData: {
+    nama?: string;
+    kode?: string;
+    parentId?: string;
+    urutan?: number;
+    targetUnitId?: string;
+  };
+}
