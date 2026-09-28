@@ -468,15 +468,18 @@ export default function InvestigasiPage() {
                           >
                             {excludingId === item.id ? '⏳...' : '🚫 Kecualikan'}
                           </button>
-                          {item.type === 'DATA_YATIM' ? (
+                          {item.type === 'DATA_YATIM' || item.type === 'OUTLIER_JENJANG_UTAMA' ? (
                             <button
                               className={styles.actionBtnDelete}
                               onClick={() => setDeletingAnomali(item)}
-                              title="Hapus permanen data jabatan yatim ini dari database"
+                              title={item.type === 'OUTLIER_JENJANG_UTAMA'
+                                ? "Hapus permanen jabatan fungsional Ahli Utama ini dari database"
+                                : "Hapus permanen data jabatan yatim ini dari database"}
                             >
                               🗑️ Hapus Permanen
                             </button>
-                          ) : (
+                          ) : null}
+                          {item.type !== 'DATA_YATIM' && (
                             <Link href={`/dashboard/organisasi?unitId=${item.unitKerjaId}`} className={styles.actionBtn} style={{ background: '#6b7280', textDecoration: 'none' }}>
                               🗺️ Peta
                             </Link>
@@ -703,10 +706,13 @@ export default function InvestigasiPage() {
               <span>🗑️</span> Konfirmasi Hapus Permanen
             </h3>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-main, #374151)', margin: 0 }}>
-              Apakah Anda yakin ingin menghapus permanen data jabatan yatim ini dari database?
+              {deletingAnomali.type === 'OUTLIER_JENJANG_UTAMA'
+                ? 'Apakah Anda yakin ingin menghapus permanen jabatan fungsional jenjang Ahli Utama ini dari database?'
+                : 'Apakah Anda yakin ingin menghapus permanen data jabatan ini dari database?'}
             </p>
             <div style={{ background: '#fee2e2', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.85rem', color: '#991b1b' }}>
               <div style={{ fontWeight: 700 }}>{deletingAnomali.namaJabatan}</div>
+              <div>OPD: {deletingAnomali.opdNama}</div>
               <div>Jenis: {deletingAnomali.jenisJabatan} | Kelas: {deletingAnomali.kelasJabatan}</div>
             </div>
             <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: 0 }}>
