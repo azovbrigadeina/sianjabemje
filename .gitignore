@@ -54,5 +54,13 @@ siasn_export.xlsx
 .freebuff/
 scratch/
 
+# debug and temporary scripts
+debug_*.js
+fix_*.js
+fix_db.js
+parse_*.js
+patch*.js
+
+
 
 
