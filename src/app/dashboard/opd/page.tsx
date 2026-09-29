@@ -52,46 +52,6 @@ export default function OPDManagementPage() {
   const [rawOpds, setRawOpds] = useState<UnitKerja[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const handleSyncToSheet = async () => {
-    if (!confirm("Sinkronkan seluruh data ke Google Sheet?")) return;
-    setIsSyncing(true);
-    try {
-      await api.syncToSheet();
-      showToast("✅ Data berhasil disinkronkan ke Google Sheet!");
-    } catch (error) {
-      alert("Gagal sync ke Sheet: " + error);
-    }
-    setIsSyncing(false);
-  };
-
-  const handleSyncFromSheet = async (clean: boolean = false) => {
-    const promptMsg = clean
-      ? "⚠️ PERHATIAN SYNC BERSIH:\nData yang sudah Anda hapus dari Google Sheet akan DIHAPUS PERMANEN dari Website (Firebase)!\n\nApakah Anda yakin ingin melanjutkan Sync Bersih?"
-      : "Tarik data dari Google Sheet? Baris tanpa ID akan dibuatkan ID baru di Sheet.";
-    if (!confirm(promptMsg)) return;
-    setIsSyncing(true);
-    try {
-      const res = await api.syncFromSheet(clean);
-      showToast("✅ " + (res?.message || "Data berhasil ditarik dari Google Sheet!"));
-      await loadData(true);
-    } catch (error) {
-      alert("Gagal tarik dari Sheet: " + error);
-    }
-    setIsSyncing(false);
-  };
-
-  const handlePublishSitpp = async () => {
-    if (!confirm("Publish seluruh struktur organisasi ini ke SiTPP sekarang? SiTPP akan langsung membaca data terbaru ini.")) return;
-    setIsSyncing(true);
-    try {
-      await api.exportForSitpp();
-      showToast("🚀 Data struktur berhasil dipublish! SiTPP sekarang menggunakan versi terbaru ini.");
-    } catch (error) {
-      alert("Gagal mempublish: " + error);
-    }
-    setIsSyncing(false);
-  };
-
   const handleCloneYear = async () => {
     const targetYear = prompt("Masukkan tahun sasaran untuk kloning data (misal: 2027, 2028):");
     if (!targetYear) return;
@@ -494,20 +454,6 @@ export default function OPDManagementPage() {
             )}
           </h1>
           <p className={styles.subtitle}>Atur hirarki perangkat daerah dan sub unit kerja di bawahnya (Tahun {activeYear}).</p>
-        </div>
-        <div className={styles.actions}>
-          <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Langkah 1 (Awal): Ekspor data mutakhir dari Website ke Google Sheet sebelum diedit. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
-            📤 Ekspor ke Sheet
-          </button>
-          <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(false)} disabled={isSyncing} title="Langkah 3: Impor hasil edit dari Google Sheet ke Website (Tambah/Update saja).">
-            📥 Impor dari Sheet
-          </button>
-          <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(true)} disabled={isSyncing} title="Impor & Hapus data di Website jika barisnya telah dihapus dari Google Sheet (Sync Bersih)." style={{ borderColor: '#ef4444', color: '#ef4444' }}>
-            📥🧹 Sync Bersih
-          </button>
-          <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
-            {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
-          </button>
         </div>
       </div>
 
