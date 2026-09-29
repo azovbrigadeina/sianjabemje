@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
@@ -56,6 +56,29 @@ export default function OperatorOrganisasiPage() {
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [draggedNode, setDraggedNode] = useState<TreeNode | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [isSheetDropdownOpen, setIsSheetDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click or ESC key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsSheetDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSheetDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const handleDragStart = (e: React.DragEvent, node: TreeNode) => {
     if (!isReorderMode) return;
@@ -875,16 +898,132 @@ export default function OperatorOrganisasiPage() {
         </div>
         {orgEditEnabled && (
           <div className={styles.actions}>
-            <button className={styles.btnSecondary} onClick={handleSyncToSheet} disabled={isSyncing} title="Langkah 1 (Awal): Ekspor data mutakhir dari Website ke Google Sheet sebelum diedit. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)">
-              📤 Ekspor ke Sheet
-            </button>
-            <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(false)} disabled={isSyncing} title="Langkah 3: Impor hasil edit dari Google Sheet ke Website (Tambah/Update saja).">
-              📥 Impor dari Sheet
-            </button>
-            <button className={styles.btnSecondary} onClick={() => handleSyncFromSheet(true)} disabled={isSyncing} title="Impor & Hapus data di Website jika barisnya telah dihapus dari Google Sheet (Sync Bersih)." style={{ borderColor: '#ef4444', color: '#ef4444' }}>
-              📥🧹 Sync Bersih
-            </button>
-            <button className={styles.btnPrimary} onClick={handlePublishSitpp} disabled={isSyncing} title="Kompilasi dan Publish Data ke SiTPP" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}>
+            <div ref={dropdownRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setIsSheetDropdownOpen(prev => !prev)}
+                disabled={isSyncing}
+                aria-haspopup="true"
+                aria-expanded={isSheetDropdownOpen}
+                title="Pilihan sinkronisasi Google Sheet"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>📊</span> Sinkronisasi <span style={{ fontSize: '0.7rem', marginLeft: '2px' }}>▾</span>
+              </button>
+              {isSheetDropdownOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    width: '220px',
+                    background: 'var(--background, #ffffff)',
+                    border: '1px solid var(--glass-border, #e2e8f0)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1)',
+                    padding: '6px',
+                    zIndex: 50,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSheetDropdownOpen(false);
+                      handleSyncToSheet();
+                    }}
+                    title="Langkah 1 (Awal): Ekspor data mutakhir dari Website ke Google Sheet sebelum diedit. (Alur Kerja Best Practice: 1. Ekspor ke Sheet ➔ 2. Edit Data di Sheet ➔ 3. Impor dari Sheet)"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      transition: 'background 0.15s ease',
+                      color: 'var(--foreground, #1e293b)',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span style={{ fontSize: '1rem' }}>📤</span>
+                    <span>Ekspor ke Sheet</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSheetDropdownOpen(false);
+                      handleSyncFromSheet(false);
+                    }}
+                    title="Langkah 3: Impor hasil edit dari Google Sheet ke Website (Tambah/Update saja)."
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      transition: 'background 0.15s ease',
+                      color: 'var(--foreground, #1e293b)',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span style={{ fontSize: '1rem' }}>📥</span>
+                    <span>Impor dari Sheet</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSheetDropdownOpen(false);
+                      handleSyncFromSheet(true);
+                    }}
+                    title="Impor & Hapus data di Website jika barisnya telah dihapus dari Google Sheet (Sync Bersih)."
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      transition: 'background 0.15s ease',
+                      color: '#ef4444',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span style={{ fontSize: '1rem' }}>📥🧹</span>
+                    <span>Sync Bersih</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handlePublishSitpp}
+              disabled={isSyncing}
+              title="Kompilasi dan Publish Data ke SiTPP"
+              style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
+            >
               {isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}
             </button>
           </div>
