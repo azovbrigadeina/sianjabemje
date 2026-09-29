@@ -887,9 +887,12 @@ export default function OrganisasiPage() {
         <div className={styles.actions}>
           <div ref={dropdownRef} style={{ position: 'relative' }}>
             <button
+              type="button"
               className={styles.btnSecondary}
               onClick={() => setIsSheetDropdownOpen(prev => !prev)}
               disabled={isSyncing}
+              aria-haspopup="true"
+              aria-expanded={isSheetDropdownOpen}
               title="Pilihan sinkronisasi Google Sheet"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
             >
@@ -914,6 +917,7 @@ export default function OrganisasiPage() {
                 }}
               >
                 <button
+                  type="button"
                   onClick={() => {
                     setIsSheetDropdownOpen(false);
                     handleSyncToSheet();
@@ -934,13 +938,14 @@ export default function OrganisasiPage() {
                     fontSize: '0.85rem',
                     fontWeight: 500,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(125, 125, 125, 0.12)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   <span style={{ fontSize: '1rem' }}>📤</span>
                   <span>Ekspor ke Sheet</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setIsSheetDropdownOpen(false);
                     handleSyncFromSheet(false);
@@ -961,13 +966,14 @@ export default function OrganisasiPage() {
                     fontSize: '0.85rem',
                     fontWeight: 500,
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(125, 125, 125, 0.12)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   <span style={{ fontSize: '1rem' }}>📥</span>
                   <span>Impor dari Sheet</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setIsSheetDropdownOpen(false);
                     handleSyncFromSheet(true);

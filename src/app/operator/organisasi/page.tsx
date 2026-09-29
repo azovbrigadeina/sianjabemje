@@ -951,7 +951,7 @@ export default function OperatorOrganisasiPage() {
                       fontSize: '0.85rem',
                       fontWeight: 500,
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(125, 125, 125, 0.12)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
                     <span style={{ fontSize: '1rem' }}>📤</span>
@@ -979,7 +979,7 @@ export default function OperatorOrganisasiPage() {
                       fontSize: '0.85rem',
                       fontWeight: 500,
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)')}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(125, 125, 125, 0.12)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
                     <span style={{ fontSize: '1rem' }}>📥</span>

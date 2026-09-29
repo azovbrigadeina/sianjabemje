@@ -482,8 +482,10 @@ export default function OPDManagementPage() {
           </button>
           
           <button 
+            type="button"
             className={styles.btnSecondary} 
             onClick={handleCloneYear} 
+            disabled={isSyncing}
             title="Salin seluruh data tahun aktif ini ke tahun anggaran baru"
             style={{ marginLeft: 'auto', border: '1px solid #c084fc', color: '#7e22ce' }}
           >
@@ -492,8 +494,10 @@ export default function OPDManagementPage() {
           
           {activeYear !== '2026' && (
             <button 
+              type="button"
               className={styles.btnSecondary} 
               onClick={handleDeleteYear} 
+              disabled={isSyncing}
               title="Hapus bersih seluruh data tahun aktif saat ini"
               style={{ border: '1px solid #f87171', color: '#dc2626' }}
             >
