@@ -9,11 +9,11 @@
 Tampilan header dan toolbar pada halaman **Struktur Organisasi** (`/dashboard/organisasi`) dan **Kelola OPD** (`/dashboard/opd`) memiliki banyak tombol aksi yang padat dan redundan. 
 
 Tujuan perubahan ini adalah:
-1. Menyederhanakan 3 tombol integrasi Google Sheet (`📤 Ekspor ke Sheet`, `📥 Impor dari Sheet`, `📥🧹 Sync Bersih`) ke dalam satu komponen dropdown terpadu bernama **"Sinkronisasi Sheet"**.
+1. Menyederhanakan 3 tombol integrasi Google Sheet (`📤 Ekspor ke Sheet`, `📥 Impor dari Sheet`, `📥🧹 Sync Bersih`) ke dalam satu komponen dropdown terpadu bernama **"Sinkronisasi"**.
 2. Membiarkan tombol **"🚀 Publish ke SiTPP"** tetap berdiri sendiri (**independen**) sebagai tombol utama yang jelas dan mudah diakses.
 3. Menghapus tombol **"📋 Duplikasi Unit & Jabatan"** dari halaman Struktur Organisasi karena fungsi duplikasi struktur jabatan unit kerja dialokasikan secara spesifik di halaman **Kelola OPD**.
 4. Menghapus tombol integrasi Sheet & SiTPP dari header **Kelola OPD** (`/dashboard/opd`) sehingga halaman Kelola OPD fokus pada manajemen master unit kerja dan duplikasi struktur.
-5. Menyelaraskan tampilan halaman **Operator Organisasi** (`/operator/organisasi`) dengan pola yang sama (Dropdown "Sinkronisasi Sheet" + Tombol Independen "Publish ke SiTPP").
+5. Menyelaraskan tampilan halaman **Operator Organisasi** (`/operator/organisasi`) dengan pola yang sama (Dropdown "Sinkronisasi" + Tombol Independen "Publish ke SiTPP").
 
 ---
 
@@ -24,7 +24,7 @@ Tujuan perubahan ini adalah:
 #### 1. Header Actions (Kanan Atas)
 Mengganti 3 tombol Google Sheet yang terpisah menjadi satu menu dropdown:
 - **Tombol Pemicu**:
-  - Teks: `📊 Sinkronisasi Sheet ▾`
+  - Teks: `📊 Sinkronisasi ▾`
   - Style: Sekunder (`btnSecondary`), dengan ikon panah kecil ke bawah (chevron down).
   - Interaksi: Toggle buka/tutup menu saat diklik; menutup otomatis ketika user mengklik di luar menu (*click-outside listener*) atau setelah memilih aksi.
 - **Menu Dropdown (Popover)**:
@@ -34,7 +34,7 @@ Mengganti 3 tombol Google Sheet yang terpisah menjadi satu menu dropdown:
   - Item 3: `📥🧹 Sync Bersih` — Menjalankan impor bersih (menghapus baris di Sianjab yang sudah tidak ada di Sheet), ditandai dengan aksen merah peringatan.
 - **Tombol Independen SiTPP**:
   - Teks: `{isSyncing ? "Memproses..." : "🚀 Publish ke SiTPP"}`
-  - Style: Primer (`btnPrimary`), warna hijau emerald (`#10b981`), berdiri sendiri tepat di samping dropdown Sinkronisasi Sheet.
+  - Style: Primer (`btnPrimary`), warna hijau emerald (`#10b981`), berdiri sendiri tepat di samping dropdown Sinkronisasi.
 
 #### 2. Toolbar Bawah (Pencarian & Kontrol Tree)
 - **Sebelum**: `[Cari nama...]` | `[➕ Kembangkan Semua]` | `[➖ Ciutkan Semua]` | `[⇄ Mode Atur Urutan]` | `[📋 Duplikasi Unit & Jabatan]`
@@ -67,7 +67,7 @@ Mengganti 3 tombol Google Sheet yang terpisah menjadi satu menu dropdown:
 ### C. Halaman Operator Organisasi (`/operator/organisasi`)
 
 - Menyelaraskan tampilan header aksi pada halaman Operator:
-  - Mengelompokkan tombol Sheet ke dalam dropdown `📊 Sinkronisasi Sheet ▾` (Ekspor, Impor, Sync Bersih).
+  - Mengelompokkan tombol Sheet ke dalam dropdown `📊 Sinkronisasi ▾` (Ekspor, Impor, Sync Bersih).
   - Tombol `🚀 Publish ke SiTPP` tetap mandiri/independen.
   - Tetap terikat pada pengecekan hak akses `orgEditEnabled`.
 
@@ -75,7 +75,7 @@ Mengganti 3 tombol Google Sheet yang terpisah menjadi satu menu dropdown:
 
 ## 3. Komponen & Styling
 
-Untuk dropdown menu "Sinkronisasi Sheet":
+Untuk dropdown menu "Sinkronisasi":
 - Dibuat menggunakan struktur CSS yang responsif dan aman z-index (`z-index: 50`).
 - Menu ditutup otomatis melalui event listener `mousedown` pada `document`.
 - Animasi transisi halus saat dropdown terbuka (*fade-in / scale-in*).
@@ -84,7 +84,7 @@ Untuk dropdown menu "Sinkronisasi Sheet":
 
 ## 4. Rencana Verifikasi
 1. **Verifikasi Fungsional Struktur Organisasi**:
-   - Klik tombol "Sinkronisasi Sheet ▾" -> Menu dropdown terbuka.
+   - Klik tombol "Sinkronisasi ▾" -> Menu dropdown terbuka.
    - Klik "Ekspor ke Sheet" -> Memproses ekspor dan dropdown tertutup.
    - Klik "Impor dari Sheet" -> Memproses impor dan dropdown tertutup.
    - Klik "Sync Bersih" -> Memunculkan dialog konfirmasi sinkronisasi bersih dan dropdown tertutup.
