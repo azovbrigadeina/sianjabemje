@@ -23,9 +23,25 @@ var FIREBASE_SECRET = PropertiesService.getScriptProperties().getProperty('FIREB
 var SHEET_ID = PropertiesService.getScriptProperties().getProperty('SHEET_ID') || 'YOUR_SHEET_ID';
 var SITPP_FIREBASE_URL = PropertiesService.getScriptProperties().getProperty('SITPP_FIREBASE_URL') || 'YOUR_SITPP_FIREBASE_URL';
 var SITPP_SECRET = PropertiesService.getScriptProperties().getProperty('SITPP_SECRET') || 'YOUR_SITPP_SECRET';
-// API_SECRET untuk validasi token HMAC — set di Script Properties
-// Jika kosong, validasi token dilewati (backward compatible)
+var BASE_YEAR = PropertiesService.getScriptProperties().getProperty('BASE_YEAR') || '2026';
+// API_SECRET untuk validasi token HMAC — fail-closed
 var API_SECRET = PropertiesService.getScriptProperties().getProperty('API_SECRET') || '';
+
+function getApiSecret_() {
+  if (API_SECRET) return API_SECRET;
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('API_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + '-' + Utilities.getUuid();
+    try {
+      props.setProperty('API_SECRET', secret);
+    } catch (e) {
+      Logger.log('Gagal menyimpan API_SECRET: ' + e.message);
+    }
+  }
+  API_SECRET = secret;
+  return API_SECRET;
+}
 
 // =============================================
 // CACHING (GAS CacheService)
@@ -38,7 +54,7 @@ var scriptCache_ = CacheService.getScriptCache();
 function putLargeCache_(key, data, ttlSeconds) {
   try {
     var serialized = JSON.stringify(data);
-    var chunkSize = 90000; // 90KB safe limit (max 100KB)
+    var chunkSize = 80000; // 80KB safe limit per key
     var len = serialized.length;
     var ttl = ttlSeconds || 300;
     
@@ -60,7 +76,18 @@ function putLargeCache_(key, data, ttlSeconds) {
       cacheData[key + '_' + i] = chunk;
     }
     cacheData[key + '_chunks'] = numChunks.toString();
-    scriptCache_.putAll(cacheData, ttl);
+
+    // Batch putAll maks 25 keys per panggilan untuk mematuhi limit CacheService
+    var allKeys = Object.keys(cacheData);
+    var batchSize = 25;
+    for (var b = 0; b < allKeys.length; b += batchSize) {
+      var sliceKeys = allKeys.slice(b, b + batchSize);
+      var batchMap = {};
+      for (var k = 0; k < sliceKeys.length; k++) {
+        batchMap[sliceKeys[k]] = cacheData[sliceKeys[k]];
+      }
+      scriptCache_.putAll(batchMap, ttl);
+    }
   } catch (e) {
     Logger.log('Error putting large cache for ' + key + ': ' + e.message);
   }
@@ -90,7 +117,18 @@ function getLargeCache_(key) {
     for (var i = 0; i < numChunks; i++) {
       chunkKeys.push(key + '_' + i);
     }
-    var chunksMap = scriptCache_.getAll(chunkKeys);
+
+    // Batch getAll maks 25 keys per panggilan
+    var chunksMap = {};
+    var batchSize = 25;
+    for (var b = 0; b < chunkKeys.length; b += batchSize) {
+      var sliceKeys = chunkKeys.slice(b, b + batchSize);
+      var partialMap = scriptCache_.getAll(sliceKeys);
+      for (var pk in partialMap) {
+        chunksMap[pk] = partialMap[pk];
+      }
+    }
+
     var serialized = '';
     for (var i = 0; i < numChunks; i++) {
       var chunk = chunksMap[key + '_' + i];
@@ -116,7 +154,11 @@ function removeLargeCache_(key) {
         keys.push(key + '_' + i);
       }
     }
-    scriptCache_.removeAll(keys);
+    // Batch removeAll maks 25 keys per panggilan
+    var batchSize = 25;
+    for (var b = 0; b < keys.length; b += batchSize) {
+      scriptCache_.removeAll(keys.slice(b, b + batchSize));
+    }
   } catch (e) {
     Logger.log('Error removing large cache for ' + key + ': ' + e.message);
   }
@@ -171,7 +213,7 @@ function invalidateAllCaches_() {
 // =============================================
 
 // Action yang diizinkan TANPA token (public endpoints)
-var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'getSptSpreadsheetData', 'ping', 'checkVerificationCode'];
+var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'ping', 'checkVerificationCode'];
 
 // Action khusus ADMIN (Role-Based Access Control)
 var ADMIN_ONLY_ACTIONS_ = [
@@ -198,7 +240,7 @@ function computeHmacHex_(dataStr, secretKey) {
 
 function generateAuthToken_(username) {
   var timestamp = Date.now();
-  var secret = API_SECRET || 'SIANJAB_DEFAULT_SECRET_KEY';
+  var secret = getApiSecret_();
   var sig = computeHmacHex_(username + ':' + timestamp, secret);
   return Utilities.base64Encode(username + ':' + timestamp + ':' + sig);
 }
@@ -208,24 +250,21 @@ function validateToken_(token) {
   try {
     var decoded = Utilities.newBlob(Utilities.base64Decode(token)).getDataAsString();
     var parts = decoded.split(':');
-    if (parts.length < 2) return false;
+    // Wajib memiliki 3 bagian: username:timestamp:hmacSignature
+    if (parts.length < 3) return false;
     var username = parts[0];
     var timestamp = parseInt(parts[1], 10);
-    if (!username || isNaN(timestamp)) return false;
+    var signature = parts[2];
+    if (!username || isNaN(timestamp) || !signature) return false;
 
     // Token berlaku 24 jam (1 hari)
     var oneDayMs = 24 * 60 * 60 * 1000;
     if (Date.now() - timestamp > oneDayMs) return false;
 
-    // HMAC Signature Check
-    var secret = API_SECRET || 'SIANJAB_DEFAULT_SECRET_KEY';
-    if (parts.length >= 3) {
-      var expectedSig = computeHmacHex_(username + ':' + timestamp, secret);
-      if (parts[2] !== expectedSig) return false;
-    } else if (API_SECRET) {
-      // API_SECRET dikonfigurasi, tapi token lama tanpa signature -> tolak
-      return false;
-    }
+    // HMAC Signature Check (fail-closed)
+    var secret = getApiSecret_();
+    var expectedSig = computeHmacHex_(username + ':' + timestamp, secret);
+    if (signature !== expectedSig) return false;
 
     // Verifikasi user masih ada dan aktif
     var users = cachedFbGet_('users', 300);
@@ -313,17 +352,17 @@ function doPost(e) {
 function handleRequest_(e) {
   try {
     var params = e.parameter || {};
-    CURRENT_TAHUN = params.tahun || '2026';
+    CURRENT_TAHUN = params.tahun || BASE_YEAR;
     var action = params.action || '';
     var entity = params.entity || '';
     var id = params.id || '';
     var parentId = params.parentId || '';
     var unitId = params.unitId || '';
 
-    // === AUTH TOKEN VALIDATION ===
+    // === AUTH TOKEN VALIDATION (FAIL-CLOSED) ===
     var token = params.token || '';
-    if (API_SECRET && PUBLIC_ACTIONS_.indexOf(action) === -1) {
-      if (!validateToken_(token)) {
+    if (PUBLIC_ACTIONS_.indexOf(action) === -1) {
+      if (!token || !validateToken_(token)) {
         return ContentService
           .createTextOutput(JSON.stringify({ success: false, error: 'Token tidak valid atau sudah kadaluarsa. Silakan login ulang.' }))
           .setMimeType(ContentService.MimeType.JSON);
@@ -351,22 +390,22 @@ function handleRequest_(e) {
       case 'ping':
         result = 'pong';
         break;
-      case 'benchmark':
-        result = runBenchmark_();
-        break;
       case 'create':
+        assertWritePermission_(currentUser, entity, null, data);
         result = createRecord_(entity, data);
         break;
       case 'read':
-        result = readRecord_(entity, id);
+        result = readRecord_(entity, id, currentUser);
         break;
       case 'readAll':
-        result = readAllRecords_(entity, parentId);
+        result = readAllRecords_(entity, parentId, currentUser);
         break;
       case 'update':
+        assertWritePermission_(currentUser, entity, id, data);
         result = updateRecord_(entity, id, data);
         break;
       case 'delete':
+        assertWritePermission_(currentUser, entity, id, null);
         result = deleteRecord_(entity, id);
         break;
 
@@ -577,8 +616,61 @@ function fbDelete_(path) {
 }
 
 // =============================================
-// GENERIC CRUD OPERATIONS
+// GENERIC CRUD OPERATIONS & RBAC
 // =============================================
+
+function stripSensitiveSettings_(item, currentUser) {
+  if (!item || typeof item !== 'object') return item;
+  if (currentUser && currentUser.role === 'admin') return item;
+  var safe = {};
+  for (var k in item) {
+    if (k.toLowerCase().indexOf('apikey') !== -1 || k.toLowerCase().indexOf('secret') !== -1) {
+      continue;
+    }
+    safe[k] = item[k];
+  }
+  return safe;
+}
+
+function assertWritePermission_(currentUser, entity, id, data) {
+  // 1. Entitas users dan settings WAJIB admin
+  if (entity === 'users' || entity === 'settings') {
+    if (!currentUser || currentUser.role !== 'admin') {
+      throw new Error('Akses ditolak: Operasi pada entitas ' + entity + ' hanya dapat dilakukan oleh Administrator.');
+    }
+    return;
+  }
+
+  // Admin memiliki hak akses penuh
+  if (!currentUser || currentUser.role === 'admin') {
+    return;
+  }
+
+  // 2. Untuk role non-admin (operator): validasi pembatasan per OPD
+  var userUnitId = currentUser.unitKerjaId;
+  if (!userUnitId) {
+    return;
+  }
+
+  if (entity === 'unitKerja') {
+    if (id && id !== userUnitId) {
+      throw new Error('Akses ditolak: Anda hanya dapat mengubah Unit Kerja OPD Anda.');
+    }
+    if (data && data.id && data.id !== userUnitId) {
+      throw new Error('Akses ditolak: Anda tidak dapat membuat Unit Kerja untuk OPD lain.');
+    }
+  } else if (entity === 'jabatan') {
+    if (data && data.unitKerjaId && data.unitKerjaId !== userUnitId) {
+      throw new Error('Akses ditolak: Anda tidak dapat menetapkan jabatan ke Unit Kerja OPD lain.');
+    }
+    if (id) {
+      var targetJbt = readRecord_('jabatan', id);
+      if (targetJbt && targetJbt.unitKerjaId && targetJbt.unitKerjaId !== userUnitId) {
+        throw new Error('Akses ditolak: Jabatan ini milik OPD lain.');
+      }
+    }
+  }
+}
 
 function createRecord_(entity, data) {
   data.createdAt = new Date().toISOString();
@@ -628,14 +720,20 @@ function createBatchJabatans_(items) {
   };
 }
 
-function readRecord_(entity, id) {
+function readRecord_(entity, id, currentUser) {
   var record = fbGet_(getFirebasePath_(entity, id));
   if (!record) return null;
   record.id = id;
+  if (entity === 'users') {
+    delete record.password;
+  }
+  if (entity === 'settings') {
+    record = stripSensitiveSettings_(record, currentUser);
+  }
   return record;
 }
 
-function readAllRecords_(entity, parentId) {
+function readAllRecords_(entity, parentId, currentUser) {
   // Gunakan cache untuk entity data master yang sering dibaca
   // TTL disesuaikan: entity yang jarang berubah di-cache lebih lama
   var cacheable = [
@@ -677,6 +775,9 @@ function readAllRecords_(entity, parentId) {
     if (entity === 'users') {
       delete item.password;
     }
+    if (entity === 'settings') {
+      item = stripSensitiveSettings_(item, currentUser);
+    }
     return item;
   });
 
@@ -695,6 +796,11 @@ function readAllRecords_(entity, parentId) {
     }
     return (a.nomorUrut || 0) - (b.nomorUrut || 0);
   });
+
+  // M4: Batasi security_logs ke 200 record terbaru
+  if (entity === 'security_logs' && records.length > 200) {
+    records = records.slice(0, 200);
+  }
 
   return records;
 }
@@ -1328,7 +1434,7 @@ function getJabatanHierarchy_(jabatanId, allJabatanMap) {
 // AUTHENTICATION & USER MANAGEMENT
 // =============================================
 
-function hashPassword_(password) {
+function hashPasswordOld_(password) {
   var signature = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, password);
   var hexString = '';
   for (var i = 0; i < signature.length; i++) {
@@ -1341,12 +1447,17 @@ function hashPassword_(password) {
   return hexString;
 }
 
+function hashPassword_(password, username) {
+  var salt = (username || '') + ':' + getApiSecret_();
+  return computeHmacHex_(password, salt);
+}
+
 function writeSecurityLog_(username, status, reason, ip, userAgent) {
   try {
     var logData = {
       timestamp: new Date().toISOString(),
       username: username || 'unknown',
-      status: status, // "SUCCESS" or "FAILED"
+      status: status, // "SUCCESS" or "FAILED" or "BLOCKED"
       reason: reason || '',
       ip: ip || 'unknown',
       userAgent: userAgent || 'unknown'
@@ -1358,36 +1469,34 @@ function writeSecurityLog_(username, status, reason, ip, userAgent) {
 }
 
 function loginUser_(data) {
-  var ip = data ? data.ip : 'unknown';
-  var userAgent = data ? data.userAgent : 'unknown';
+  var ip = data ? (data.ip || 'unknown') : 'unknown';
+  var userAgent = data ? (data.userAgent || 'unknown') : 'unknown';
+  var attemptedUser = (data && data.username) ? String(data.username).trim() : 'unknown';
+
+  // C6: Rate-limiting login (maks 5 kali gagal / 15 menit per ip + username)
+  var attemptKey = 'login_fail_' + ip.replace(/[^a-zA-Z0-9_.-]/g, '_') + '_' + attemptedUser;
+  var attemptCountStr = scriptCache_.get(attemptKey);
+  var attemptCount = attemptCountStr ? parseInt(attemptCountStr, 10) : 0;
+  if (attemptCount >= 5) {
+    writeSecurityLog_(attemptedUser, 'BLOCKED', 'Terlalu banyak percobaan login gagal (diblokir 15 menit)', ip, userAgent);
+    throw new Error("Terlalu banyak percobaan login gagal. Akun/IP ini diblokir sementara selama 15 menit demi keamanan.");
+  }
+
+  function recordFail_(reason) {
+    attemptCount++;
+    scriptCache_.put(attemptKey, attemptCount.toString(), 900); // 15 menit
+    writeSecurityLog_(attemptedUser, 'FAILED', reason, ip, userAgent);
+  }
 
   if (!data || !data.username || !data.password) {
-    var attemptedUser = (data && data.username) ? data.username : 'unknown';
-    writeSecurityLog_(attemptedUser, 'FAILED', 'Username dan password wajib diisi', ip, userAgent);
+    recordFail_('Username dan password wajib diisi');
     throw new Error("Username dan password wajib diisi");
   }
 
   var users = fbGet_('users');
   if (!users) {
-    // Auto-create initial admin if users node is completely empty
-    if (data.username === 'admin' && data.password === 'admin') {
-      var initialAdmin = {
-        username: 'admin',
-        password: hashPassword_('admin'),
-        namaLengkap: 'Administrator Utama',
-        role: 'admin',
-        isActive: true,
-        createdAt: new Date().toISOString()
-      };
-      var res = createRecord_('users', initialAdmin);
-      writeSecurityLog_('admin', 'SUCCESS', 'Kanal admin inisial dibuat otomatis', ip, userAgent);
-      return { 
-        token: generateAuthToken_('admin'), 
-        user: { id: res.id, username: 'admin', role: 'admin', namaLengkap: 'Administrator Utama' } 
-      };
-    }
-    writeSecurityLog_(data.username, 'FAILED', 'Akun tidak ditemukan (Users kosong)', ip, userAgent);
-    throw new Error("Akun tidak ditemukan");
+    recordFail_('Database pengguna kosong');
+    throw new Error("Akun tidak ditemukan. Database pengguna sistem belum dikonfigurasi.");
   }
 
   var foundUserId = null;
@@ -1401,37 +1510,45 @@ function loginUser_(data) {
   }
 
   if (!foundUserId) {
-    if (data.username === 'admin' && data.password === 'admin') {
-      var initialAdmin = {
-        username: 'admin',
-        password: hashPassword_('admin'),
-        namaLengkap: 'Administrator Utama',
-        role: 'admin',
-        isActive: true,
-        createdAt: new Date().toISOString()
-      };
-      var res = createRecord_('users', initialAdmin);
-      writeSecurityLog_('admin', 'SUCCESS', 'Kanal admin inisial dibuat otomatis', ip, userAgent);
-      return { 
-        token: generateAuthToken_('admin'), 
-        user: { id: res.id, username: 'admin', role: 'admin', namaLengkap: 'Administrator Utama' } 
-      };
-    }
-    writeSecurityLog_(data.username, 'FAILED', 'Akun tidak ditemukan', ip, userAgent);
+    recordFail_('Akun tidak ditemukan');
     throw new Error("Akun tidak ditemukan");
   }
 
   var user = users[foundUserId];
-  var hashedPassword = hashPassword_(data.password);
+  var isPasswordValid = false;
+  var needsRehash = false;
 
-  if (user.password !== hashedPassword) {
-    writeSecurityLog_(data.username, 'FAILED', 'Password salah', ip, userAgent);
+  var saltedHash = hashPassword_(data.password, user.username);
+  var legacyHash = hashPasswordOld_(data.password);
+
+  if (user.password === saltedHash) {
+    isPasswordValid = true;
+  } else if (user.password === legacyHash) {
+    isPasswordValid = true;
+    needsRehash = true;
+  }
+
+  if (!isPasswordValid) {
+    recordFail_('Password salah');
     throw new Error("Password salah");
   }
 
   if (user.isActive === false) {
-    writeSecurityLog_(data.username, 'FAILED', 'Akun ini telah dinonaktifkan', ip, userAgent);
-    throw new Error("Akun ini meggunakan status dinonaktifkan");
+    recordFail_('Akun telah dinonaktifkan');
+    throw new Error("Akun ini telah dinonaktifkan. Silakan hubungi Administrator.");
+  }
+
+  // Berhasil login: reset hitungan percobaan gagal
+  scriptCache_.remove(attemptKey);
+
+  // Jika password masih memakai hashing lama tanpa salt, otomatis upgrade ke salted HMAC
+  if (needsRehash) {
+    try {
+      fbPatch_('users/' + foundUserId, { password: saltedHash, updatedAt: new Date().toISOString() });
+      invalidateCache_('users');
+    } catch (rehashErr) {
+      Logger.log('Gagal migrasi hash password: ' + rehashErr.message);
+    }
   }
 
   var token = generateAuthToken_(user.username);
@@ -1453,6 +1570,25 @@ function loginUser_(data) {
   return { token: token, user: safeUser };
 }
 
+// C2: Manual bootstrap initial admin function (hanya dapat dijalankan via GAS editor jika node users kosong)
+function bootstrapInitialAdmin_() {
+  var users = fbGet_('users');
+  if (users && Object.keys(users).length > 0) {
+    throw new Error("Bootstrap ditolak: Node users sudah berisi akun.");
+  }
+  var initialAdmin = {
+    username: 'admin',
+    password: hashPassword_('admin', 'admin'),
+    namaLengkap: 'Administrator Utama',
+    role: 'admin',
+    isActive: true,
+    createdAt: new Date().toISOString()
+  };
+  var res = createRecord_('users', initialAdmin);
+  Logger.log("Admin inisial berhasil dibuat: " + res.id);
+  return res;
+}
+
 function createUser_(data) {
   if (!data.username || !data.password || !data.role) {
     throw new Error("Username, password, dan role wajib diisi");
@@ -1469,7 +1605,7 @@ function createUser_(data) {
 
   var newUser = {
     username: data.username,
-    password: hashPassword_(data.password),
+    password: hashPassword_(data.password, data.username),
     namaLengkap: data.namaLengkap || "",
     email: data.email || "",
     sptAdminNama: data.sptAdminNama || "",
@@ -1502,7 +1638,7 @@ function updateUser_(id, data) {
   if (!existingUser) throw new Error("User tidak ditemukan");
 
   if (data.password) {
-    data.password = hashPassword_(data.password);
+    data.password = hashPassword_(data.password, existingUser.username);
   }
   
   data.updatedAt = new Date().toISOString();
@@ -2475,7 +2611,7 @@ function autoRegisterOperator_(data) {
       updatePayload.unitKerjaId = unitKerjaId;
     }
     if (data.password) {
-      updatePayload.password = hashPassword_(data.password);
+      updatePayload.password = hashPassword_(data.password, username);
     }
     fbPatch_('users/' + foundUserId, updatePayload);
     return { status: "updated", id: foundUserId, message: "User sudah ada, data diperbarui." };
@@ -2488,7 +2624,7 @@ function autoRegisterOperator_(data) {
   // 3. Create new user
   var newUser = {
     username: username,
-    password: hashPassword_(data.password),
+    password: hashPassword_(data.password, username),
     namaLengkap: data.nama,
     email: data.email || "",
     role: "operator",
@@ -2563,8 +2699,9 @@ function deleteYearData_(tahun) {
   if (!tahun) {
     throw new Error("Tahun yang akan dihapus wajib ditentukan.");
   }
-  if (tahun === '2026') {
-    throw new Error("Tahun baseline '2026' dilindungi dan tidak boleh dihapus demi keamanan data.");
+  var currentYear = String(new Date().getFullYear());
+  if (tahun === BASE_YEAR || tahun === currentYear) {
+    throw new Error("Tahun baseline ('" + BASE_YEAR + "') dan tahun berjalan ('" + currentYear + "') dilindungi dan tidak boleh dihapus demi keamanan data.");
   }
   if (tahun === 'users' || tahun === 'settings' || tahun === 'sianjab_export') {
     throw new Error("Jalur data sistem global tidak boleh dihapus.");
@@ -3774,44 +3911,6 @@ function getBulkAnjabByUnit_(unitKerjaId) {
   });
 
   return filteredResult;
-}
-
-function runBenchmark_() {
-  var report = [];
-  
-  // 1. Firebase Direct Reads
-  var start = Date.now();
-  var u = fbGet_('2026/unitKerja');
-  var d1 = Date.now() - start;
-  report.push("Firebase Get 2026/unitKerja: " + d1 + "ms (Size: " + (u ? JSON.stringify(u).length : 0) + ")");
-  
-  start = Date.now();
-  var j = fbGet_('2026/jabatan');
-  var d2 = Date.now() - start;
-  report.push("Firebase Get 2026/jabatan: " + d2 + "ms (Size: " + (j ? JSON.stringify(j).length : 0) + ")");
-  
-  // 2. Cache test
-  var cacheKey = 'fb_2026_jabatan';
-  start = Date.now();
-  var cached = getLargeCache_(cacheKey);
-  var d3 = Date.now() - start;
-  report.push("Cache Get 2026_jabatan: " + d3 + "ms (Hit: " + (cached !== null) + ")");
-  
-  // 3. Put to cache if null
-  if (!cached && j) {
-    start = Date.now();
-    putLargeCache_(cacheKey, j, 300);
-    var d4 = Date.now() - start;
-    report.push("Cache Put 2026_jabatan: " + d4 + "ms");
-    
-    // Read again to verify
-    start = Date.now();
-    var cached2 = getLargeCache_(cacheKey);
-    var d5 = Date.now() - start;
-    report.push("Cache Get 2026_jabatan (post-put): " + d5 + "ms (Hit: " + (cached2 !== null) + ")");
-  }
-  
-  return report;
 }
 
 // =============================================

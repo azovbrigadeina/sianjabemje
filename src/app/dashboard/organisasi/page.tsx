@@ -519,7 +519,6 @@ export default function OrganisasiPage() {
     e.preventDefault();
     e.stopPropagation();
     ensureReferensiLoaded();
-    console.log("openAddModal called for", parentNode);
     setModalData({
       ...EMPTY_MODAL,
       parentId: parentNode.type === 'JABATAN' ? parentNode.id : '',
@@ -534,7 +533,6 @@ export default function OrganisasiPage() {
   const openEditModal = (node: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log("openEditModal called for", node);
     if (node.type === 'OPD') {
       const opd = rawOpds.find(o => o.id === node.id);
       setModalData({
@@ -626,8 +624,13 @@ export default function OrganisasiPage() {
           showToast("✅ Unit Kerja berhasil diperbarui.");
         } else {
           const res = await api.createEntity<UnitKerja>('unitKerja', opdPayload);
+          const sanitizedKode = (modalData.kode || '').trim().replace(/[^a-zA-Z0-9_]/g, '_');
+          const newOpdId = res?.id || sanitizedKode;
+          if (!newOpdId) {
+            throw new Error("Gagal membuat Unit Kerja: Server tidak mengembalikan ID.");
+          }
           const newOpd: UnitKerja = {
-            id: res?.id || modalData.kode,
+            id: newOpdId,
             nama: modalData.nama,
             kode: modalData.kode,
             parentId: modalData.parentId || undefined,
@@ -654,7 +657,7 @@ export default function OrganisasiPage() {
           tahun: activeYear
         };
         if (modalMode === 'edit' && modalData.id) {
-          await api.updateJabatan(modalData.id, {
+          const editPayload = {
             namaJabatan: modalData.nama,
             kodeJabatan: modalData.kode || '',
             jenisJabatan: modalData.jenisJabatan,
@@ -662,11 +665,10 @@ export default function OrganisasiPage() {
             parentId: modalData.parentId || null,
             unitKerjaId: modalData.unitKerjaId || null,
             urutan: modalData.urutan || 0,
-            ikhtisarJabatan: '',
-            level: 1,
             tahun: activeYear
-          });
-          const updatedJabatans = rawJabatans.map(j => (j.id === modalData.id ? { ...j, ...jabatanPayload, id: modalData.id } : j));
+          };
+          await api.updateJabatan(modalData.id, editPayload);
+          const updatedJabatans = rawJabatans.map(j => (j.id === modalData.id ? { ...j, ...editPayload } : j));
           setRawJabatans(updatedJabatans);
           const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
           setTreeData(roots);
@@ -693,9 +695,10 @@ export default function OrganisasiPage() {
               tahun: activeYear
             }));
             const res = await api.createBatchJabatans(payloads);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const createdItems = (res && res.items) ? res.items : payloads.map((p, idx) => ({ ...p, id: `temp_${Date.now()}_${idx}` }));
-            const updatedJabatans = [...rawJabatans, ...createdItems];
+            if (!res || !res.items || !Array.isArray(res.items) || res.items.length === 0) {
+              throw new Error("Gagal membuat Jabatan Fungsional: Server tidak mengembalikan data yang valid.");
+            }
+            const updatedJabatans = [...rawJabatans, ...res.items];
             setRawJabatans(updatedJabatans);
             const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
             setTreeData(roots);
@@ -721,9 +724,10 @@ export default function OrganisasiPage() {
               tahun: activeYear
             }));
             const res = await api.createBatchJabatans(payloads);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const createdItems = (res && res.items) ? res.items : payloads.map((p, idx) => ({ ...p, id: `temp_${Date.now()}_${idx}` }));
-            const updatedJabatans = [...rawJabatans, ...createdItems];
+            if (!res || !res.items || !Array.isArray(res.items) || res.items.length === 0) {
+              throw new Error("Gagal membuat Jabatan Fungsional: Server tidak mengembalikan data yang valid.");
+            }
+            const updatedJabatans = [...rawJabatans, ...res.items];
             setRawJabatans(updatedJabatans);
             const { roots } = buildOrgTreeNodes(rawOpds, updatedJabatans);
             setTreeData(roots);
@@ -731,9 +735,12 @@ export default function OrganisasiPage() {
           } else {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const res = await api.createJabatan(jabatanPayload) as any;
+            if (!res || !res.id) {
+              throw new Error("Gagal membuat Jabatan: Server tidak mengembalikan ID yang valid.");
+            }
             const newJabatan = {
               ...jabatanPayload,
-              id: (res && res.id) ? res.id : `temp_${Date.now()}`
+              id: res.id
             };
             const updatedJabatans = [...rawJabatans, newJabatan];
             setRawJabatans(updatedJabatans);

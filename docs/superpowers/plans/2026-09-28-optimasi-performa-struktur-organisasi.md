@@ -185,6 +185,6 @@ function createBatchJabatans_(items) {
 - [x] **Step 2: Jalankan build Next.js**
   `npm run build`
 
-- [ ] **Step 3: Deploy frontend dan backend**
+- [x] **Step 3: Deploy frontend dan backend**
   - `npx firebase-tools deploy --only hosting`
   - `npx @google/clasp push && npx @google/clasp deploy -i AKfycbxbuHWzaPOMyEemDcUsYCboqWkE5g1Lq-FFKwA5eNyBbamd41686X1a2m7OIFI-h-yLWw`

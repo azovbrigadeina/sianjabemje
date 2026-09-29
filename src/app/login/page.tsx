@@ -17,8 +17,16 @@ export default function Login() {
   const [clientIp, setClientIp] = useState("unknown");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [expiredNotice, setExpiredNotice] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("expired") === "1") {
+        setExpiredNotice(true);
+      }
+    }
+
     // Pre-fetch client IP in background on mount
     const fetchIp = async () => {
       try {
@@ -53,8 +61,8 @@ export default function Login() {
         ip: clientIp,
         userAgent: userAgentStr
       }) as { token: string; user: SessionUser };
-      // Store token in cookie (7 days)
-      document.cookie = `sianjab_token=${result.token}; Max-Age=${60 * 60 * 24 * 7}; path=/`;
+      // Store token in cookie (24 hours to match backend token TTL)
+      document.cookie = `sianjab_token=${result.token}; Max-Age=${60 * 60 * 24}; path=/`;
       // Store user in context
       setUser(result.user);
 
@@ -115,6 +123,12 @@ export default function Login() {
                 required
               />
             </div>
+
+            {expiredNotice && (
+              <div className={styles.infoBox}>
+                <span>ℹ️</span> Sesi Anda telah berakhir. Silakan login kembali.
+              </div>
+            )}
 
             {error && (
               <div className={styles.errorBox}>

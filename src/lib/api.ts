@@ -154,10 +154,26 @@ async function invalidateTargetedCache(
     return;
   }
 
-  // Hapus cache entitas spesifik
-  if (entity) {
-    await deleteCacheByPrefix(`entity_${activeYear}_${entity}`);
-    await deleteCacheByPrefix(`entity=${entity}`);
+  // H5: Petakan entitas yang terdampak berdasarkan action
+  const affectedEntities: string[] = [];
+  if (entity) affectedEntities.push(entity);
+
+  if (action === 'saveABK') {
+    affectedEntities.push('abk', 'jabatan');
+  } else if (action === 'saveBulkAnjabData') {
+    affectedEntities.push(
+      'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'perangkatKerja',
+      'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan',
+      'risikoBahaya', 'prestasiKerja', 'hasilKerja', 'abk', 'jabatan'
+    );
+  } else if (action === 'registerVerificationCode') {
+    affectedEntities.push('verification_logs');
+  }
+
+  // Hapus cache entitas spesifik yang terdampak
+  for (const ent of affectedEntities) {
+    await deleteCacheByPrefix(`entity_${activeYear}_${ent}`);
+    await deleteCacheByPrefix(`entity=${ent}`);
   }
 
   // Jika mutasi terkait jabatan, hapus cache detail jabatan tersebut
@@ -175,11 +191,12 @@ async function invalidateTargetedCache(
 
   // Hapus dari memori cepat (in-memory)
   for (const key of Array.from(API_CACHE.keys())) {
+    const matchesEntity = affectedEntities.some(ent => key.includes(ent));
     if (
       key.includes('getBulkData') ||
       key.includes('getAnjabStatusSummary') ||
       key.includes('getBulkAnjabByUnit') ||
-      (entity && key.includes(entity)) ||
+      matchesEntity ||
       (parentId && key.includes(parentId))
     ) {
       API_CACHE.delete(key);
@@ -297,7 +314,22 @@ async function executeActualRequest<T = unknown>(
         const json: ApiResponse<T> = await res.json();
 
         if (!json.success) {
-          throw new Error(json.error || 'API request failed');
+          const errMsg = json.error || 'API request failed';
+          // M5: Tangani token tidak valid / kadaluarsa -> bersihkan sesi dan redirect
+          if (
+            errMsg.toLowerCase().includes('token tidak valid') ||
+            errMsg.toLowerCase().includes('sudah kadaluarsa') ||
+            errMsg.toLowerCase().includes('silakan login ulang')
+          ) {
+            if (typeof window !== 'undefined') {
+              document.cookie = "sianjab_token=; Max-Age=0; path=/";
+              localStorage.removeItem('sianjab_user');
+              if (!window.location.pathname.startsWith('/login')) {
+                window.location.href = '/login?expired=1';
+              }
+            }
+          }
+          throw new Error(errMsg);
         }
 
         // Simpan ke cache jika ini GET request yang cacheable
@@ -330,8 +362,14 @@ async function executeActualRequest<T = unknown>(
           throw new Error('Request Timeout: Backend GAS tidak merespons dalam 30 detik.');
         }
         lastError = err instanceof Error ? err : new Error(String(err));
+
+        // H3: Operasi tulis (write) TIDAK BOLEH di-retry untuk mencegah duplikasi rekod
+        if (isWriteOperation) {
+          throw lastError;
+        }
+
         if (attempt === 0) {
-          // Tunggu 500ms sebelum retry
+          // Tunggu 500ms sebelum retry pembacaan (GET)
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
@@ -413,29 +451,14 @@ async function apiCall<T = unknown>(
     }
   }
 
-  // Jika ini operasi write → langsung bersihkan cache terkait
+  // Jika ini operasi write → langsung bersihkan cache terkait & antrikan secara serial
   if (isWriteOperation) {
     await invalidateTargetedCache(action, entity, opts);
-  }
 
-  if (isWriteOperation) {
-    // WRITE: serialisasikan (antri satu per satu) untuk mencegah race condition
-    const result = await new Promise<T>((resolve, reject) => {
-      writeQueuePromise = writeQueuePromise.then(async () => {
-        try {
-          const resData = await executeActualRequest<T>(url, true, opts, { action, entity, opts });
-          resolve(resData);
-        } catch (err) {
-          reject(err);
-        }
-      }).catch(async () => {
-        try {
-          const resData = await executeActualRequest<T>(url, true, opts, { action, entity, opts });
-          resolve(resData);
-        } catch (err) {
-          reject(err);
-        }
-      });
+    // WRITE: serialisasikan (antri satu per satu) untuk mencegah race condition (H4)
+    const run = () => executeActualRequest<T>(url, true, opts, { action, entity, opts });
+    const result = new Promise<T>((resolve, reject) => {
+      writeQueuePromise = writeQueuePromise.then(run).then(resolve, reject);
     });
     return result;
   } else {
@@ -681,80 +704,8 @@ export const api = {
 
   // -- AI Generation --
   generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string) => {
-    try {
-      // 1. Dapatkan konfigurasi AI saat ini (biasanya ter-cache/cepat)
-      const aiConfig = await api.getAiConfig();
-      if (!aiConfig) {
-        throw new Error("Konfigurasi AI tidak ditemukan.");
-      }
-
-      const activeProvider = aiConfig.activeProvider || 'gemini';
-      const prompt = (aiConfig.customPromptTemplate && aiConfig.customPromptTemplate.toString().trim() !== "")
-        ? aiConfig.customPromptTemplate
-        : DEFAULT_ANJAB_PROMPT;
-
-      const promptText = prompt
-        .replace(/{namaJabatan}/g, namaJabatan)
-        .replace(/{unitKerja}/g, unitKerja)
-        .replace(/{namaOPD}/g, namaOPD);
-
-      let parsedData: any = null;
-
-      if (activeProvider === 'gemini') {
-        const apiKey = aiConfig.geminiApiKey || "";
-        const modelName = aiConfig.geminiModel || 'gemini-2.5-flash';
-
-        if (!apiKey || apiKey.toString().trim() === "" || apiKey === "YOUR_GEMINI_API_KEY") {
-          throw new Error("Kunci API Gemini tidak dikonfigurasi di browser.");
-        }
-
-        parsedData = await callGeminiDirect(apiKey, modelName, promptText);
-      } else {
-        let apiKey = "";
-        let modelName = "";
-        let endpoint = "";
-
-        if (activeProvider === 'openai') {
-          apiKey = aiConfig.openaiApiKey || "";
-          modelName = aiConfig.openaiModel || 'gpt-4o-mini';
-          endpoint = "https://api.openai.com/v1/chat/completions";
-        } else if (activeProvider === 'deepseek') {
-          apiKey = aiConfig.deepseekApiKey || "";
-          modelName = aiConfig.deepseekModel || 'deepseek-chat';
-          endpoint = "https://api.deepseek.com/v1/chat/completions";
-        } else if (activeProvider === 'groq') {
-          apiKey = aiConfig.groqApiKey || "";
-          modelName = aiConfig.groqModel || 'llama-3.3-70b-versatile';
-          endpoint = "https://api.groq.com/openai/v1/chat/completions";
-        } else if (activeProvider === 'openrouter') {
-          apiKey = aiConfig.openrouterApiKey || "";
-          modelName = aiConfig.openrouterModel || 'google/gemini-2.5-flash';
-          endpoint = "https://openrouter.ai/api/v1/chat/completions";
-        } else if (activeProvider === 'openai-compatible') {
-          apiKey = aiConfig.openaiCompatibleApiKey || '';
-          modelName = aiConfig.openaiCompatibleModel || 'gpt-4o-mini';
-          let baseUrl = aiConfig.openaiCompatibleBaseUrl || 'https://api.openai.com/v1';
-          baseUrl = baseUrl.replace(/\/$/, "");
-          endpoint = baseUrl + "/chat/completions";
-        }
-
-        if (!apiKey && activeProvider !== 'openai-compatible') {
-          throw new Error(`Kunci API untuk provider ${activeProvider} tidak dikonfigurasi di browser.`);
-        }
-
-        parsedData = await callOpenAiCompatibleDirect(endpoint, apiKey, modelName, promptText);
-      }
-
-      if (parsedData) {
-        return normalizeAiAnjabDraft(parsedData);
-      } else {
-        throw new Error("Gagal memperoleh data draf dari direct API call.");
-      }
-    } catch (err: any) {
-      console.warn("Direct client-side AI drafting failed/skipped, falling back to GAS backend:", err);
-      // Fallback ke pemanggilan GAS seperti semula
-      return apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } });
-    }
+    const raw = await apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } });
+    return normalizeAiAnjabDraft(raw);
   },
 
   saveBulkAnjabData: (jabatanId: string, data: unknown) =>
@@ -791,521 +742,8 @@ export const api = {
 };
 
 // ============================================================================
-// HELPER DAN TEMPLATE DRAF AI KLIEN (DIRECT CALL OPTIMIZATION)
+// HELPER NORMALISASI DRAF AI
 // ============================================================================
-
-const DEFAULT_ANJAB_PROMPT = `Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: {namaJabatan} yang berada di Unit Kerja: {unitKerja} di bawah OPD: {namaOPD}.
-
-Anda WAJIB memberikan respons dalam format JSON murni tanpa markdown, tanpa \`\`\`json, tanpa teks pembuka atau penutup. Struktur JSON harus persis seperti berikut (perhatikan tipe data array dan object):
-{
-  "ikhtisarJabatan": "Melakukan kegiatan penelaahan, analisis, dan penyusunan draf rekomendasi kebijakan teknis...",
-  "kualifikasi": {
-    "pendidikanFormal": ["S-1 Administrasi Publik", "S-1 Kebijakan Publik"],
-    "pendidikanPelatihan": ["Diklat Teknis Analisis Kebijakan", "Bimtek Nomenklatur Jabatan"],
-    "pengalamanKerja": ["Minimal 2 tahun di bidang administrasi perkantoran"]
-  },
-  "tugasPokok": [
-    {
-      "nomorUrut": 1,
-      "uraianTugas": "Mengumpulkan bahan, regulasi, dan data terkait pelaksanaan tugas...",
-      "hasilKerja": "Berkas",
-      "waktuPenyelesaian": 60
-    }
-  ],
-  "hasilKerja": ["Dokumen kumpulan bahan dan regulasi kebijakan teknis"],
-  "bahanKerja": [
-    {
-      "nomorUrut": 1,
-      "namaBahan": "Surat Masuk / Memo Dinas",
-      "penggunaanDalamTugas": "Petunjuk pelaksanaan tugas"
-    }
-  ],
-  "perangkatKerja": [
-    {
-      "nomorUrut": 1,
-      "namaPerangkat": "Komputer / Laptop",
-      "penggunaanUntukTugas": "Menyusun naskah dan dokumen"
-    }
-  ],
-  "tanggungJawab": [
-    {
-      "nomorUrut": 1,
-      "uraian": "Kebenaran data hasil analisis"
-    }
-  ],
-  "wewenang": [
-    {
-      "nomorUrut": 1,
-      "uraian": "Meminta data pendukung"
-    }
-  ],
-  "korelasiJabatan": [
-    {
-      "nomorUrut": 1,
-      "namaJabatanTerkait": "Kepala Bagian",
-      "unitKerjaInstansi": "Bagian Umum",
-      "dalamHal": "Menerima petunjuk dan arahan"
-    }
-  ],
-  "kondisiLingkungan": [
-    {
-      "nomorUrut": 1,
-      "aspek": "Tempat Kerja",
-      "faktor": "Di dalam ruangan"
-    },
-    {
-      "nomorUrut": 2,
-      "aspek": "Suhu",
-      "faktor": "Dingin/Sejuk"
-    },
-    {
-      "nomorUrut": 3,
-      "aspek": "Udara",
-      "faktor": "Segar/Bersih"
-    },
-    {
-      "nomorUrut": 4,
-      "aspek": "Keadaan Ruangan",
-      "faktor": "Nyaman/Cukup"
-    },
-    {
-      "nomorUrut": 5,
-      "aspek": "Letak",
-      "faktor": "Datar/Strategis"
-    },
-    {
-      "nomorUrut": 6,
-      "aspek": "Penerangan",
-      "faktor": "Terang/Cukup"
-    },
-    {
-      "nomorUrut": 7,
-      "aspek": "Suara",
-      "faktor": "Tenang/Sunyi"
-    },
-    {
-      "nomorUrut": 8,
-      "aspek": "Keadaan Tempat Kerja",
-      "faktor": "Bersih/Rapi"
-    },
-    {
-      "nomorUrut": 9,
-      "aspek": "Getaran",
-      "faktor": "Tidak ada"
-    }
-  ],
-  "risikoBahaya": [
-    {
-      "nomorUrut": 1,
-      "namaRisiko": "Kelelahan mata",
-      "penyebab": "Terlalu lama menatap layar komputer"
-    }
-  ],
-  "syaratJabatan": {
-    "keterampilanKerja": ["Mengoperasikan komputer"],
-    "bakatKerja": ["G", "V", "Q"],
-    "temperamenKerja": ["D", "F", "I"],
-    "minatKerja": ["1b", "2b"],
-    "upayaFisik": ["Duduk", "Melihat"],
-    "kondisiFisik": {
-      "jenisKelamin": "Laki-laki / Perempuan",
-      "umur": "Minimal 23 tahun",
-      "tinggiBadan": "155 cm",
-      "beratBadan": "Proporsional",
-      "posturBadan": "Tegak/Biasa",
-      "penampilan": "Rapi dan bersih"
-    },
-    "fungsiPekerjaan": ["D2", "O6", "B7"]
-  },
-  "prestasiKerja": {
-    "uraian": "Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan."
-  }
-}
-
-Catatan PENTING:
-- WAJIB menghasilkan MINIMAL 5 entri/item untuk tugasPokok, hasilKerja (di root JSON), bahanKerja, perangkatKerja, tanggungJawab, dan wewenang.
-- Dalam tugasPokok, kolom hasilKerja harus diisi dengan nama SATUAN singkat saja (misalnya 'Dokumen', 'Berkas', 'Laporan', 'Kegiatan', 'Data', dll).
-- Nilai hasilKerja (array di root JSON yang merepresentasikan 7. Hasil Kerja) harus berupa list dari NARASI DESKRIPTIF singkat hasil kerja (bukan satuan/kata tunggal) yang jumlahnya SAMA PERSIS dengan jumlah tugasPokok (berurutan 1-ke-1, minimal 5 item).
-- Setiap 'uraianTugas' dalam 'tugasPokok' WAJIB mengandung unsur Bagaimana cara mengerjakan (How) (contoh: 'Sesuai dengan peraturan perundangan yang berlaku', 'Sesuai dengan tugas dan fungsi jabatan', 'Berdasarkan rencana kerja yang ditetapkan') DAN unsur Dalam rangka apa/tujuan (Why) (contoh: 'agar diperoleh kinerja yang diharapkan', 'untuk ketepatan dan kelancaran pelaksanaan tugas', 'demi kelancaran tugas jabatan') yang disesuaikan secara logis dengan level jabatannya.
-- Uraian tugas WAJIB disesuaikan dengan Level Jabatan yang dideteksi dari nama jabatan:
-  1. Jabatan Pimpinan Tinggi (Eselon I/II) (Fokus: Strategi, kepemimpinan, kebijakan, pengambilan keputusan). Kata kerja utama: Merumuskan, Mengambil (keputusan strategis), Memimpin, Mengkoordinasikan, Mengevaluasi (dan mengendalikan). Contoh: 'Merumuskan kebijakan strategis bidang...'
-  2. Jabatan Administrator (Eselon III) (Fokus: Manajemen operasional, perencanaan, pengawasan menengah). Kata kerja utama: Merencanakan, Mengatur, Mengawasi, Mengkoordinasikan, Melaporkan.
-  3. Jabatan Pengawas (Eselon IV) (Fokus: Pengawasan langsung, pembinaan, penjaminan kualitas). Kata kerja utama: Mengawasi, Membina, Memantau, Menilai, Mengendalikan.
-  4. Jabatan Pelaksana (Fokus: Pelaksanaan teknis, operasional sehari-hari, tugas konkret). Kata kerja utama: Melaksanakan, Menyusun, Mengolah, Menyelesaikan, Mendokumentasikan. Contoh: 'Melaksanakan verifikasi data sesuai prosedur...'
-  5. Jabatan Fungsional (Fokus: Keahlian teknis/profesional, analisis mendalam, kompetensi khusus). Kata kerja utama: Menganalisis, Menyusun (laporan/rekomendasi), Melakukan (penelitian/pemeriksaan/pengembangan), Memberikan (rekomendasi/konsultasi), Mengembangkan (metode/sistem/standar).
-- bakatKerja hanya boleh berisi kode dari: G, V, N, S, P, Q, K, F, E, C, M.
-- temperamenKerja hanya boleh berisi kode dari: D, F, I, J, M, P, R, S, T, V.
-- minatKerja hanya boleh berisi kode dari: 1a, 1b, 2a, 2b, 3a, 3b, 4a, 4b, 5a, 5b.
-- upayaFisik hanya boleh berisi nilai dari: Berdiri, Berjalan, Duduk, Mengangkat, Membawa, Mendorong, Menarik, Memanjat, Menyimpan imbangan, Menunduk, Berlutut, Membungkuk, Merangkak, Menjangkau, Memegang, Bekerja dengan jari, Meraba, Berbicara, Mendengar, Melihat.`;
-
-async function callGeminiDirect(apiKey: string, modelName: string, promptText: string) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`;
-  
-  const responseSchema = {
-    type: "OBJECT",
-    properties: {
-      ikhtisarJabatan: { type: "STRING" },
-      kualifikasi: {
-        type: "OBJECT",
-        properties: {
-          pendidikanFormal: { type: "ARRAY", items: { type: "STRING" } },
-          pendidikanPelatihan: { type: "ARRAY", items: { type: "STRING" } },
-          pengalamanKerja: { type: "ARRAY", items: { type: "STRING" } }
-        },
-        required: ["pendidikanFormal", "pendidikanPelatihan", "pengalamanKerja"]
-      },
-      tugasPokok: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            uraianTugas: { type: "STRING" },
-            hasilKerja: { type: "STRING" },
-            waktuPenyelesaian: { type: "INTEGER" }
-          },
-          required: ["nomorUrut", "uraianTugas", "hasilKerja", "waktuPenyelesaian"]
-        }
-      },
-      hasilKerja: { type: "ARRAY", items: { type: "STRING" } },
-      bahanKerja: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            namaBahan: { type: "STRING" },
-            penggunaanDalamTugas: { type: "STRING" }
-          },
-          required: ["nomorUrut", "namaBahan", "penggunaanDalamTugas"]
-        }
-      },
-      perangkatKerja: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            namaPerangkat: { type: "STRING" },
-            penggunaanUntukTugas: { type: "STRING" }
-          },
-          required: ["nomorUrut", "namaPerangkat", "penggunaanUntukTugas"]
-        }
-      },
-      tanggungJawab: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            uraian: { type: "STRING" }
-          },
-          required: ["nomorUrut", "uraian"]
-        }
-      },
-      wewenang: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            uraian: { type: "STRING" }
-          },
-          required: ["nomorUrut", "uraian"]
-        }
-      },
-      korelasiJabatan: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            namaJabatanTerkait: { type: "STRING" },
-            unitKerjaInstansi: { type: "STRING" },
-            dalamHal: { type: "STRING" }
-          },
-          required: ["nomorUrut", "namaJabatanTerkait", "unitKerjaInstansi", "dalamHal"]
-        }
-      },
-      kondisiLingkungan: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            aspek: { type: "STRING" },
-            faktor: { type: "STRING" }
-          },
-          required: ["nomorUrut", "aspek", "faktor"]
-        }
-      },
-      risikoBahaya: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            nomorUrut: { type: "INTEGER" },
-            namaRisiko: { type: "STRING" },
-            penyebab: { type: "STRING" }
-          },
-          required: ["nomorUrut", "namaRisiko", "penyebab"]
-        }
-      },
-      syaratJabatan: {
-        type: "OBJECT",
-        properties: {
-          keterampilanKerja: { type: "ARRAY", items: { type: "STRING" } },
-          bakatKerja: { type: "ARRAY", items: { type: "STRING" } },
-          temperamenKerja: { type: "ARRAY", items: { type: "STRING" } },
-          minatKerja: { type: "ARRAY", items: { type: "STRING" } },
-          upayaFisik: { type: "ARRAY", items: { type: "STRING" } },
-          kondisiFisik: {
-            type: "OBJECT",
-            properties: {
-              jenisKelamin: { type: "STRING" },
-              umur: { type: "STRING" },
-              tinggiBadan: { type: "STRING" },
-              beratBadan: { type: "STRING" },
-              posturBadan: { type: "STRING" },
-              penampilan: { type: "STRING" }
-            },
-            required: ["jenisKelamin", "umur", "tinggiBadan", "beratBadan", "posturBadan", "penampilan"]
-          },
-          fungsiPekerjaan: { type: "ARRAY", items: { type: "STRING" } }
-        },
-        required: ["keterampilanKerja", "bakatKerja", "temperamenKerja", "minatKerja", "upayaFisik", "kondisiFisik", "fungsiPekerjaan"]
-      },
-      prestasiKerja: {
-        type: "OBJECT",
-        properties: {
-          uraian: { type: "STRING" }
-        },
-        required: ["uraian"]
-      }
-    },
-    required: [
-      "ikhtisarJabatan", "kualifikasi", "tugasPokok", "hasilKerja", "bahanKerja",
-      "perangkatKerja", "tanggungJawab", "wewenang", "korelasiJabatan",
-      "kondisiLingkungan", "risikoBahaya", "syaratJabatan", "prestasiKerja"
-    ]
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: promptText }]
-      }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
-  }
-
-  const json = await response.json();
-  const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawText) throw new Error("Respons Gemini kosong.");
-  return JSON.parse(rawText.trim());
-}
-
-async function callOpenAiCompatibleDirect(endpoint: string, apiKey: string, modelName: string, promptText: string) {
-  const jsonSchema = {
-    name: "AnjabDraft",
-    strict: false,
-    schema: {
-      type: "object",
-      properties: {
-        ikhtisarJabatan: { type: "string" },
-        kualifikasi: {
-          type: "object",
-          properties: {
-            pendidikanFormal: { type: "array", items: { type: "string" } },
-            pendidikanPelatihan: { type: "array", items: { type: "string" } },
-            pengalamanKerja: { type: "array", items: { type: "string" } }
-          },
-          required: ["pendidikanFormal", "pendidikanPelatihan", "pengalamanKerja"]
-        },
-        tugasPokok: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              uraianTugas: { type: "string" },
-              hasilKerja: { type: "string" },
-              waktuPenyelesaian: { type: "integer" }
-            },
-            required: ["nomorUrut", "uraianTugas", "hasilKerja", "waktuPenyelesaian"]
-          }
-        },
-        hasilKerja: { type: "array", items: { type: "string" } },
-        bahanKerja: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              namaBahan: { type: "string" },
-              penggunaanDalamTugas: { type: "string" }
-            },
-            required: ["nomorUrut", "namaBahan", "penggunaanDalamTugas"]
-          }
-        },
-        perangkatKerja: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              namaPerangkat: { type: "string" },
-              penggunaanUntukTugas: { type: "string" }
-            },
-            required: ["nomorUrut", "namaPerangkat", "penggunaanUntukTugas"]
-          }
-        },
-        tanggungJawab: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              uraian: { type: "string" }
-            },
-            required: ["nomorUrut", "uraian"]
-          }
-        },
-        wewenang: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              uraian: { type: "string" }
-            },
-            required: ["nomorUrut", "uraian"]
-          }
-        },
-        korelasiJabatan: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              namaJabatanTerkait: { type: "string" },
-              unitKerjaInstansi: { type: "string" },
-              dalamHal: { type: "string" }
-            },
-            required: ["nomorUrut", "namaJabatanTerkait", "unitKerjaInstansi", "dalamHal"]
-          }
-        },
-        kondisiLingkungan: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              aspek: { type: "string" },
-              faktor: { type: "string" }
-            },
-            required: ["nomorUrut", "aspek", "faktor"]
-          }
-        },
-        risikoBahaya: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              nomorUrut: { type: "integer" },
-              namaRisiko: { type: "string" },
-              penyebab: { type: "string" }
-            },
-            required: ["nomorUrut", "namaRisiko", "penyebab"]
-          }
-        },
-        syaratJabatan: {
-          type: "object",
-          properties: {
-            keterampilanKerja: { type: "array", items: { type: "string" } },
-            bakatKerja: { type: "array", items: { type: "string" } },
-            temperamenKerja: { type: "array", items: { type: "string" } },
-            minatKerja: { type: "array", items: { type: "string" } },
-            upayaFisik: { type: "array", items: { type: "string" } },
-            kondisiFisik: {
-              type: "object",
-              properties: {
-                jenisKelamin: { type: "string" },
-                umur: { type: "string" },
-                tinggiBadan: { type: "string" },
-                beratBadan: { type: "string" },
-                posturBadan: { type: "string" },
-                penampilan: { type: "string" }
-              },
-              required: ["jenisKelamin", "umur", "tinggiBadan", "beratBadan", "posturBadan", "penampilan"]
-            },
-            fungsiPekerjaan: { type: "array", items: { type: "string" } }
-          },
-          required: ["keterampilanKerja", "bakatKerja", "temperamenKerja", "minatKerja", "upayaFisik", "kondisiFisik", "fungsiPekerjaan"]
-        },
-        prestasiKerja: {
-          type: "object",
-          properties: {
-            uraian: { type: "string" }
-          },
-          required: ["uraian"]
-        }
-      },
-      required: [
-        "ikhtisarJabatan", "kualifikasi", "tugasPokok", "hasilKerja", "bahanKerja",
-        "perangkatKerja", "tanggungJawab", "wewenang", "korelasiJabatan",
-        "kondisiLingkungan", "risikoBahaya", "syaratJabatan", "prestasiKerja"
-      ]
-    }
-  };
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json"
-  };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: headers,
-    body: JSON.stringify({
-      model: modelName,
-      messages: [
-        {
-          role: "user",
-          content: promptText
-        }
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: jsonSchema
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API Error: ${response.status} - ${errorText}`);
-  }
-
-  const json = await response.json();
-  const rawText = json.choices?.[0]?.message?.content;
-  if (!rawText) throw new Error("Respons API kosong.");
-  return JSON.parse(rawText.trim());
-}
 
 function normalizeAiAnjabDraft(data: any): any {
   if (!data) return null;
