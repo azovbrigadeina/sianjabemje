@@ -331,6 +331,22 @@ export default function BackupDatabasePage() {
             <span className={styles.badgeInfo}>System Snapshot</span>
           </div>
           <div className={styles.cardBody}>
+            <div style={{
+              background: 'rgba(234, 179, 8, 0.08)',
+              border: '1px solid rgba(234, 179, 8, 0.3)',
+              borderRadius: '12px',
+              padding: '1rem 1.25rem',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              gap: '0.75rem',
+              alignItems: 'flex-start'
+            }}>
+              <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+              <div style={{ fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--foreground)' }}>
+                <strong>PERINGATAN RESMI ARSIP DATABASE:</strong><br />
+                Berkas cadangan JSON ini memuat seluruh data formasi jabatan, analisis beban kerja, dan unit kerja Pemerintah Kabupaten Muaro Jambi. Harap simpan berkas di media penyimpanan resmi yang aman. Demi standar privasi, kredensial sensitif (kunci API AI & hash password) secara otomatis disanitasi oleh sistem saat diunduh.
+              </div>
+            </div>
             <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--muted-foreground, #64748b)', lineHeight: '1.5' }}>
               Unduh salinan lengkap seluruh database sistem dalam bentuk file JSON terstruktur. File ini mencakup struktur OPD, Jabatan, ABK, Referensi, User, dan Pengaturan.
             </p>
