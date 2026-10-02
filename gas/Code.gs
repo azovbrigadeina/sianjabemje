@@ -3985,11 +3985,33 @@ function getBulkAnjabByUnit_(unitKerjaId) {
 
 function exportFullDatabase_() {
   var fullData = fbGet_('') || {};
+  
+  // Sanitasi node users: jangan ekspor hash password
+  if (fullData.users && typeof fullData.users === 'object') {
+    for (var uId in fullData.users) {
+      if (fullData.users[uId]) {
+        delete fullData.users[uId].password;
+        fullData.users[uId]._hasPassword = true;
+      }
+    }
+  }
+
+  // Sanitasi node settings: jangan ekspor kunci API AI mentah
+  if (fullData.settings && fullData.settings.ai && typeof fullData.settings.ai === 'object') {
+    var ai = fullData.settings.ai;
+    for (var k in ai) {
+      if (k.toLowerCase().indexOf('apikey') !== -1 || k.toLowerCase().indexOf('secret') !== -1 || k === 'savedKeys') {
+        delete ai[k];
+      }
+    }
+  }
+
   return {
     app: 'SIANJAB_ABK',
     version: '1.0',
     timestamp: new Date().toISOString(),
     exportedAt: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+    sanitized: true,
     data: fullData
   };
 }
@@ -3998,24 +4020,61 @@ function restoreFullDatabase_(backupPayload, currentUser) {
   if (!backupPayload || !backupPayload.data) {
     throw new Error('Payload backup tidak valid: Node data utama tidak ditemukan.');
   }
-  var restoredData = backupPayload.data;
-  var rootKeys = Object.keys(restoredData);
-  for (var i = 0; i < rootKeys.length; i++) {
-    var key = rootKeys[i];
-    fbPut_(key, restoredData[key]);
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error('Server sedang sibuk memproses transaksi database lain. Silakan coba beberapa saat lagi.');
   }
-  invalidateAllCaches_();
-  logSecurityEvent_({
-    timestamp: new Date().toISOString(),
-    event: 'RESTORE_DATABASE',
-    user: currentUser ? (currentUser.username || currentUser.nama) : 'System Admin',
-    details: 'Database restored from JSON backup (' + rootKeys.length + ' top-level nodes restored)'
-  });
-  return {
-    success: true,
-    message: 'Database berhasil dipulihkan (' + rootKeys.length + ' node utama ter-update)',
-    restoredKeysCount: rootKeys.length
-  };
+
+  try {
+    var restoredData = backupPayload.data;
+
+    // Preservasi kredensial akun aktif jika file backup tidak memiliki password
+    var existingUsers = fbGet_('users') || {};
+    if (restoredData.users && typeof restoredData.users === 'object') {
+      for (var uId in restoredData.users) {
+        var rUser = restoredData.users[uId];
+        if (rUser && !rUser.password && existingUsers[uId] && existingUsers[uId].password) {
+          rUser.password = existingUsers[uId].password;
+        }
+        delete rUser._hasPassword;
+      }
+    }
+
+    // Preservasi kredensial AI jika file backup tidak menyertakannya
+    var existingAi = fbGet_('settings/ai') || {};
+    if (restoredData.settings && restoredData.settings.ai && typeof restoredData.settings.ai === 'object') {
+      var rAi = restoredData.settings.ai;
+      for (var aiKey in existingAi) {
+        if (!rAi[aiKey] && (aiKey.toLowerCase().indexOf('apikey') !== -1 || aiKey === 'savedKeys')) {
+          rAi[aiKey] = existingAi[aiKey];
+        }
+      }
+    }
+
+    // Eksekusi penulisan node utama
+    var rootKeys = Object.keys(restoredData);
+    for (var i = 0; i < rootKeys.length; i++) {
+      var key = rootKeys[i];
+      fbPut_(key, restoredData[key]);
+    }
+
+    invalidateAllCaches_();
+    logSecurityEvent_({
+      timestamp: new Date().toISOString(),
+      event: 'RESTORE_DATABASE',
+      user: currentUser ? (currentUser.username || currentUser.nama) : 'System Admin',
+      details: 'Database restored safely (' + rootKeys.length + ' top-level nodes restored, credentials preserved)'
+    });
+
+    return {
+      success: true,
+      message: 'Database berhasil dipulihkan (' + rootKeys.length + ' node utama ter-update, kredensial pengguna diamankan)',
+      restoredKeysCount: rootKeys.length
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function logSecurityEvent_(eventObj) {
