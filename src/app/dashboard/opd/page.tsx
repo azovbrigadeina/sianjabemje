@@ -292,12 +292,20 @@ export default function OPDManagementPage() {
     setModalSaving(true);
     try {
       const originalOpd = modalMode === 'edit' ? rawOpds.find(o => o.id === modalData.id) : null;
+      let targetTahun = originalOpd?.tahun || activeYear;
+      if (modalMode === 'add' && modalData.parentId) {
+        const parentOpd = rawOpds.find(o => o.id === modalData.parentId);
+        if (parentOpd && parentOpd.tahun) {
+          targetTahun = parentOpd.tahun;
+        }
+      }
+
       const opdPayload = {
         nama: modalData.nama.trim(),
         kode: modalData.kode.trim(),
         parentId: modalData.parentId || null,
         urutan: modalData.urutan || 0,
-        tahun: originalOpd?.tahun || activeYear,
+        tahun: targetTahun,
         statusValidasi: originalOpd?.statusValidasi || "Draft",
         catatanRevisi: originalOpd?.catatanRevisi || "",
         historyValidasi: originalOpd?.historyValidasi || []
@@ -307,17 +315,10 @@ export default function OPDManagementPage() {
         await api.updateUnitKerja(modalData.id, opdPayload);
         showToast("✅ Unit Kerja berhasil diperbarui.");
       } else {
-        const opdCreated = await api.createEntity('unitKerja', opdPayload) as { id: string };
-        
-        // Ensure new UnitKerja conforms to parent's tahun
-        if (opdPayload.parentId) {
-          const parentOpd = rawOpds.find(o => o.id === opdPayload.parentId);
-          if (parentOpd && parentOpd.tahun && parentOpd.tahun !== opdPayload.tahun) {
-            opdPayload.tahun = parentOpd.tahun;
-            await api.updateUnitKerja(opdCreated.id, opdPayload);
-          }
+        const opdCreated = await api.createEntity('unitKerja', opdPayload) as { id?: string };
+        if (!opdCreated || !opdCreated.id) {
+          throw new Error("Server tidak mengembalikan ID entitas unit kerja baru.");
         }
-        
         showToast("✅ Unit Kerja baru berhasil ditambahkan.");
       }
 
