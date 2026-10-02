@@ -736,6 +736,14 @@ export const api = {
   checkVerificationCode: (code: string) =>
     apiCall<any>('checkVerificationCode', '', { params: { code } }),
 
+  // -- Integrasi SPT Digital --
+  checkSptOpd: (unitKerjaId: string) =>
+    apiCall<{ success: boolean; hasSubmitted: boolean; namaAdmin?: string; nipAdmin?: string; message?: string }>(
+      'checkSptOpd',
+      '',
+      { params: { unitKerjaId } }
+    ),
+
   warmUpGas: () => {
     if (typeof window === 'undefined') return;
     const activeYear = getActiveYear();

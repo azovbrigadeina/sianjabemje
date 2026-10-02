@@ -537,6 +537,10 @@ function handleRequest_(e) {
         result = restoreFullDatabase_(params.data || data, params._user || currentUser);
         break;
 
+      case 'checkSptOpd':
+        result = checkSptOpd_(params.unitKerjaId || (data ? data.unitKerjaId : '') || id);
+        break;
+
       default:
         throw new Error('Aksi tidak dikenal: ' + action);
     }
@@ -3624,5 +3628,44 @@ function logSecurityEvent_(eventObj) {
     Logger.log('Failed to log security event: ' + err.message);
   }
 }
+
+// =============================================
+// VERIFIKASI SPT DIGITAL (SERVER-SIDE PROXY)
+// =============================================
+
+function checkSptOpd_(unitKerjaId) {
+  if (!unitKerjaId) {
+    return { success: false, hasSubmitted: false, message: 'Unit Kerja ID wajib diisi.' };
+  }
+  var unit = readRecord_('unitKerja', unitKerjaId);
+  var opdName = (unit && unit.nama) ? unit.nama : '';
+  if (!opdName) {
+    return { success: false, hasSubmitted: false, message: 'Nama Unit Kerja / OPD tidak ditemukan.' };
+  }
+  var props = PropertiesService.getScriptProperties();
+  var sptUrl = props.getProperty('SPT_DIGITAL_URL') || 'https://script.google.com/macros/s/AKfycbwpg9HwsDrzEvox2SQyl6T3uJJvLO8z3OFA6zVu8wygVoPdbArMMp_Nc2LaqpLKsrRd/exec';
+  var sptToken = props.getProperty('SPT_DIGITAL_TOKEN') || 'sianjab_secure_token_abc123';
+  var checkUrl = sptUrl + '?action=checkSpt&opd=' + encodeURIComponent(opdName) + '&integrasi=SIANJAB&token=' + encodeURIComponent(sptToken);
+  try {
+    var response = UrlFetchApp.fetch(checkUrl, { muteHttpExceptions: true });
+    var resJson = JSON.parse(response.getContentText());
+    if (resJson.status === 'success' && resJson.hasSubmitted) {
+      return {
+        success: true,
+        hasSubmitted: true,
+        namaAdmin: resJson.namaAdmin || resJson.adminNama || resJson.penandatanganNama || '',
+        nipAdmin: resJson.nipAdmin || resJson.adminNip || resJson.penandatanganNip || ''
+      };
+    }
+    return {
+      success: true,
+      hasSubmitted: false,
+      message: 'OPD "' + opdName + '" belum mengisi SPT Digital untuk kegiatan SIANJAB.'
+    };
+  } catch (err) {
+    return { success: false, hasSubmitted: false, message: 'Gagal menghubungi server SPT Digital: ' + err.toString() };
+  }
+}
+
 
 

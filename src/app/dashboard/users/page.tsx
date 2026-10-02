@@ -132,35 +132,28 @@ export default function UsersPage() {
 
         // Validate SPT Digital if adding an operator and not bypassed
         if (form.role === "operator" && !form.bypassSpt) {
-          const sptUrl = process.env.NEXT_PUBLIC_SPT_DIGITAL_URL;
-          const sptToken = process.env.NEXT_PUBLIC_SPT_DIGITAL_TOKEN || "YOUR_TOKEN";
-
-          if (sptUrl) {
-            const opd = opds.find((o) => o.id === form.unitKerjaId);
-            const opdName = opd ? opd.nama : "";
-            if (!opdName) {
-              setError("OPD / Unit Kerja wajib dipilih.");
+          if (!form.unitKerjaId) {
+            setError("OPD / Unit Kerja wajib dipilih.");
+            setSaving(false);
+            return;
+          }
+          try {
+            const sptRes = await api.checkSptOpd(form.unitKerjaId);
+            if (!sptRes || !sptRes.hasSubmitted) {
+              const opd = opds.find((o) => o.id === form.unitKerjaId);
+              const opdName = opd ? opd.nama : "terpilih";
+              setError(sptRes?.message || `Gagal membuat user! OPD "${opdName}" belum mengisi SPT Digital untuk kegiatan SIANJAB. Silakan lakukan pengisian SPT terlebih dahulu.`);
               setSaving(false);
               return;
             }
-            const checkUrl = `${sptUrl}?action=checkSpt&opd=${encodeURIComponent(opdName)}&integrasi=SIANJAB&token=${encodeURIComponent(sptToken)}`;
-            try {
-              const res = await fetch(checkUrl);
-              const resJson = await res.json();
-              if (resJson.status !== "success" || !resJson.hasSubmitted) {
-                setError(`Gagal membuat user! OPD "${opdName}" belum mengisi SPT Digital untuk kegiatan SIANJAB. Silakan lakukan pengisian SPT terlebih dahulu.`);
-                setSaving(false);
-                return;
-              }
-              // Extract Admin Penandatangan SPT details
-              sptAdminNama = resJson.namaAdmin || resJson.adminNama || resJson.penandatanganNama || "";
-              sptAdminNip = resJson.nipAdmin || resJson.adminNip || resJson.penandatanganNip || "";
-            } catch (err) {
-              console.error("Gagal verifikasi ke SPTDigital:", err);
-              setError("Gagal menghubungi server SPTDigital untuk verifikasi. Silakan coba kembali nanti.");
-              setSaving(false);
-              return;
-            }
+            // Extract Admin Penandatangan SPT details
+            sptAdminNama = sptRes.namaAdmin || "";
+            sptAdminNip = sptRes.nipAdmin || "";
+          } catch (err) {
+            console.error("Gagal verifikasi ke SPTDigital:", err);
+            setError("Gagal menghubungi server untuk verifikasi SPT Digital. Silakan coba kembali nanti.");
+            setSaving(false);
+            return;
           }
         }
 
