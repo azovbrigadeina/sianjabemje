@@ -3990,18 +3990,25 @@ function exportFullDatabase_() {
   if (fullData.users && typeof fullData.users === 'object') {
     for (var uId in fullData.users) {
       if (fullData.users[uId]) {
-        delete fullData.users[uId].password;
-        fullData.users[uId]._hasPassword = true;
+        if (fullData.users[uId].password) {
+          delete fullData.users[uId].password;
+          fullData.users[uId]._hasPassword = true;
+        }
       }
     }
   }
 
-  // Sanitasi node settings: jangan ekspor kunci API AI mentah
-  if (fullData.settings && fullData.settings.ai && typeof fullData.settings.ai === 'object') {
-    var ai = fullData.settings.ai;
-    for (var k in ai) {
-      if (k.toLowerCase().indexOf('apikey') !== -1 || k.toLowerCase().indexOf('secret') !== -1 || k === 'savedKeys') {
-        delete ai[k];
+  // Sanitasi node settings: jangan ekspor kunci API AI mentah (dukung aiConfig maupun ai)
+  var aiNodes = ['aiConfig', 'ai'];
+  if (fullData.settings && typeof fullData.settings === 'object') {
+    for (var a = 0; a < aiNodes.length; a++) {
+      var ai = fullData.settings[aiNodes[a]];
+      if (ai && typeof ai === 'object') {
+        for (var k in ai) {
+          if (k.toLowerCase().indexOf('apikey') !== -1 || k.toLowerCase().indexOf('secret') !== -1 || k === 'savedKeys') {
+            delete ai[k];
+          }
+        }
       }
     }
   }
@@ -4017,7 +4024,10 @@ function exportFullDatabase_() {
 }
 
 function restoreFullDatabase_(backupPayload, currentUser) {
-  if (!backupPayload || !backupPayload.data) {
+  var restoredData = (backupPayload && backupPayload.data && typeof backupPayload.data === 'object')
+    ? backupPayload.data
+    : backupPayload;
+  if (!restoredData || typeof restoredData !== 'object' || Object.keys(restoredData).length === 0) {
     throw new Error('Payload backup tidak valid: Node data utama tidak ditemukan.');
   }
 
@@ -4027,8 +4037,6 @@ function restoreFullDatabase_(backupPayload, currentUser) {
   }
 
   try {
-    var restoredData = backupPayload.data;
-
     // Preservasi kredensial akun aktif jika file backup tidak memiliki password
     var existingUsers = fbGet_('users') || {};
     if (restoredData.users && typeof restoredData.users === 'object') {
@@ -4041,10 +4049,12 @@ function restoreFullDatabase_(backupPayload, currentUser) {
       }
     }
 
-    // Preservasi kredensial AI jika file backup tidak menyertakannya
-    var existingAi = fbGet_('settings/ai') || {};
-    if (restoredData.settings && restoredData.settings.ai && typeof restoredData.settings.ai === 'object') {
-      var rAi = restoredData.settings.ai;
+    // Preservasi kredensial AI jika file backup tidak menyertakannya (dukung aiConfig maupun ai)
+    var existingAi = fbGet_('settings/aiConfig') || fbGet_('settings/ai') || {};
+    var rAi = (restoredData.settings && typeof restoredData.settings === 'object')
+      ? (restoredData.settings.aiConfig || restoredData.settings.ai)
+      : null;
+    if (rAi && typeof rAi === 'object') {
       for (var aiKey in existingAi) {
         if (!rAi[aiKey] && (aiKey.toLowerCase().indexOf('apikey') !== -1 || aiKey === 'savedKeys')) {
           rAi[aiKey] = existingAi[aiKey];
