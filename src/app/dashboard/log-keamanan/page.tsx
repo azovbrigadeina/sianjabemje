@@ -96,7 +96,7 @@ export default function SecurityLogsPage() {
         <div>
           <h1 className={styles.pageTitle}>Log Keamanan Sistem</h1>
           <p className={styles.pageSubtitle}>
-            Riwayat aktivitas autentikasi, percobaan masuk sukses, dan deteksi kegagalan login.
+            Riwayat aktivitas autentikasi, percobaan masuk sukses, dan deteksi kegagalan login (dibatasi 200 aktivitas terbaru untuk optimalisasi performa).
           </p>
         </div>
         <button
@@ -117,15 +117,15 @@ export default function SecurityLogsPage() {
         marginBottom: "0.5rem"
       }}>
         <div className="glass-panel" style={{ padding: "1.25rem", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
-          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase" }}>Total Percobaan</div>
+          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase" }}>Total Percobaan (200 Terkini)</div>
           <div style={{ fontSize: "2rem", fontWeight: 800, marginTop: "0.5rem", color: "var(--foreground)" }}>{totalAttempts}</div>
         </div>
         <div className="glass-panel" style={{ padding: "1.25rem", borderRadius: "12px", border: "1px solid rgba(34, 197, 94, 0.2)" }}>
-          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", color: "rgb(34, 197, 94)" }}>Login Sukses</div>
+          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", color: "rgb(34, 197, 94)" }}>Login Sukses (200 Terkini)</div>
           <div style={{ fontSize: "2rem", fontWeight: 800, marginTop: "0.5rem", color: "rgb(34, 197, 94)" }}>{successCount}</div>
         </div>
         <div className="glass-panel" style={{ padding: "1.25rem", borderRadius: "12px", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
-          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", color: "rgb(239, 68, 68)" }}>Login Gagal</div>
+          <div style={{ fontSize: "0.8rem", opacity: 0.6, fontWeight: 600, textTransform: "uppercase", color: "rgb(239, 68, 68)" }}>Login Gagal (200 Terkini)</div>
           <div style={{ fontSize: "2rem", fontWeight: 800, marginTop: "0.5rem", color: "rgb(239, 68, 68)" }}>{failureCount}</div>
         </div>
       </div>
