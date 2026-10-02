@@ -4,7 +4,7 @@
 // =============================================
 
 import { DuplicateUnitKerjaParams } from './types';
-import { getActiveYear, DEFAULT_YEAR } from '@/lib/constants';
+import { getActiveYear } from '@/lib/constants';
 
 const API_BASE = process.env.NEXT_PUBLIC_GAS_DEPLOYMENT_URL || '';
 
@@ -710,7 +710,7 @@ export const api = {
   // -- AI Generation --
   generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string) => {
     const raw = await apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } });
-    return normalizeAiAnjabDraft(raw);
+    return ensureAiAnjabDraft(raw);
   },
 
   saveBulkAnjabData: (jabatanId: string, data: unknown) =>
@@ -750,103 +750,23 @@ export const api = {
 // HELPER NORMALISASI DRAF AI
 // ============================================================================
 
-function normalizeAiAnjabDraft(data: any): any {
+function ensureAiAnjabDraft(data: any): any {
   if (!data) return null;
-
-  const toArray = (val: any): string[] => {
-    if (!val) return [];
-    if (Array.isArray(val)) return val;
-    if (typeof val === 'string') {
-      return val.split(',').map((s: string) => s.trim()).filter(Boolean);
-    }
-    return [];
+  return {
+    ...data,
+    kualifikasi: data.kualifikasi || { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] },
+    syaratJabatan: data.syaratJabatan || {},
+    hasilKerja: data.hasilKerja || { uraian: JSON.stringify([]) },
+    prestasiKerja: data.prestasiKerja || { uraian: "" },
+    tugasPokok: Array.isArray(data.tugasPokok) ? data.tugasPokok : [],
+    bahanKerja: Array.isArray(data.bahanKerja) ? data.bahanKerja : [],
+    perangkatKerja: Array.isArray(data.perangkatKerja) ? data.perangkatKerja : [],
+    tanggungJawab: Array.isArray(data.tanggungJawab) ? data.tanggungJawab : [],
+    wewenang: Array.isArray(data.wewenang) ? data.wewenang : [],
+    korelasiJabatan: Array.isArray(data.korelasiJabatan) ? data.korelasiJabatan : [],
+    kondisiLingkungan: Array.isArray(data.kondisiLingkungan) ? data.kondisiLingkungan : [],
+    risikoBahaya: Array.isArray(data.risikoBahaya) ? data.risikoBahaya : [],
   };
-
-  // Normalize Kualifikasi
-  if (data.kualifikasi) {
-    data.kualifikasi.pendidikanFormal = toArray(data.kualifikasi.pendidikanFormal);
-    data.kualifikasi.pendidikanPelatihan = toArray(data.kualifikasi.pendidikanPelatihan);
-    data.kualifikasi.pengalamanKerja = toArray(data.kualifikasi.pengalamanKerja);
-  } else {
-    data.kualifikasi = { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] };
-  }
-
-  // Normalize Syarat Jabatan
-  if (data.syaratJabatan) {
-    data.syaratJabatan.keterampilanKerja = toArray(data.syaratJabatan.keterampilanKerja);
-    data.syaratJabatan.bakatKerja = toArray(data.syaratJabatan.bakatKerja);
-    data.syaratJabatan.temperamenKerja = toArray(data.syaratJabatan.temperamenKerja);
-    data.syaratJabatan.minatKerja = toArray(data.syaratJabatan.minatKerja);
-    data.syaratJabatan.upayaFisik = toArray(data.syaratJabatan.upayaFisik);
-    data.syaratJabatan.fungsiPekerjaan = toArray(data.syaratJabatan.fungsiPekerjaan);
-
-    if (!data.syaratJabatan.kondisiFisik || typeof data.syaratJabatan.kondisiFisik !== 'object') {
-      data.syaratJabatan.kondisiFisik = {
-        jenisKelamin: "Laki-laki / Perempuan",
-        umur: "Bebas",
-        tinggiBadan: "Bebas",
-        beratBadan: "Bebas",
-        posturBadan: "Tegak",
-        penampilan: "Rapi"
-      };
-    }
-  } else {
-    data.syaratJabatan = {
-      keterampilanKerja: [],
-      bakatKerja: [],
-      temperamenKerja: [],
-      minatKerja: [],
-      upayaFisik: [],
-      kondisiFisik: { jenisKelamin: "Bebas", umur: "Bebas", tinggiBadan: "Bebas", beratBadan: "Bebas", posturBadan: "Bebas", penampilan: "Bebas" },
-      fungsiPekerjaan: []
-    };
-  }
-
-  // Normalize Hasil Kerja (Single Entity)
-  if (!data.hasilKerja) {
-    data.hasilKerja = { uraian: JSON.stringify([]) };
-  } else if (Array.isArray(data.hasilKerja)) {
-    data.hasilKerja = { uraian: JSON.stringify(data.hasilKerja) };
-  } else if (typeof data.hasilKerja === 'string') {
-    try {
-      JSON.parse(data.hasilKerja);
-      data.hasilKerja = { uraian: data.hasilKerja };
-    } catch(e) {
-      data.hasilKerja = { uraian: JSON.stringify([data.hasilKerja]) };
-    }
-  } else if (data.hasilKerja.uraian) {
-    try {
-      JSON.parse(data.hasilKerja.uraian);
-    } catch(e) {
-      data.hasilKerja.uraian = JSON.stringify([data.hasilKerja.uraian]);
-    }
-  } else {
-    data.hasilKerja = { uraian: JSON.stringify([]) };
-  }
-
-  // Normalize Prestasi Kerja (Single Entity)
-  if (!data.prestasiKerja) {
-    data.prestasiKerja = { uraian: "Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan." };
-  } else if (typeof data.prestasiKerja === 'string') {
-    data.prestasiKerja = { uraian: data.prestasiKerja };
-  } else if (typeof data.prestasiKerja === 'object') {
-    data.prestasiKerja = { uraian: data.prestasiKerja.uraian || "Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan." };
-  }
-
-  // Normalize Multi-Row Entities
-  const toArrayOfObjects = (val: any) => {
-    return Array.isArray(val) ? val : [];
-  };
-  data.tugasPokok = toArrayOfObjects(data.tugasPokok);
-  data.bahanKerja = toArrayOfObjects(data.bahanKerja);
-  data.perangkatKerja = toArrayOfObjects(data.perangkatKerja);
-  data.tanggungJawab = toArrayOfObjects(data.tanggungJawab);
-  data.wewenang = toArrayOfObjects(data.wewenang);
-  data.korelasiJabatan = toArrayOfObjects(data.korelasiJabatan);
-  data.kondisiLingkungan = toArrayOfObjects(data.kondisiLingkungan);
-  data.risikoBahaya = toArrayOfObjects(data.risikoBahaya);
-
-  return data;
 }
 
 
