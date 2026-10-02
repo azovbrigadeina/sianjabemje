@@ -4,6 +4,7 @@
 // =============================================
 
 import { DuplicateUnitKerjaParams } from './types';
+import { getActiveYear, DEFAULT_YEAR } from '@/lib/constants';
 
 const API_BASE = process.env.NEXT_PUBLIC_GAS_DEPLOYMENT_URL || '';
 
@@ -139,7 +140,7 @@ async function invalidateTargetedCache(
   entity: string,
   opts?: { params?: Record<string, string>; data?: unknown }
 ) {
-  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+  const activeYear = getActiveYear();
   const parentId = opts?.params?.parentId || opts?.params?.id || (opts?.data as any)?.jabatanId || (opts?.data as any)?.id;
 
   // Operasi reset global yang membutuhkan wipe menyeluruh
@@ -346,7 +347,7 @@ async function executeActualRequest<T = unknown>(
         // Simpan ke cache jika ini GET request yang cacheable
         if (!isWriteOperation) {
           await setCache(url, json.data);
-          const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+          const activeYear = getActiveYear();
           if (context?.action === 'getBulkData' && json.data && typeof json.data === 'object' && !Array.isArray(json.data)) {
             for (const [entName, entData] of Object.entries(json.data)) {
               await setCache(`entity_${activeYear}_${entName}`, entData);
@@ -425,7 +426,7 @@ async function apiCall<T = unknown>(
     'duplicateUnitKerja', 'createBatchJabatans'
   ];
   const isWriteOperation = writeActions.includes(action) || !!opts.data;
-  const activeYear = (typeof window !== 'undefined' ? localStorage.getItem('sianjab_active_year') : null) || '2026';
+  const activeYear = getActiveYear();
   const searchParams = new URLSearchParams({ action, entity, tahun: activeYear });
   if (opts.params) {
     Object.entries(opts.params).forEach(([k, v]) => searchParams.set(k, v));
@@ -551,7 +552,7 @@ export const api = {
   // -- Optimistic Hydration Helpers (Render Instan 0ms dari Cache Lokal) --
   getCachedBulkData: async <T = Record<string, any[]>>(entities: string[]): Promise<T | null> => {
     if (typeof window === 'undefined') return null;
-    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    const activeYear = getActiveYear();
     const result: Record<string, any[]> = {};
     for (const ent of entities) {
       const cached = await getFromCache<any[]>(`entity_${activeYear}_${ent}`);
@@ -563,13 +564,13 @@ export const api = {
 
   getCachedJabatanFull: async (jabatanId: string): Promise<any | null> => {
     if (typeof window === 'undefined' || !jabatanId) return null;
-    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    const activeYear = getActiveYear();
     return getFromCache<any>(`jfull_${activeYear}_${jabatanId}`);
   },
 
   getCachedStatusSummary: async (): Promise<{ anjabFilled: string[]; abkFilled: string[] } | null> => {
     if (typeof window === 'undefined') return null;
-    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    const activeYear = getActiveYear();
     return getFromCache<{ anjabFilled: string[]; abkFilled: string[] }>(`statusSummary_${activeYear}`);
   },
 
@@ -737,7 +738,7 @@ export const api = {
 
   warmUpGas: () => {
     if (typeof window === 'undefined') return;
-    const activeYear = localStorage.getItem('sianjab_active_year') || '2026';
+    const activeYear = getActiveYear();
     const url = `${API_BASE}?action=ping&tahun=${activeYear}`;
     fetch(url, { method: 'GET', redirect: 'follow' })
       .then(res => res.json())

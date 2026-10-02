@@ -2399,7 +2399,7 @@ function duplicateUnitKerja_(params) {
       kode: targetData.kode ? targetData.kode.trim() : kodeClean,
       parentId: targetData.parentId || '',
       urutan: targetData.urutan || 0,
-      tahun: CURRENT_TAHUN || '2026',
+      tahun: CURRENT_TAHUN || BASE_YEAR,
       statusValidasi: 'Draft',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -2450,7 +2450,7 @@ function duplicateUnitKerja_(params) {
       level: oldJbt.level || 4,
       ikhtisarJabatan: oldJbt.ikhtisarJabatan || '',
       urutan: oldJbt.urutan || 0,
-      tahun: CURRENT_TAHUN || '2026',
+      tahun: CURRENT_TAHUN || BASE_YEAR,
       unitKerjaId: targetUnitId,
       parentId: newParentId,
       createdAt: new Date().toISOString(),
