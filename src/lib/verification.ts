@@ -147,7 +147,7 @@ export function generateVerificationCode(
   return { record, verifyUrl, token };
 }
 
-export async function fetchVerificationRecordFromServer(code: string, token?: string): Promise<VerificationRecord | null> {
+export async function fetchVerificationRecordFromServer(code: string, _token?: string): Promise<VerificationRecord | null> {
   if (!code) return null;
   try {
     const serverResult = await api.checkVerificationCode(code);
@@ -155,37 +155,14 @@ export async function fetchVerificationRecordFromServer(code: string, token?: st
       return serverResult as VerificationRecord;
     }
   } catch (e) {
-    console.warn('Server verification check failed, falling back to token/local:', e);
+    console.warn('Server verification check failed:', e);
   }
 
-  // Fallback to token parse or local storage
-  if (token) {
-    const parsed = parseVerificationToken(token);
-    if (parsed && parsed.code === code) {
-      return parsed;
-    }
-  }
-
-  try {
-    if (typeof window === 'undefined') return null;
-    const existingStr = localStorage.getItem('sianjab_verification_logs');
-    if (!existingStr) return null;
-    const logs: Record<string, VerificationRecord> = JSON.parse(existingStr);
-    return logs[code] || null;
-  } catch (e) {
-    console.error('Failed to read local verification record:', e);
-    return null;
-  }
+  // N5: Keamanan verifikasi — Tolak klaim keabsahan jika tidak terdaftar di database server resmi
+  return null;
 }
 
-export function getVerificationRecord(code: string, token?: string): VerificationRecord | null {
-  if (token) {
-    const parsed = parseVerificationToken(token);
-    if (parsed && parsed.code === code) {
-      return parsed;
-    }
-  }
-
+export function getVerificationRecord(code: string, _token?: string): VerificationRecord | null {
   try {
     if (typeof window === 'undefined') return null;
     const existingStr = localStorage.getItem('sianjab_verification_logs');

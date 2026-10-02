@@ -222,7 +222,9 @@ var ADMIN_ONLY_ACTIONS_ = [
   'syncToSheet', 'syncFromSheet',
   'saveTemplate', 'saveTagMappings', 'saveDeadline',
   'exportFullDatabase', 'restoreFullDatabase',
-  'duplicateUnitKerja'
+  'duplicateUnitKerja',
+  'restoreBatchEntities', 'restoreBatchJabatans',
+  'exportForSitpp', 'testAiConnection'
 ];
 
 function computeHmacHex_(dataStr, secretKey) {
@@ -425,15 +427,18 @@ function handleRequest_(e) {
         result = getJabatanHierarchy_(id);
         break;
       case 'saveSingleEntity':
+        assertJabatanAccess_(currentUser, parentId);
         result = saveSingleEntity_(entity, parentId, data);
         break;
       case 'saveMultiEntity':
+        assertJabatanAccess_(currentUser, parentId);
         result = saveMultiEntity_(entity, parentId, data);
         break;
       case 'updateUrutanBatch':
         result = updateUrutanBatch_(entity, data);
         break;
       case 'saveBulkAnjabData':
+        assertJabatanAccess_(currentUser, parentId);
         result = saveBulkAnjabData_(parentId, data);
         break;
       case 'login':
@@ -493,6 +498,7 @@ function handleRequest_(e) {
         result = getSptSpreadsheetData_();
         break;
       case 'saveABK':
+        assertJabatanAccess_(currentUser, parentId);
         result = saveABK_(parentId, data);
         break;
       case 'getABK':
@@ -627,9 +633,54 @@ function stripSensitiveSettings_(item, currentUser) {
     if (k.toLowerCase().indexOf('apikey') !== -1 || k.toLowerCase().indexOf('secret') !== -1) {
       continue;
     }
+    // N1: Cegah kebocoran riwayat kunci API di savedKeys ke non-admin
+    if (k === 'savedKeys') {
+      continue;
+    }
     safe[k] = item[k];
   }
   return safe;
+}
+
+function getAllowedUnitKerjaIds_(userUnitId) {
+  if (!userUnitId) return {};
+  var allUnits = fbGet_(getFirebasePath_('unitKerja')) || {};
+  var allowed = {};
+  allowed[userUnitId] = true;
+  
+  var added = true;
+  while (added) {
+    added = false;
+    for (var k in allUnits) {
+      var u = allUnits[k];
+      if (u && u.parentId && allowed[u.parentId] && !allowed[k]) {
+        allowed[k] = true;
+        added = true;
+      }
+    }
+  }
+  return allowed;
+}
+
+function assertJabatanAccess_(currentUser, jabatanId) {
+  if (!currentUser || currentUser.role === 'admin') {
+    return; // Admin memiliki hak akses penuh
+  }
+  if (!jabatanId) {
+    throw new Error('Akses ditolak: ID Jabatan wajib disertakan.');
+  }
+  var userUnitId = currentUser.unitKerjaId;
+  if (!userUnitId) {
+    throw new Error('Akses ditolak: Akun Anda tidak terikat pada Unit Kerja OPD mana pun.');
+  }
+  var targetJbt = readRecord_('jabatan', jabatanId);
+  if (!targetJbt) {
+    throw new Error('Akses ditolak: Jabatan tidak ditemukan.');
+  }
+  var allowedUnits = getAllowedUnitKerjaIds_(userUnitId);
+  if (targetJbt.unitKerjaId && !allowedUnits[targetJbt.unitKerjaId]) {
+    throw new Error('Akses ditolak: Anda tidak memiliki wewenang untuk mengubah data jabatan pada OPD ini.');
+  }
 }
 
 function assertWritePermission_(currentUser, entity, id, data) {
@@ -649,23 +700,25 @@ function assertWritePermission_(currentUser, entity, id, data) {
   // 2. Untuk role non-admin (operator): validasi pembatasan per OPD
   var userUnitId = currentUser.unitKerjaId;
   if (!userUnitId) {
-    return;
+    throw new Error('Akses ditolak: Akun Anda tidak terikat pada Unit Kerja OPD mana pun.');
   }
 
+  var allowedUnits = getAllowedUnitKerjaIds_(userUnitId);
+
   if (entity === 'unitKerja') {
-    if (id && id !== userUnitId) {
-      throw new Error('Akses ditolak: Anda hanya dapat mengubah Unit Kerja OPD Anda.');
+    if (id && !allowedUnits[id]) {
+      throw new Error('Akses ditolak: Anda hanya dapat mengubah Unit Kerja di bawah lingkup OPD Anda.');
     }
-    if (data && data.id && data.id !== userUnitId) {
-      throw new Error('Akses ditolak: Anda tidak dapat membuat Unit Kerja untuk OPD lain.');
+    if (data && data.parentId && !allowedUnits[data.parentId]) {
+      throw new Error('Akses ditolak: Unit Kerja induk harus berada dalam lingkup OPD Anda.');
     }
   } else if (entity === 'jabatan') {
-    if (data && data.unitKerjaId && data.unitKerjaId !== userUnitId) {
-      throw new Error('Akses ditolak: Anda tidak dapat menetapkan jabatan ke Unit Kerja OPD lain.');
+    if (data && data.unitKerjaId && !allowedUnits[data.unitKerjaId]) {
+      throw new Error('Akses ditolak: Anda tidak dapat menetapkan jabatan ke Unit Kerja di luar lingkup OPD Anda.');
     }
     if (id) {
       var targetJbt = readRecord_('jabatan', id);
-      if (targetJbt && targetJbt.unitKerjaId && targetJbt.unitKerjaId !== userUnitId) {
+      if (targetJbt && targetJbt.unitKerjaId && !allowedUnits[targetJbt.unitKerjaId]) {
         throw new Error('Akses ditolak: Jabatan ini milik OPD lain.');
       }
     }
@@ -1617,6 +1670,7 @@ function createUser_(data) {
   };
 
   var result = fbPost_('users', newUser);
+  invalidateCache_('users');
   
   var safeUser = {
     id: result.name,
@@ -1644,6 +1698,7 @@ function updateUser_(id, data) {
   data.updatedAt = new Date().toISOString();
   
   fbPatch_('users/' + id, data);
+  invalidateCache_('users');
   
   var updated = Object.assign({}, existingUser, data);
   delete updated.password;
@@ -2533,6 +2588,15 @@ function restoreBatchEntities_(entity, items) {
   if (!items || !Array.isArray(items) || !entity) {
     return { success: false, error: 'Invalid parameters' };
   }
+  var allowedEntities = [
+    'unitKerja', 'jabatan', 'referensiJabatan', 'abk',
+    'kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja',
+    'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
+    'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'
+  ];
+  if (allowedEntities.indexOf(entity) === -1) {
+    throw new Error('Akses ditolak: Pemulihan batch tidak diizinkan untuk entitas ' + entity);
+  }
   var batchUpdates = {};
   items.forEach(function(item) {
     if (item && item.id) {
@@ -2614,6 +2678,7 @@ function autoRegisterOperator_(data) {
       updatePayload.password = hashPassword_(data.password, username);
     }
     fbPatch_('users/' + foundUserId, updatePayload);
+    invalidateCache_('users');
     return { status: "updated", id: foundUserId, message: "User sudah ada, data diperbarui." };
   }
 
@@ -2634,6 +2699,7 @@ function autoRegisterOperator_(data) {
   };
 
   var result = fbPost_('users', newUser);
+  invalidateCache_('users');
   return { status: "created", id: result.name, message: "User berhasil didaftarkan otomatis." };
 }
 

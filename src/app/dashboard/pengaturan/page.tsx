@@ -23,9 +23,8 @@ export default function PengaturanAIPage() {
 
   const saveKeysToStorage = (keys: SavedApiKey[]) => {
     setSavedKeys(keys);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("sianjab_saved_api_keys", JSON.stringify(keys));
-    }
+    // N1: Jangan simpan kunci API mentah tanpa enkripsi di localStorage browser.
+    // Kunci tersimpan dikelola langsung via state dan disimpan di konfigurasi server database.
   };
   
   // API Keys
@@ -71,14 +70,12 @@ export default function PengaturanAIPage() {
   });
 
   useEffect(() => {
+    // N1: Bersihkan sisa kunci API mentah dari localStorage browser lama jika ada
     if (typeof window !== "undefined") {
       try {
-        const stored = localStorage.getItem("sianjab_saved_api_keys");
-        if (stored) {
-          setSavedKeys(JSON.parse(stored));
-        }
+        localStorage.removeItem("sianjab_saved_api_keys");
       } catch (e) {
-        console.error("Gagal membaca saved API keys dari localStorage", e);
+        // ignore
       }
     }
 
@@ -88,12 +85,9 @@ export default function PengaturanAIPage() {
         if (config) {
           setActiveProvider(config.activeProvider || "gemini");
 
-          // Load savedKeys from database config, fallback to LocalStorage (already set)
+          // Load savedKeys from database config (hanya diterima oleh admin)
           if (config.savedKeys && Array.isArray(config.savedKeys) && config.savedKeys.length > 0) {
             setSavedKeys(config.savedKeys);
-            if (typeof window !== "undefined") {
-              localStorage.setItem("sianjab_saved_api_keys", JSON.stringify(config.savedKeys));
-            }
           }
 
           // API Keys
