@@ -272,6 +272,15 @@ let writeQueuePromise = Promise.resolve();
 // In-flight deduplication untuk GET requests (cegah duplicate fetch yang sama)
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
+// N4: Extended timeout per-action untuk proses berat
+const EXTENDED_TIMEOUT_ACTIONS: Record<string, number> = {
+  generateAnjabWithAI: 150000,
+  testAiConnection: 60000,
+  restoreFullDatabase: 180000,
+  exportFullDatabase: 120000,
+  exportForSitpp: 120000,
+};
+
 async function executeActualRequest<T = unknown>(
   url: string,
   isWriteOperation: boolean,
@@ -285,13 +294,15 @@ async function executeActualRequest<T = unknown>(
     opts: any;
   }
 ): Promise<T> {
-  const timeoutMs = 30000; // 30 detik timeout default
+  const timeoutMs = (context?.action && EXTENDED_TIMEOUT_ACTIONS[context.action])
+    ? EXTENDED_TIMEOUT_ACTIONS[context.action]
+    : 30000;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let signalToUse = options.signal;
 
   if (!signalToUse) {
     const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(new Error('Server tidak merespons dalam 30 detik (Timeout)')), timeoutMs);
+    timeoutId = setTimeout(() => controller.abort(new Error(`Server membutuhkan waktu lebih lama untuk memproses ${context?.action || 'permintaan'}. (Batas waktu: ${timeoutMs / 1000}s)`)), timeoutMs);
     signalToUse = controller.signal;
   }
 
@@ -359,7 +370,7 @@ async function executeActualRequest<T = unknown>(
         return json.data;
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
-          throw new Error('Request Timeout: Backend GAS tidak merespons dalam 30 detik.');
+          throw new Error(`Request Timeout: Backend GAS tidak merespons dalam ${timeoutMs / 1000} detik.`);
         }
         lastError = err instanceof Error ? err : new Error(String(err));
 
