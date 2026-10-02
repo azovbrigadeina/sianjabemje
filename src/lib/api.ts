@@ -146,7 +146,7 @@ async function invalidateTargetedCache(
   const globalResetActions = [
     'cloneYearData', 'deleteYearData', 'restoreFullDatabase',
     'restoreBatchJabatans', 'restoreBatchEntities', 'cleanupOrphanedRecords',
-    'syncFromSheet', 'syncToSheet', 'duplicateUnitKerja'
+    'duplicateUnitKerja'
   ];
 
   if (globalResetActions.includes(action) || entity === 'unitKerja') {
@@ -417,8 +417,8 @@ async function apiCall<T = unknown>(
 
   const writeActions = [
     'create', 'update', 'delete', 'saveSingleEntity', 'saveMultiEntity', 'updateUrutanBatch', 'saveABK',
-    'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData', 'syncFromSheet',
-    'syncToSheet', 'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords',
+    'createUser', 'updateUser', 'deleteUser', 'saveBulkAnjabData',
+    'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords',
     'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
     'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
     'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase',
@@ -629,13 +629,6 @@ export const api = {
   // -- SiTPP Integration --
   exportForSitpp: () =>
     apiCall('exportForSitpp', ''),
-
-  // -- Google Sheet Integration --
-  syncToSheet: () =>
-    apiCall<{success: boolean, message: string}>('syncToSheet', ''),
-
-  syncFromSheet: (clean?: boolean) =>
-    apiCall<{success: boolean, message: string}>('syncFromSheet', '', { params: clean ? { clean: 'true' } : undefined }),
 
   // -- ABK --
   saveABK: (jabatanId: string, data: unknown) =>
