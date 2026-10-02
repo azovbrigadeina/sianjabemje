@@ -203,7 +203,7 @@ function invalidateAllCaches_() {
 // =============================================
 
 // Action yang diizinkan TANPA token (public endpoints)
-var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'ping', 'checkVerificationCode'];
+var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'ping', 'checkVerificationCode', 'getDashboardStats', 'getBulkData'];
 
 // Action khusus ADMIN (Role-Based Access Control)
 var ADMIN_ONLY_ACTIONS_ = [
@@ -518,7 +518,18 @@ function handleRequest_(e) {
       // Mengurangi jumlah round-trip dari client ke GAS.
       // Hanya untuk operasi baca — tidak mengubah data apapun.
       case 'getBulkData':
-        var bulkEntities = (params.entities || '').split(',');
+        var bulkEntities = (params.entities || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        // Jika diakses tanpa token login valid, batasi hanya pada entitas publik organisasi
+        if (!currentUser) {
+          var allowedPublic = ['unitKerja', 'jabatan', 'abk'];
+          for (var bIdx = 0; bIdx < bulkEntities.length; bIdx++) {
+            if (allowedPublic.indexOf(bulkEntities[bIdx]) === -1) {
+              return ContentService
+                .createTextOutput(JSON.stringify({ success: false, error: 'Akses ditolak: Memerlukan login untuk melihat entitas ' + bulkEntities[bIdx] }))
+                .setMimeType(ContentService.MimeType.JSON);
+            }
+          }
+        }
         result = readMultipleEntities_(bulkEntities);
         break;
 

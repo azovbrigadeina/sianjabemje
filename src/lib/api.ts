@@ -327,7 +327,7 @@ async function executeActualRequest<T = unknown>(
 
         if (!json.success) {
           const errMsg = json.error || 'API request failed';
-          // M5: Tangani token tidak valid / kadaluarsa -> bersihkan sesi dan redirect
+          // M5: Tangani token tidak valid / kadaluarsa -> bersihkan sesi dan redirect (hanya di route terproteksi)
           if (
             errMsg.toLowerCase().includes('token tidak valid') ||
             errMsg.toLowerCase().includes('sudah kadaluarsa') ||
@@ -336,7 +336,9 @@ async function executeActualRequest<T = unknown>(
             if (typeof window !== 'undefined') {
               document.cookie = "sianjab_token=; Max-Age=0; path=/";
               localStorage.removeItem('sianjab_user');
-              if (!window.location.pathname.startsWith('/login')) {
+              const path = window.location.pathname;
+              const isProtectedRoute = path.startsWith('/dashboard') || path.startsWith('/operator');
+              if (isProtectedRoute) {
                 window.location.href = '/login?expired=1';
               }
             }
