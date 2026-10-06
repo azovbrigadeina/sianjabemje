@@ -3113,16 +3113,25 @@ function verifyFormasiIdeal_(data, ctx) {
   try {
     if (!data || !Array.isArray(data.tugasPokok)) return data;
 
-    var total = 0, n = 0;
+    // Normalisasi angka: waktu >= 0, jumlahHasil bulat >= 1 (guard nilai karangan/negatif AI)
     for (var i = 0; i < data.tugasPokok.length; i++) {
       var t = data.tugasPokok[i] || {};
-      var w = Number(t.waktuPenyelesaian) || 0;
-      if (w > 0) { total += w; n++; }
+      var w = Number(t.waktuPenyelesaian);
+      t.waktuPenyelesaian = (!w || w < 0) ? 0 : w;
+      var jh = Math.round(Number(t.jumlahHasil) || 0);
+      t.jumlahHasil = jh < 1 ? 1 : jh;
+      data.tugasPokok[i] = t;
     }
+
+    var total = 0, n = 0;
+    for (var i2 = 0; i2 < data.tugasPokok.length; i2++) {
+      var w2 = Number(data.tugasPokok[i2].waktuPenyelesaian) || 0;
+      if (w2 > 0) { total += w2; n++; }
+    }
+    // Guard satuan: rata-rata > 480 menit (8 jam) -> dianggap jam, konversi x60
     if (n > 0 && (total / n) > 480) {
       for (var k = 0; k < data.tugasPokok.length; k++) {
-        data.tugasPokok[k] = data.tugasPokok[k] || {};
-        data.tugasPokok[k].waktuPenyelesaian = Math.round((Number(data.tugasPokok[k].waktuPenyelesaian) || 0) * 60);
+        data.tugasPokok[k].waktuPenyelesaian = data.tugasPokok[k].waktuPenyelesaian * 60;
       }
     }
 
@@ -3130,7 +3139,6 @@ function verifyFormasiIdeal_(data, ctx) {
     for (var m = 0; m < data.tugasPokok.length; m++) {
       var row = data.tugasPokok[m] || {};
       totalWaktuEfektif += (Number(row.waktuPenyelesaian) || 0) * (Number(row.jumlahHasil) || 1);
-      row.jumlahHasil = Number(row.jumlahHasil) || 1;
     }
 
     var wke = (ctx && ctx.sumber && ctx.sumber.wkeReferensi > 0) ? ctx.sumber.wkeReferensi : 75000; // 1250 jam x 60
@@ -3247,11 +3255,13 @@ function normalizeAiAnjabDraft_(data) {
   data.kondisiLingkungan = toArrayOfObjects(data.kondisiLingkungan);
   data.risikoBahaya = toArrayOfObjects(data.risikoBahaya);
 
-  // Guard jumlahHasil default 1 + angka waktu numerik
+  // Guard jumlahHasil (bulat >= 1) + waktu numerik >= 0
   for (var i = 0; i < data.tugasPokok.length; i++) {
     var tp = data.tugasPokok[i] || {};
-    tp.jumlahHasil = Number(tp.jumlahHasil) || 1;
-    tp.waktuPenyelesaian = Number(tp.waktuPenyelesaian) || 0;
+    var jh = Math.round(Number(tp.jumlahHasil) || 0);
+    tp.jumlahHasil = jh < 1 ? 1 : jh;
+    var wp = Number(tp.waktuPenyelesaian);
+    tp.waktuPenyelesaian = (!wp || wp < 0) ? 0 : wp;
     data.tugasPokok[i] = tp;
   }
 

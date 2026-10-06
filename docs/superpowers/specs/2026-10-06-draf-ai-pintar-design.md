@@ -47,33 +47,33 @@ GAS generateAnjabWithAI_(params)
 ## Perubahan Per File
 
 ### `gas/Code.gs`
-- Baru: `buildAiContext_(unitKerjaId, jabatanId)` → objek konteks (unitTree, siblingAbk, existingTasks, referensi, pegawaiRiil).
-- `generateAnjabWithAI_(namaJabatan, unitKerjaId, namaOPD, jabatanId)`:
+- Baru: `buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel)` → objek konteks `{ promptBlock, sumber }`.
+- `generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKerjaId)`:
   - menerima id unit (bukan label) untuk lookup pohon;
-  - injeksi blok konteks ke prompt (tetap hormati `customPromptTemplate` — placeholder tambahan `{konteksAbk}` opsional);
-  - setelah normalisasi: `verifyFormasiIdeal_` menghitung ulang dan menimpa `analisisBebanKerja`;
+  - injeksi blok konteks ke prompt SETELAH prompt dasar / template kustom;
+  - setelah normalisasi: `verifyFormasiIdeal_(data, ctx)` menghitung ulang dan menimpa `analisisBebanKerja`;
   - `handleRequest_` case `generateAnjabWithAI` membaca `params.unitKerjaId` & `params.jabatanId`.
-- Baru: `verifyFormasiIdeal_(data)` — hitung ulang, konversi satuan bila terdeteksi, tulis `analisisBebanKerja`.
-- `normalizeAiAnjabDraft_`: tambah guard `analisisBebanKerja` + `jumlahHasil` default 1.
+- Baru: `verifyFormasiIdeal_(data, ctx)` — clamp angka, konversi satuan bila terdeteksi, hitung ulang, tulis `analisisBebanKerja`.
+- `normalizeAiAnjabDraft_`: tambah guard `analisisBebanKerja` + `jumlahHasil` (bulat ≥ 1) + `waktuPenyelesaian` (≥ 0).
 
 ### `src/lib/api.ts`
-- `generateAnjabWithAI(namaJabatan, unitKerjaId, namaOPD, jabatanId?)` — kirim `unitKerjaId` + `jabatanId` sebagai params; guard `analisisBebanKerja` di `ensureAiAnjabDraft`.
+- `generateAnjabWithAI(namaJabatan, unitKerja, namaOPD, jabatanId?, unitKerjaId?)` — kirim `unitKerjaId` + `jabatanId` sebagai params; guard `analisisBebanKerja` di `ensureAiAnjabDraft`.
 
 ### `src/app/dashboard/analisis/page.tsx` & `src/app/operator/analisis/page.tsx`
 - `handleTriggerAI` kirim `unitKerjaId` (label tetap untuk log).
 - Simpan hasil `aiDraft.analisisBebanKerja` ke state `formasiBadge`.
 - Progress log diperkaya (sumber konteks).
 
-### `src/app/dashboard/analisis/components/EditorHeader.tsx` (dan salinan operator)
-- Prop baru `formasiBadge?: { formasiIdeal: number; jumlahPegawaiEksisting: number | null } | null`.
-- Badge inline gradient ungu di sisi status ABK: "🎯 Ideal: N org · Eksisting: M org".
+### `src/app/dashboard/analisis/components/EditorHeader.tsx` (dipakai bersama operator)
+- Prop baru `formasiBadge?: { formasiIdeal: number; jumlahPegawaiEksisting: number | null; kebutuhanPegawaiIdeal: number } | null`.
+- Badge inline gradient ungu di sisi status ABK: "🎯 Ideal: N org · Eksisting: M org (selisih ±X)".
 
 ## Rumus (SSOT server)
 
-- `waktuEfektifRow = waktuPenyelesaian (menit) × (jumlahHasil || 1)`
+- `waktuEfektifRow = waktuPenyelesaian (menit) × jumlahHasil` (jumlahHasil dibulatkan ke bilangan bulat ≥ 1; waktu di-clamp ≥ 0)
 - `totalWaktuEfektif = Σ waktuEfektifRow`
 - `kebutuhanPegawaiIdeal = totalWaktuEfektif / wke` (wke default 75000 menit = 1250 jam/tahun sesuai Permenpan, bila tidak ada WKE referensi dari ABK Disetujui di OPD)
-- `formasiIdeal = calculateFormasiPembulatan(kebutuhanPegawaiIdeal)` (≤1.5 → 1; ≥1.5 → round)
+- `formasiIdeal = calculateFormasiPembulatan(kebutuhanPegawaiIdeal)` (<1.5 → 1; ≥1.5 → round; batas persis 1.5 → 2, diverifikasi TC3 simulasi)
 - Guard satuan AI: rata-rata `waktuPenyelesaian` > 480 → dianggap jam → semua dikali 60.
 
 ## Non-Goals
@@ -82,6 +82,22 @@ GAS generateAnjabWithAI_(params)
 - Tidak ada modul laporan gap analysis baru (badge inline saja).
 - Tidak mengubah jalur penyimpanan `saveBulkAnjabData` (tetap satu round-trip).
 - Kunci API tetap server-side (audit N1 tetap berlaku); konteks tidak mengandung kredensial.
+
+## Verifikasi (Simulasi Unit — `npm test`)
+
+Fitur ini punya skrip simulasi tanpa koneksi (Node `vm` memuat `gas/Code.gs` utuh; stub layanan GAS + Firebase dummy):
+
+- Skrip: `gas/tests/simulate-ai-pintar.js`
+- Jalankan: **`npm test`** (alias `node gas/tests/simulate-ai-pintar.js`)
+- Exit 0 = lulus semua; exit 1 = ada kegagalan — aman untuk CI / file-change hook.
+
+Cakupan (34 asersi):
+
+1. **`buildAiContext_`** — scoping satu OPD (jabatan/tugas OPD lain tidak bocor ke konteks), prioritas sejawat Disetujui, WKE referensi dari ABK Disetujui, truncation 120 karakter, nomenklatur referensi, suntikan aturan angka ke prompt, fallback unit tak dikenal & kegagalan `fbGet_` (blok darurat, tanpa exception).
+2. **`verifyFormasiIdeal_`** — konversi jam→menit (rata-rata >480 → ×60, total dihitung ulang dari nilai konversi), pembulatan formasi paritas dengan `calculateFormasiPembulatan` client (1.04→1, 1.76→2, batas persis 1.5→2), clamp `jumlahHasil` (bulat ≥ 1; 0/negatif/pecahan) & `waktu` (≥ 0), fallback WKE 75000, input non-array tanpa crash.
+3. **Pipeline nyata** — `normalizeAiAnjabDraft_` → `verifyFormasiIdeal_`: angka karangan AI (formasi 99) ditimpa server, catatan AI dipertahankan, waktu string `"300"` dinormalkan.
+
+Batas terdokumentasi (TC8): nilai jam kecil (8/4/2) **ambigu** dengan tugas pendek 8 menit — tidak dikonversi, dibiarkan sebagai menit sesuai mandat prompt (ATURAN ANGKA WAJIB).
 
 ## Risiko & Mitigasi
 
