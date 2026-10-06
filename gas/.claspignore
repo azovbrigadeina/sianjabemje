@@ -1,0 +1,3 @@
+# Folder uji lokal (Node sandbox) bukan bagian dari Apps Script
+tests/**
+node_modules/**

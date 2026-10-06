@@ -190,9 +190,9 @@ const d4 = { tugasPokok: [
   { waktuPenyelesaian: 240, jumlahHasil: 1 },
 ] };
 sandbox.verifyFormasiIdeal_(d4, ctx75000);
-check('TC4 nilai >480 dikonversi x60 (600 -> 36000)', d4.tugasPokok[0].waktuPenyelesaian === 36000, d4.tugasPokok[0]);
-check('TC4 total setelah konversi = 93600', d4.analisisBebanKerja.totalWaktuEfektifMenit === 93600, d4.analisisBebanKerja);
-check('TC4 formasi dari 93600/75000 = 1.248 -> 1', d4.analisisBebanKerja.formasiIdeal === 1);
+check('TC4 nilai >480: konversi x60 lalu clamp 480 (600 -> 36000 -> 480)', d4.tugasPokok[0].waktuPenyelesaian === 480, d4.tugasPokok[0]);
+check('TC4 total setelah konversi+clamp = 1440', d4.analisisBebanKerja.totalWaktuEfektifMenit === 1440, d4.analisisBebanKerja);
+check('TC4 formasi dari 1440/75000 -> 1', d4.analisisBebanKerja.formasiIdeal === 1);
 
 // TC5: jumlahHasil hilang/0/negatif/pecahan -> default bulat >= 1; waktu negatif -> 0
 const d5 = { tugasPokok: [
@@ -251,6 +251,74 @@ check('TC9 catatan AI dipertahankan', verified.analisisBebanKerja.catatan === 'H
 check('TC9 waktu string "300" dinormalisasi numerik', verified.tugasPokok[2].waktuPenyelesaian === 300);
 check('TC9 jumlahHasil baris tanpa nilai -> 1, total = 72540',
   verified.tugasPokok[1].jumlahHasil === 1 && verified.analisisBebanKerja.totalWaktuEfektifMenit === 72540, verified.analisisBebanKerja);
+
+// ------------------------------------------------------------
+// 5b. Batas formasi per jenis jabatan (uji laporan pengguna:
+//     Sekretaris DPRD = struktural, formasi ideal jangan meledak)
+// ------------------------------------------------------------
+console.log('\n== Batas formasi per jenis jabatan (struktural=1, pelaksana/fungsional min 2, clamp waktu) ==');
+
+// TC10: reproduksi Sekretaris DPRD — volume/waktu karangan AI raksasa -> struktural tetap 1
+const d10 = {
+  jenisJabatan: 'Jabatan Pimpinan Tinggi Pratama',
+  tugasPokok: [
+    { waktuPenyelesaian: 480, jumlahHasil: 400000 },
+    { waktuPenyelesaian: 600, jumlahHasil: 200000 },
+    { waktuPenyelesaian: 240, jumlahHasil: 100000 },
+  ],
+};
+sandbox.verifyFormasiIdeal_(d10, ctx75000);
+check('TC10 kebutuhan mentah dipertahankan (transparan) > 1000', d10.analisisBebanKerja.kebutuhanPegawaiIdeal > 1000, d10.analisisBebanKerja);
+check('TC10 formasiIdeal struktural = 1 (bukan 2592)', d10.analisisBebanKerja.formasiIdeal === 1, d10.analisisBebanKerja);
+check('TC10 catatan menyebut batas struktural', d10.analisisBebanKerja.catatan.indexOf('struktural dibatasi 1') !== -1, d10.analisisBebanKerja.catatan);
+
+// TC10b: jenis dari ctx (bukan dari data) juga dihormati
+const d10b = { tugasPokok: [{ waktuPenyelesaian: 480, jumlahHasil: 10000 }] };
+sandbox.verifyFormasiIdeal_(d10b, { sumber: { wkeReferensi: 75000 }, jenisJabatan: 'Jabatan Administrator' });
+check('TC10b jenis via ctx: administrator -> formasi 1', d10b.analisisBebanKerja.formasiIdeal === 1, d10b.analisisBebanKerja);
+
+// TC11: pelaksana hitungan kecil -> minimal 2
+const d11 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [{ waktuPenyelesaian: 120, jumlahHasil: 100 }] };
+sandbox.verifyFormasiIdeal_(d11, ctx75000); // 12000/75000 = 0.16 -> mentah 1 -> floor 2
+check('TC11 pelaksana kecil -> formasi 2', d11.analisisBebanKerja.formasiIdeal === 2, d11.analisisBebanKerja);
+check('TC11 catatan menyebut minimal 2', d11.analisisBebanKerja.catatan.indexOf('minimal 2 orang') !== -1);
+
+// TC12: fungsional hitungan besar -> tanpa cap atas
+const d12 = { jenisJabatan: 'Jabatan Fungsional', tugasPokok: [
+  { waktuPenyelesaian: 480, jumlahHasil: 800 },
+  { waktuPenyelesaian: 300, jumlahHasil: 300 },
+] };
+sandbox.verifyFormasiIdeal_(d12, ctx75000); // (480x800 + 300x300) = 474000/75000 = 6.32 -> 6, tanpa cap atas
+check('TC12 fungsional besar -> mengikuti hitung (6), tanpa cap atas', d12.analisisBebanKerja.formasiIdeal === 6, d12.analisisBebanKerja);
+
+// TC13: clamp waktu tunggal > 480 menit (tanpa konversi global)
+const d13 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [
+  { waktuPenyelesaian: 600, jumlahHasil: 10 },
+  { waktuPenyelesaian: 100, jumlahHasil: 1 },
+] };
+sandbox.verifyFormasiIdeal_(d13, ctx75000); // rata2 350 -> tidak konversi x60; clamp 600->480
+check('TC13 waktu 600 di-clamp 480', d13.tugasPokok[0].waktuPenyelesaian === 480, d13.tugasPokok[0]);
+check('TC13 total = 480x10+100 = 4900', d13.analisisBebanKerja.totalWaktuEfektifMenit === 4900, d13.analisisBebanKerja);
+check('TC13 catatan menyebut clamp 480', d13.analisisBebanKerja.catatan.indexOf('480 menit') !== -1);
+
+// TC14: konversi x60 + clamp kompatibel
+const d14 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [
+  { waktuPenyelesaian: 600, jumlahHasil: 10 },
+  { waktuPenyelesaian: 720, jumlahHasil: 10 },
+  { waktuPenyelesaian: 240, jumlahHasil: 10 },
+] };
+sandbox.verifyFormasiIdeal_(d14, ctx75000); // rata2 520>480 -> x60 semua -> clamp semua ke 480
+check('TC14 semua waktu di-clamp 480', d14.tugasPokok.every((t) => t.waktuPenyelesaian === 480), d14.tugasPokok.map((t) => t.waktuPenyelesaian));
+check('TC14 total = 14400, kebutuhan 0.192 -> mentah 1 -> floor pelaksana 2',
+  d14.analisisBebanKerja.totalWaktuEfektifMenit === 14400 && d14.analisisBebanKerja.formasiIdeal === 2, d14.analisisBebanKerja);
+
+// TC15: d10 kondisi TC4 lama (waktu jam besar) — pastikan clamp membawa hasil wajar
+const d15 = { jenisJabatan: 'Jabatan Fungsional', tugasPokok: [
+  { waktuPenyelesaian: 480, jumlahHasil: 100 },
+  { waktuPenyelesaian: 240, jumlahHasil: 50 },
+] };
+sandbox.verifyFormasiIdeal_(d15, ctx75000); // 48000+12000 = 60000/75000 = 0.8 -> raw 1 -> floor 2
+check('TC15 fungsional kecil -> formasi 2 (floor)', d15.analisisBebanKerja.formasiIdeal === 2, d15.analisisBebanKerja);
 
 // ------------------------------------------------------------
 // 6. Ringkasan

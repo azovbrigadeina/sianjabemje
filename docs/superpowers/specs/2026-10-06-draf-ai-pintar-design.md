@@ -70,11 +70,16 @@ GAS generateAnjabWithAI_(params)
 
 ## Rumus (SSOT server)
 
-- `waktuEfektifRow = waktuPenyelesaian (menit) × jumlahHasil` (jumlahHasil dibulatkan ke bilangan bulat ≥ 1; waktu di-clamp ≥ 0)
+- `waktuEfektifRow = waktuPenyelesaian (menit) × jumlahHasil` (jumlahHasil dibulatkan ke bilangan bulat ≥ 1; waktu di-clamp ≥ 0 **dan ≤ 480 menit** — satu hasil kerja maks 1 hari kerja, mencegah angka karangan AI meledak)
 - `totalWaktuEfektif = Σ waktuEfektifRow`
-- `kebutuhanPegawaiIdeal = totalWaktuEfektif / wke` (wke default 75000 menit = 1250 jam/tahun sesuai Permenpan, bila tidak ada WKE referensi dari ABK Disetujui di OPD)
-- `formasiIdeal = calculateFormasiPembulatan(kebutuhanPegawaiIdeal)` (<1.5 → 1; ≥1.5 → round; batas persis 1.5 → 2, diverifikasi TC3 simulasi)
-- Guard satuan AI: rata-rata `waktuPenyelesaian` > 480 → dianggap jam → semua dikali 60.
+- `kebutuhanPegawaiIdeal = totalWaktuEfektif / wke` (wke default 75000 menit = 1250 jam/tahun sesuai Permenpan, bila tidak ada WKE referensi dari ABK Disetujui di OPD) — **dipertahankan transparan walau besar**, sebagai jejak hitung mentah
+- `formasiIdeal = calculateFormasiPembulatan(kebutuhan)` (<1.5 → 1; ≥1.5 → round; batas persis 1.5 → 2, TC3)
+- **Batas formasi per jenis jabatan** (keputusan pengguna, diterapkan server):
+  - Struktural (Pimpinan Tinggi / Administrator / Pengawas) → **selalu 1 orang** (satu posisi satu pemangku), kasus uji: Sekretaris DPRD hitungan mentah ribuan → 1
+  - Pelaksana / Fungsional → **minimal 2 orang** (ada yang membantu hierarki di atasnya), ke atas mengikuti hitung riil tanpa cap
+- Guard satuan AI: rata-rata `waktuPenyelesaian` > 480 → dianggap jam → semua dikali 60, lalu clamp 480 per baris
+- `jenisJabatan` diambil dari record `jabatan/{jabatanId}`; jika kosong, ditebak dari nama (sekretaris/kepala/kabag/kasubbag/eselon → struktural; ahli/penyuluh/analis/… → fungsional; sisanya pelaksana)
+- Batas yang aktif mengubah angka dicatat di `catatan` (tidak menimpa catatan AI)
 
 ## Non-Goals
 
@@ -91,11 +96,12 @@ Fitur ini punya skrip simulasi tanpa koneksi (Node `vm` memuat `gas/Code.gs` utu
 - Jalankan: **`npm test`** (alias `node gas/tests/simulate-ai-pintar.js`)
 - Exit 0 = lulus semua; exit 1 = ada kegagalan — aman untuk CI / file-change hook.
 
-Cakupan (34 asersi):
+Cakupan (47 asersi):
 
 1. **`buildAiContext_`** — scoping satu OPD (jabatan/tugas OPD lain tidak bocor ke konteks), prioritas sejawat Disetujui, WKE referensi dari ABK Disetujui, truncation 120 karakter, nomenklatur referensi, suntikan aturan angka ke prompt, fallback unit tak dikenal & kegagalan `fbGet_` (blok darurat, tanpa exception).
-2. **`verifyFormasiIdeal_`** — konversi jam→menit (rata-rata >480 → ×60, total dihitung ulang dari nilai konversi), pembulatan formasi paritas dengan `calculateFormasiPembulatan` client (1.04→1, 1.76→2, batas persis 1.5→2), clamp `jumlahHasil` (bulat ≥ 1; 0/negatif/pecahan) & `waktu` (≥ 0), fallback WKE 75000, input non-array tanpa crash.
+2. **`verifyFormasiIdeal_`** — konversi jam→menit (rata-rata >480 → ×60) + clamp 480/baris, pembulatan formasi paritas dengan `calculateFormasiPembulatan` client (1.04→1, 1.76→2, batas persis 1.5→2), clamp `jumlahHasil` (bulat ≥ 1; 0/negatif/pecahan) & `waktu` (≥ 0), fallback WKE 75000, input non-array tanpa crash.
 3. **Pipeline nyata** — `normalizeAiAnjabDraft_` → `verifyFormasiIdeal_`: angka karangan AI (formasi 99) ditimpa server, catatan AI dipertahankan, waktu string `"300"` dinormalkan.
+4. **Batas formasi per jenis** — reproduksi laporan Sekretaris DPRD (volume karangan → kebutuhan mentah >1000 tetap tercatat, formasiIdeal = **1**), jenis via `ctx` (Administrator → 1), floor pelaksana/fungsional (0.16 → **2**), fungsional beban besar mengikuti hitung tanpa cap (6.32 → 6), clamp tunggal 600→480, kombinasi konversi+clamp, catatan batas selalu menyertai angka yang diubah.
 
 Batas terdokumentasi (TC8): nilai jam kecil (8/4/2) **ambigu** dengan tugas pendek 8 menit — tidak dikonversi, dibiarkan sebagai menit sesuai mandat prompt (ATURAN ANGKA WAJIB).
 

@@ -2552,6 +2552,27 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
   // === DRAF AI PINTAR: kumpulkan konteks organisasi & beban kerja OPD (grounding) ===
   var ctx = buildAiContext_(unitKerjaId || '', jabatanId || '', namaOPD || '', unitKerja || '');
 
+  // === DRAF AI PINTAR: tentukan jenis jabatan (record DB > tebakan dari nama)
+  // untuk batas formasi per level: struktural = 1, pelaksana/fungsional min 2.
+  var jenisJbt = '';
+  try {
+    if (jabatanId) {
+      var jbtRec = fbGet_(getFirebasePath_('jabatan', jabatanId));
+      if (jbtRec && jbtRec.jenisJabatan) jenisJbt = String(jbtRec.jenisJabatan);
+    }
+  } catch (eJ) {}
+  if (!jenisJbt) {
+    var nn = String(namaJabatan || '').toLowerCase();
+    if (nn.indexOf('sekretaris') !== -1 || nn.indexOf('kepala') !== -1 || nn.indexOf('kabag') !== -1 || nn.indexOf('kasubbag') !== -1 || nn.indexOf('kepala bagian') !== -1 || nn.indexOf('eselon') !== -1) {
+      jenisJbt = 'Jabatan Pimpinan Tinggi';
+    } else if (/ahli|penyuluh|pemeriksa|analis|pranata|arsiparis/.test(nn)) {
+      jenisJbt = 'Jabatan Fungsional';
+    } else {
+      jenisJbt = 'Jabatan Pelaksana';
+    }
+  }
+  ctx.jenisJabatan = jenisJbt;
+
   var prompt = "Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: " + namaJabatan + 
                " yang berada di Unit Kerja: " + unitKerja + 
                " di bawah OPD: " + namaOPD + ".\n\n" +
@@ -3095,7 +3116,7 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
       lines.push('Nomenklatur jabatan yang diakui (referensi):');
       lines = lines.concat(refLines);
     }
-    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; formasiIdeal = pembulatan kebutuhan (>= 1.5 dibulatkan ke atas, selain itu minimal 1 bila ada beban).');
+    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja dan MAKSIMAL 480 menit (8 jam kerja) per hasil; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; formasiIdeal: jabatan STRUKTURAL (Pimpinan Tinggi/Administrator/Pengawas) WAJIB 1 orang saja, jabatan PELAKSANA/FUNSIONAL minimal 2 orang (atau lebih sesuai beban riil); pembulatan kebutuhan >= 1.5 dibulatkan ke atas.');
     ctx.promptBlock = lines.join('\n');
   } catch (eCtx) {
     ctx.promptBlock = '=== KONTEKS: Data organisasi tidak tersedia. Gunakan norma umum Permenpan RB 1/2020. ===';
@@ -3135,9 +3156,16 @@ function verifyFormasiIdeal_(data, ctx) {
       }
     }
 
+    // Clamp waktu per hasil kerja: satu tugas tidak mungkin > 1 hari kerja (480 menit)
+    // -> mencegah volume/waktu karangan AI yang membuat formasi meledak (kasus 2592 orang)
     var totalWaktuEfektif = 0;
+    var adaClampWaktu = false;
     for (var m = 0; m < data.tugasPokok.length; m++) {
       var row = data.tugasPokok[m] || {};
+      if (row.waktuPenyelesaian > 480) {
+        row.waktuPenyelesaian = 480;
+        adaClampWaktu = true;
+      }
       totalWaktuEfektif += (Number(row.waktuPenyelesaian) || 0) * (Number(row.jumlahHasil) || 1);
     }
 
@@ -3146,12 +3174,54 @@ function verifyFormasiIdeal_(data, ctx) {
     var formasi = 0;
     if (kebutuhan > 0) formasi = kebutuhan < 1.5 ? 1 : Math.round(kebutuhan);
 
+    // === BATAS FORMASI PER JENIS JABATAN (keputusan pengguna) ===
+    // Struktural (Pimpinan Tinggi & Administrator/Pengawas) selalu 1 orang: satu posisi satu pemangku.
+    // Pelaksana & Fungsional: minimal 2 orang (bantuannya dari jabatan di atasnya di hierarki),
+    // ke atas mengikuti hasil hitung kondisi riil (tanpa cap).
+    var jenis = String((data && data.jenisJabatan) || '').toLowerCase();
+    var isStruktural = jenis.indexOf('pimpinan tinggi') !== -1 || jenis.indexOf('administrator') !== -1 ||
+      jenis.indexOf('pengawas') !== -1 || jenis.indexOf('struktural') !== -1;
+    var isPelaksana = jenis.indexOf('pelaksana') !== -1;
+    var isFungsional = jenis.indexOf('fungsional') !== -1;
+
+    var jenis = String((data && data.jenisJabatan) || (ctx && ctx.jenisJabatan) || '').toLowerCase();
+    var isStruktural = jenis.indexOf('pimpinan tinggi') !== -1 || jenis.indexOf('administrator') !== -1 ||
+      jenis.indexOf('pengawas') !== -1 || jenis.indexOf('struktural') !== -1;
+    var isPelaksana = jenis.indexOf('pelaksana') !== -1;
+    var isFungsional = jenis.indexOf('fungsional') !== -1;
+
+    var catatanBatas = '';
+    if (isStruktural) {
+      if (formasi !== 1) catatanBatas = 'Jabatan struktural dibatasi 1 orang (satu posisi satu pemangku).';
+      formasi = formasi > 0 ? 1 : 0;
+    } else if (isPelaksana || isFungsional) {
+      if (formasi > 0 && formasi < 2) {
+        catatanBatas = 'Pelaksana/Fungsional minimal 2 orang agar ada yang membantu hierarki jabatan di atasnya.';
+        formasi = 2;
+      }
+    }
+
+    if (adaClampWaktu) {
+      var clampNote = 'Waktu penyelesaian > 480 menit dibatasi 480 menit (maks 1 hari kerja per hasil kerja).';
+      catatanBatas = catatanBatas ? clampNote + ' ' + catatanBatas : clampNote;
+    }
+
+    var aiCatatan = (data.analisisBebanKerja && data.analisisBebanKerja.catatan) || '';
+    var catatanFinal;
+    if (catatanBatas) {
+      catatanFinal = (aiCatatan && aiCatatan !== 'Dihitung ulang server dari tugas pokok draf AI.')
+        ? aiCatatan + ' ' + catatanBatas
+        : catatanBatas;
+    } else {
+      catatanFinal = aiCatatan || 'Dihitung ulang server dari tugas pokok draf AI.';
+    }
+
     data.analisisBebanKerja = {
       wkeTersimpan: wke,
       totalWaktuEfektifMenit: Math.round(totalWaktuEfektif),
       kebutuhanPegawaiIdeal: Math.round(kebutuhan * 10000) / 10000,
       formasiIdeal: formasi,
-      catatan: (data.analisisBebanKerja && data.analisisBebanKerja.catatan) || 'Dihitung ulang server dari tugas pokok draf AI.'
+      catatan: catatanFinal
     };
   } catch (e) {
     // Jangan gagalkan seluruh draf karena kegagalan hitung
