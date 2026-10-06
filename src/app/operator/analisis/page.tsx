@@ -59,6 +59,7 @@ export default function OperatorAnalisisPage() {
   const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
   const [lockReason, setLockReason] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [formasiBadge, setFormasiBadge] = useState<{ formasiIdeal: number; jumlahPegawaiEksisting: number | null; kebutuhanPegawaiIdeal: number } | null>(null);
   const [downloadingWord, setDownloadingWord] = useState(false);
   const [downloadingSiasn, setDownloadingSiasn] = useState(false);
   const [abkMap, setAbkMap] = useState<Record<string, any>>({});
@@ -539,17 +540,26 @@ export default function OperatorAnalisisPage() {
       const aiDraft = await api.generateAnjabWithAI(
         jabatanData.namaJabatan,
         activeUnit?.label || "Umum",
-        parentUnitName
+        parentUnitName,
+        jabatanData.id,
+        jabatanData.unitKerjaId
       );
 
       if (!aiDraft) {
         throw new Error("Respons dari model AI kosong atau tidak valid.");
       }
 
-      updateStep(1, 'success', [
-        `${getTimestamp()} SUCCESS: Analisis AI berhasil diterima.`,
-        `${getTimestamp()} INFO: Memulai pemrosesan draf...`
-      ]);
+      if (aiDraft.analisisBebanKerja && (aiDraft.analisisBebanKerja.formasiIdeal > 0 || aiDraft.analisisBebanKerja.totalWaktuEfektifMenit > 0)) {
+        updateStep(1, 'success', [
+          `${getTimestamp()} SUCCESS: Analisis AI berhasil diterima.`,
+          `${getTimestamp()} INFO: Formasi ideal (server): ${aiDraft.analisisBebanKerja.formasiIdeal} org | Kebutuhan: ${aiDraft.analisisBebanKerja.kebutuhanPegawaiIdeal} | Waktu efektif: ${aiDraft.analisisBebanKerja.totalWaktuEfektifMenit} menit/tahun`
+        ]);
+      } else {
+        updateStep(1, 'success', [
+          `${getTimestamp()} SUCCESS: Analisis AI berhasil diterima.`,
+          `${getTimestamp()} INFO: Memulai pemrosesan draf...`
+        ]);
+      }
 
       // Step 3
       updateStep(2, 'loading', [`${getTimestamp()} PROCESS: Menjalankan parser skema & validasi data...`]);
@@ -567,7 +577,7 @@ export default function OperatorAnalisisPage() {
         nomorUrut: index + 1,
         uraianTugas: tp.uraianTugas || "",
         hasilKerja: tp.hasilKerja || "Dokumen",
-        jumlahHasil: 1,
+        jumlahHasil: Number(tp.jumlahHasil) || 1,
         waktuPenyelesaian: tp.waktuPenyelesaian || 60
       }));
 
@@ -622,6 +632,11 @@ export default function OperatorAnalisisPage() {
       const refreshed = await api.getJabatanFull(jabatanData.id) as JabatanFull;
       setJabatanData(refreshed);
       setVersionKey(prev => prev + 1);
+      setFormasiBadge({
+        formasiIdeal: aiDraft.analisisBebanKerja?.formasiIdeal || 0,
+        jumlahPegawaiEksisting: abkMap[jabatanData.id]?.formasiPembulatan ?? null,
+        kebutuhanPegawaiIdeal: aiDraft.analisisBebanKerja?.kebutuhanPegawaiIdeal || 0
+      });
       await new Promise(r => setTimeout(r, 300));
 
       updateStep(6, 'success', [
@@ -1135,6 +1150,7 @@ export default function OperatorAnalisisPage() {
               <EditorHeader
                 jabatanData={jabatanData}
                 abkMap={abkMap}
+                formasiBadge={formasiBadge}
                 isReadOnly={isReadOnly}
                 aiLoading={aiLoading}
                 downloadingWord={downloadingWord}

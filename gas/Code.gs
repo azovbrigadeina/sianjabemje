@@ -464,7 +464,7 @@ function handleRequest_(e) {
         result = migrateRootTo2026_();
         break;
       case 'generateAnjabWithAI':
-        result = generateAnjabWithAI_(params.namaJabatan, params.unitKerja, params.namaOPD);
+        result = generateAnjabWithAI_(params.namaJabatan, params.unitKerja, params.namaOPD, params.jabatanId, params.unitKerjaId);
         break;
       case 'testAiConnection':
         result = testAiConnection_(data);
@@ -2544,10 +2544,13 @@ function duplicateUnitKerja_(params) {
   };
 }
 
-function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
+function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKerjaId) {
   // Read custom AI configuration from Firebase /settings/aiConfig if available
   var aiConfig = fbGet_('settings/aiConfig') || {};
   var activeProvider = aiConfig.activeProvider || 'gemini';
+
+  // === DRAF AI PINTAR: kumpulkan konteks organisasi & beban kerja OPD (grounding) ===
+  var ctx = buildAiContext_(unitKerjaId || '', jabatanId || '', namaOPD || '', unitKerja || '');
 
   var prompt = "Buat dokumen Analisis Jabatan (Anjab) Permenpan RB No 1 Tahun 2020 lengkap untuk Jabatan: " + namaJabatan + 
                " yang berada di Unit Kerja: " + unitKerja + 
@@ -2566,7 +2569,8 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
                "      \"nomorUrut\": 1,\n" +
                "      \"uraianTugas\": \"Mengumpulkan bahan, regulasi, dan data terkait pelaksanaan tugas...\",\n" +
                "      \"hasilKerja\": \"Berkas\",\n" +
-               "      \"waktuPenyelesaian\": 60\n" +
+               "      \"waktuPenyelesaian\": 60,\n" +
+               "      \"jumlahHasil\": 1\n" +
                "    }\n" +
                "  ],\n" +
                "  \"hasilKerja\": [\"Dokumen kumpulan bahan dan regulasi kebijakan teknis\"],\n" +
@@ -2676,6 +2680,12 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
                "  },\n" +
                "  \"prestasiKerja\": {\n" +
                "    \"uraian\": \"Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan.\"\n" +
+               "  },\n" +
+               "  \"analisisBebanKerja\": {\n" +
+               "    \"totalWaktuEfektifMenit\": 3600,\n" +
+               "    \"kebutuhanPegawaiIdeal\": 2.5,\n" +
+               "    \"formasiIdeal\": 3,\n" +
+               "    \"catatan\": \"Ringkasan singkat dasar perhitungan beban kerja...\"\n" +
                "  }\n" +
                "}\n\n" +
                "Catatan PENTING:\n" +
@@ -2700,6 +2710,9 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
       .replace(/{unitKerja}/g, unitKerja)
       .replace(/{namaOPD}/g, namaOPD);
   }
+
+  // === DRAF AI PINTAR: injeksi blok konteks OPD (setelah prompt dasar/template) ===
+  prompt += "\n\n" + ctx.promptBlock;
 
   if (activeProvider === 'gemini') {
     var apiKey = aiConfig.geminiApiKey || PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
@@ -2757,7 +2770,7 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD) {
           textResult = textResult.substring(0, textResult.length - 3);
         }
         var parsedData = JSON.parse(textResult.trim());
-        return normalizeAiAnjabDraft_(parsedData);
+        return verifyFormasiIdeal_(normalizeAiAnjabDraft_(parsedData), ctx);
       } else {
         throw new Error("Respons dari Google Gemini tidak berisi draf teks.");
       }
@@ -2938,13 +2951,204 @@ function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt) {
     if (responseJson.choices && responseJson.choices[0] && responseJson.choices[0].message) {
       var textResult = responseJson.choices[0].message.content.trim();
       var parsedData = JSON.parse(textResult);
-      return normalizeAiAnjabDraft_(parsedData);
+      return verifyFormasiIdeal_(normalizeAiAnjabDraft_(parsedData), ctx);
     } else {
       throw new Error("Respons dari API tidak berisi draf teks.");
     }
   } catch (e) {
     throw new Error("Gagal memanggil API (" + modelName + "): " + e.message);
   }
+}
+
+// =============================================
+// DRAF AI PINTAR: KONTEKS OPD & VERIFIKASI FORMASI
+// =============================================
+
+/**
+ * Mengumpulkan konteks organisasi & beban kerja OPD untuk grounding prompt AI:
+ * - Rantai unit kerja (bidang -> OPD induk) dan daftar bidang dalam OPD
+ * - ABK jabatan sejawat satu OPD (prioritas tervalidasi Disetujui)
+ * - Tugas pokok eksisting jabatan target (jika ada)
+ * - Master nomenklatur referensiJabatan
+ * Semua dibatasi agar prompt tidak membengkak. Gagal kumpul = prompt tetap jalan tanpa konteks.
+ */
+function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
+  var ctx = { promptBlock: '', sumber: { jabatanSejawat: 0, referensi: 0, abkTervalidasi: 0, wkeReferensi: 0 } };
+
+  try {
+    var units = fbGet_(getFirebasePath_('unitKerja')) || {};
+    var unitTarget = unitKerjaId ? units[unitKerjaId] : null;
+    var unitNama = (unitTarget && unitTarget.nama) || unitKerjaLabel || 'Unit Kerja';
+
+    // Naik ke root OPD (maks 4 level) — key node Firebase adalah id yang sahih
+    var opdNama = namaOPD || '';
+    var opdRootId = unitKerjaId || '';
+    var hopId = unitKerjaId || '';
+    var depth = 0;
+    while (hopId && units[hopId] && units[hopId].parentId && units[units[hopId].parentId] && depth < 4) {
+      hopId = units[hopId].parentId;
+      depth++;
+    }
+    var hop = hopId ? units[hopId] : null;
+    if (hop && hop.nama) opdNama = hop.nama;
+    if (hopId) opdRootId = hopId;
+
+    // Seluruh unit (root + turunan) dalam OPD yang sama
+    var unitIdsInOpd = {};
+    if (opdRootId) unitIdsInOpd[opdRootId] = true;
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var uid in units) {
+        if (!unitIdsInOpd[uid] && units[uid].parentId && unitIdsInOpd[units[uid].parentId]) {
+          unitIdsInOpd[uid] = true;
+          changed = true;
+        }
+      }
+    }
+
+    var jabatans = fbGet_(getFirebasePath_('jabatan')) || {};
+    var abkMap = fbGet_(getFirebasePath_('abk')) || {};
+    var tugasMap = fbGet_(getFirebasePath_('tugasPokok')) || {};
+
+    var sejawat = [];
+    var bidangNames = {};
+    for (var jid in jabatans) {
+      var j = jabatans[jid];
+      if (!j || !j.unitKerjaId || !unitIdsInOpd[j.unitKerjaId]) continue;
+      if (units[j.unitKerjaId] && units[j.unitKerjaId].nama) bidangNames[units[j.unitKerjaId].nama] = true;
+      if (jid === jabatanId) continue;
+      var abk = abkMap[jid] || null;
+      sejawat.push({
+        nama: j.namaJabatan,
+        unit: (units[j.unitKerjaId] || {}).nama || '',
+        status: abk ? (abk.statusValidasi || '') : '',
+        formasi: abk ? (Number(abk.formasiPembulatan) || 0) : 0,
+        waktu: abk ? (Number(abk.totalWaktuEfektif) || 0) : 0,
+        wke: abk ? (Number(abk.wke) || 0) : 0
+      });
+    }
+    // Prioritas: Disetujui dulu, lalu yang punya ABK, lalu sisanya
+    sejawat.sort(function(a, b) {
+      var rank = function(x) { return x.status === 'Disetujui' ? 0 : (x.formasi > 0 ? 1 : 2); };
+      return rank(a) - rank(b);
+    });
+
+    var sejawatLines = [];
+    for (var sIdx = 0; sIdx < sejawat.length && sejawatLines.length < 10; sIdx++) {
+      var s = sejawat[sIdx];
+      if (s.formasi <= 0 && s.waktu <= 0) break; // sisanya tanpa data ABK
+      sejawatLines.push('- ' + s.nama + ' [' + s.unit + ']: waktu efektif ' + s.waktu + ' menit/tahun, WKE ' + (s.wke || 75000) + ' menit, formasi tersimulasikan ' + s.formasi + ' orang');
+      if (s.status === 'Disetujui') {
+        ctx.sumber.abkTervalidasi++;
+        if (!ctx.sumber.wkeReferensi && s.wke > 0) ctx.sumber.wkeReferensi = s.wke;
+      }
+    }
+    ctx.sumber.jabatanSejawat = sejawatLines.length;
+
+    // Tugas pokok eksisting jabatan target (dipotong 120 karakter/ baris)
+    var eksistingLines = [];
+    if (jabatanId) {
+      var eks = [];
+      for (var tid in tugasMap) {
+        var t = tugasMap[tid];
+        if (t && (t.jabatanId === jabatanId || t.parentId === jabatanId)) eks.push(t);
+      }
+      eks.sort(function(a, b) { return (Number(a.nomorUrut) || 0) - (Number(b.nomorUrut) || 0); });
+      for (var eIdx = 0; eIdx < eks.length && eksistingLines.length < 8; eIdx++) {
+        var e = eks[eIdx];
+        var ur = String(e.uraianTugas || '');
+        if (ur.length > 120) ur = ur.substring(0, 117) + '...';
+        eksistingLines.push((eIdx + 1) + '. ' + ur + ' (waktu ' + (Number(e.waktuPenyelesaian) || 0) + ' menit)');
+      }
+    }
+
+    // Master nomenklatur referensi (maks 15)
+    var refLines = [];
+    try {
+      var refs = fbGet_('referensiJabatan') || {};
+      var refKeys = Object.keys(refs).slice(0, 15);
+      for (var rIdx = 0; rIdx < refKeys.length; rIdx++) {
+        var r = refs[refKeys[rIdx]];
+        if (r && r.namaBase) refLines.push('- ' + r.namaBase + ' (' + (r.jenisJabatan || '?') + ')');
+      }
+    } catch (eRef) {}
+    ctx.sumber.referensi = refLines.length;
+
+    var lines = [];
+    lines.push('=== DATA FAKTU ORGANISASI & BEBAN KERJA (dari database resmi SI-PRABU, WAJIB dijadikan dasar analisis) ===');
+    lines.push('Perangkat Daerah (OPD): ' + opdNama);
+    lines.push('Unit Kerja/Bidang jabatan ini: ' + unitNama);
+    var bidangList = Object.keys(bidangNames).slice(0, 12);
+    if (bidangList.length) lines.push('Bidang/unit fungsional dalam OPD ini: ' + bidangList.join('; '));
+    if (sejawatLines.length) {
+      lines.push('Beban kerja jabatan lain dalam OPD yang sama (norma waktu riil, acuan skala waktuPenyelesaian & formasi):');
+      lines = lines.concat(sejawatLines);
+    } else {
+      lines.push('Belum ada data ABK jabatan lain di OPD ini; gunakan norma waktu umum Permenpan RB 1/2020.');
+    }
+    if (eksistingLines.length) {
+      lines.push('Uraian tugas eksisting jabatan ini (pertahankan yang relevan, perbaiki redaksi sesuai kata kerja level jabatan):');
+      lines = lines.concat(eksistingLines);
+    }
+    if (refLines.length) {
+      lines.push('Nomenklatur jabatan yang diakui (referensi):');
+      lines = lines.concat(refLines);
+    }
+    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; formasiIdeal = pembulatan kebutuhan (>= 1.5 dibulatkan ke atas, selain itu minimal 1 bila ada beban).');
+    ctx.promptBlock = lines.join('\n');
+  } catch (eCtx) {
+    ctx.promptBlock = '=== KONTEKS: Data organisasi tidak tersedia. Gunakan norma umum Permenpan RB 1/2020. ===';
+  }
+  return ctx;
+}
+
+/**
+ * Verifikasi rumus formasi ideal (SSOT di server):
+ * - Konversi satuan bila AI mengisi jam (rata-rata > 480 menit)
+ * - Hitung ulang total waktu efektif & kebutuhan pegawai dari tugasPokok
+ * - Timpa analisisBebanKerja dengan hasil hitung deterministik (angka AI tidak dipercaya mentah)
+ */
+function verifyFormasiIdeal_(data, ctx) {
+  try {
+    if (!data || !Array.isArray(data.tugasPokok)) return data;
+
+    var total = 0, n = 0;
+    for (var i = 0; i < data.tugasPokok.length; i++) {
+      var t = data.tugasPokok[i] || {};
+      var w = Number(t.waktuPenyelesaian) || 0;
+      if (w > 0) { total += w; n++; }
+    }
+    if (n > 0 && (total / n) > 480) {
+      for (var k = 0; k < data.tugasPokok.length; k++) {
+        data.tugasPokok[k] = data.tugasPokok[k] || {};
+        data.tugasPokok[k].waktuPenyelesaian = Math.round((Number(data.tugasPokok[k].waktuPenyelesaian) || 0) * 60);
+      }
+    }
+
+    var totalWaktuEfektif = 0;
+    for (var m = 0; m < data.tugasPokok.length; m++) {
+      var row = data.tugasPokok[m] || {};
+      totalWaktuEfektif += (Number(row.waktuPenyelesaian) || 0) * (Number(row.jumlahHasil) || 1);
+      row.jumlahHasil = Number(row.jumlahHasil) || 1;
+    }
+
+    var wke = (ctx && ctx.sumber && ctx.sumber.wkeReferensi > 0) ? ctx.sumber.wkeReferensi : 75000; // 1250 jam x 60
+    var kebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
+    var formasi = 0;
+    if (kebutuhan > 0) formasi = kebutuhan < 1.5 ? 1 : Math.round(kebutuhan);
+
+    data.analisisBebanKerja = {
+      wkeTersimpan: wke,
+      totalWaktuEfektifMenit: Math.round(totalWaktuEfektif),
+      kebutuhanPegawaiIdeal: Math.round(kebutuhan * 10000) / 10000,
+      formasiIdeal: formasi,
+      catatan: (data.analisisBebanKerja && data.analisisBebanKerja.catatan) || 'Dihitung ulang server dari tugas pokok draf AI.'
+    };
+  } catch (e) {
+    // Jangan gagalkan seluruh draf karena kegagalan hitung
+  }
+  return data;
 }
 
 function normalizeAiAnjabDraft_(data) {
@@ -3042,6 +3246,25 @@ function normalizeAiAnjabDraft_(data) {
   data.korelasiJabatan = toArrayOfObjects(data.korelasiJabatan);
   data.kondisiLingkungan = toArrayOfObjects(data.kondisiLingkungan);
   data.risikoBahaya = toArrayOfObjects(data.risikoBahaya);
+
+  // Guard jumlahHasil default 1 + angka waktu numerik
+  for (var i = 0; i < data.tugasPokok.length; i++) {
+    var tp = data.tugasPokok[i] || {};
+    tp.jumlahHasil = Number(tp.jumlahHasil) || 1;
+    tp.waktuPenyelesaian = Number(tp.waktuPenyelesaian) || 0;
+    data.tugasPokok[i] = tp;
+  }
+
+  // Guard analisisBebanKerja (Draf AI Pintar) — jika server belum menghitung, isi fallback
+  if (!data.analisisBebanKerja || typeof data.analisisBebanKerja !== 'object') {
+    data.analisisBebanKerja = {
+      wkeTersimpan: 0,
+      totalWaktuEfektifMenit: 0,
+      kebutuhanPegawaiIdeal: 0,
+      formasiIdeal: 0,
+      catatan: ''
+    };
+  }
 
   return data;
 }

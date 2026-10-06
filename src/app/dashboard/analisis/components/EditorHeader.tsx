@@ -7,6 +7,7 @@ interface EditorHeaderProps {
   abkMap: Record<string, any>;
   isReadOnly?: boolean;
   aiLoading?: boolean;
+  formasiBadge?: { formasiIdeal: number; jumlahPegawaiEksisting: number | null; kebutuhanPegawaiIdeal: number } | null;
   downloadingWord?: boolean;
   downloadingSiasn?: boolean;
   loadingEditor?: boolean;
@@ -25,6 +26,7 @@ export default function EditorHeader({
   abkMap,
   isReadOnly = false,
   aiLoading = false,
+  formasiBadge = null,
   downloadingWord = false,
   downloadingSiasn = false,
   loadingEditor = false,
@@ -205,6 +207,39 @@ export default function EditorHeader({
             />
             <span>Status ABK: <strong>{isAbkCalculated ? 'Terhitung' : 'Belum Dihitung'}</strong></span>
           </div>
+
+          {/* Draf AI Pintar: Badge Formasi Ideal vs Eksisting */}
+          {formasiBadge && formasiBadge.formasiIdeal > 0 && (
+            <div
+              title={`Kebutuhan pegawai ideal ${formasiBadge.kebutuhanPegawaiIdeal} (hasil hitung server dari draf AI${formasiBadge.jumlahPegawaiEksisting != null ? `; simulasi ABK eksisting ${formasiBadge.jumlahPegawaiEksisting} org` : ''})`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.3rem 0.7rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: '#ffffff',
+                background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)',
+                boxShadow: '0 1px 3px rgba(126, 34, 206, 0.25)',
+              }}
+            >
+              <span>🎯</span>
+              <span>
+                Formasi Ideal: <strong>{formasiBadge.formasiIdeal} org</strong>
+                {formasiBadge.jumlahPegawaiEksisting != null && (
+                  <> · Eksisting: <strong>{formasiBadge.jumlahPegawaiEksisting} org</strong>
+                    {formasiBadge.jumlahPegawaiEksisting !== formasiBadge.formasiIdeal && (
+                      <span style={{ opacity: 0.9, fontWeight: 500 }}>
+                        {' '}(selisih {formasiBadge.formasiIdeal - formasiBadge.jumlahPegawaiEksisting > 0 ? '+' : ''}{formasiBadge.formasiIdeal - formasiBadge.jumlahPegawaiEksisting})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right Side: Grouped Action Buttons */}

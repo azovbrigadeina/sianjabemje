@@ -710,8 +710,8 @@ export const api = {
     ),
 
   // -- AI Generation --
-  generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string) => {
-    const raw = await apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD } });
+  generateAnjabWithAI: async (namaJabatan: string, unitKerja: string, namaOPD: string, jabatanId?: string, unitKerjaId?: string) => {
+    const raw = await apiCall<any>('generateAnjabWithAI', '', { params: { namaJabatan, unitKerja, namaOPD, ...(jabatanId ? { jabatanId } : {}), ...(unitKerjaId ? { unitKerjaId } : {}) } });
     return ensureAiAnjabDraft(raw);
   },
 
@@ -776,6 +776,15 @@ function ensureAiAnjabDraft(data: any): any {
     korelasiJabatan: Array.isArray(data.korelasiJabatan) ? data.korelasiJabatan : [],
     kondisiLingkungan: Array.isArray(data.kondisiLingkungan) ? data.kondisiLingkungan : [],
     risikoBahaya: Array.isArray(data.risikoBahaya) ? data.risikoBahaya : [],
+    analisisBebanKerja: data.analisisBebanKerja && typeof data.analisisBebanKerja === 'object'
+      ? {
+          wkeTersimpan: Number(data.analisisBebanKerja.wkeTersimpan) || 0,
+          totalWaktuEfektifMenit: Number(data.analisisBebanKerja.totalWaktuEfektifMenit) || 0,
+          kebutuhanPegawaiIdeal: Number(data.analisisBebanKerja.kebutuhanPegawaiIdeal) || 0,
+          formasiIdeal: Number(data.analisisBebanKerja.formasiIdeal) || 0,
+          catatan: data.analisisBebanKerja.catatan || "",
+        }
+      : { wkeTersimpan: 0, totalWaktuEfektifMenit: 0, kebutuhanPegawaiIdeal: 0, formasiIdeal: 0, catatan: "" },
   };
 }
 
