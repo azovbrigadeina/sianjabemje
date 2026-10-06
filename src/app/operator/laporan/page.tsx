@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "../../dashboard/laporan/page.module.css";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
 
@@ -260,7 +260,7 @@ export default function OperatorLaporanPage() {
             totalWaktuEfektif += we;
           });
           kebutuhanPegawai = totalWaktuEfektif / 1250;
-          pembulatanFormasi = calculateFormasiPembulatan(kebutuhanPegawai);
+          pembulatanFormasi = applyFormasiBatas(calculateFormasiPembulatan(kebutuhanPegawai), j.jenisJabatan || "");
         }
 
         return {

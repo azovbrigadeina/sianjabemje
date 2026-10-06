@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "../../dashboard/beban-kerja/page.module.css";
 import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes, calculateFormasiPembulatan } from "@/lib/utils";
+import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
@@ -361,8 +361,9 @@ export default function OperatorBebanKerjaPage() {
           volume: t.jumlahHasil || 0
         }));
         setAbkRows(initRows);
-        setWaktuSatuan('jam');
-        setWke(1250);
+        // Data berasal dari Anjab (satuan menit sesuai prompt draf AI) -> gunakan menit/WKE 72000
+        setWaktuSatuan('menit');
+        setWke(72000);
       }
     } catch (err) {
       showToast("❌ Gagal memuat data beban kerja");
@@ -434,7 +435,7 @@ export default function OperatorBebanKerjaPage() {
         waktuSatuan: waktuSatuan,
         totalWaktuEfektif: totalWaktuEfektif,
         totalKebutuhan: totalRequired,
-        formasiPembulatan: calculateFormasiPembulatan(totalRequired)
+        formasiPembulatan: applyFormasiBatas(calculateFormasiPembulatan(totalRequired), activeJobData?.eselon || "")
       };
       await api.saveABK(activeJob, payload);
 
@@ -685,14 +686,15 @@ export default function OperatorBebanKerjaPage() {
                                 });
                                 return;
                               }
+                              // Satuan draf AI = menit (prompt server) -> jangan dianggap jam agar tidak inflasi 60x
                               setAbkRows(tp.map(t => ({
                                 tugas: t.uraianTugas || '',
                                 satuan: t.hasilKerja || '',
                                 waktu: t.waktuPenyelesaian || 0,
                                 volume: t.jumlahHasil || 0
                               })));
-                              setWaktuSatuan('jam');
-                              setWke(1250);
+                              setWaktuSatuan('menit');
+                              setWke(72000);
                               showToast("✅ Berhasil menarik data dari Anjab");
                               setAlertModal({
                                 title: "Berhasil",
@@ -813,7 +815,7 @@ export default function OperatorBebanKerjaPage() {
                           </tr>
                           <tr style={{ background: 'hsla(var(--primary), 0.2)', fontWeight: 'bold' }}>
                             <td colSpan={6} style={{ textAlign: 'right', paddingRight: '20px' }}>Pembulatan Formasi</td>
-                            <td className={styles.resultCell} style={{ fontSize: '1.25rem' }}>{calculateFormasiPembulatan(totalRequired)}</td>
+                            <td className={styles.resultCell} style={{ fontSize: '1.25rem' }} title="Struktural selalu 1 orang; pelaksana/fungsional minimal 2 orang (batas server & client seragam)">{applyFormasiBatas(calculateFormasiPembulatan(totalRequired), activeJobData?.eselon || "")}</td>
                             <td></td>
                           </tr>
                         </>

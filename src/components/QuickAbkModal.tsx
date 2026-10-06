@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
 import { BRANDING } from "@/config/branding";
 
@@ -21,8 +21,8 @@ export type ABKRow = {
 };
 
 export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: QuickAbkModalProps) {
-  const [wke, setWke] = useState<number>(1250);
-  const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('jam');
+  const [wke, setWke] = useState<number>(72000);
+  const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('menit');
   const [rows, setRows] = useState<ABKRow[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -80,7 +80,8 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
 
   const totalWaktuEfektif = rows.reduce((acc, r) => acc + calculateWaktuEfektif(r.waktu, r.volume), 0);
   const totalKebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
-  const formasiPembulatan = calculateFormasiPembulatan(totalKebutuhan);
+  // Batas per jenis jabatan (paritas dengan server): struktural = 1, pelaksana/fungsional min 2
+  const formasiPembulatan = applyFormasiBatas(calculateFormasiPembulatan(totalKebutuhan), jabatan?.jenisJabatan || "");
 
   const handleSave = async () => {
     if (!jabatan) return;

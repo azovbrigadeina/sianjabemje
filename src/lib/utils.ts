@@ -129,3 +129,30 @@ export function calculateFormasiPembulatan(totalKebutuhan: number): number {
   return Math.round(val);
 }
 
+/**
+ * Klasifikasi kategori jabatan untuk batas formasi (paritas dengan
+ * verifyFormasiIdeal_ di gas/Code.gs):
+ * - struktural: Pimpinan Tinggi / Administrator / Pengawas -> formasi selalu 1
+ * - fungsional / pelaksana: formasi minimal 2, tanpa cap atas
+ */
+export function getJenisJabatanKategori(jenisJabatan: string): 'struktural' | 'fungsional' | 'pelaksana' | 'lainnya' {
+  const j = String(jenisJabatan || "").toLowerCase();
+  if (j.indexOf("pimpinan tinggi") !== -1 || j.indexOf("administrator") !== -1 || j.indexOf("pengawas") !== -1) return "struktural";
+  if (j.indexOf("fungsional") !== -1) return "fungsional";
+  if (j.indexOf("pelaksana") !== -1) return "pelaksana";
+  return "lainnya";
+}
+
+/**
+ * Terapkan batas formasi per jenis jabatan pada hasil pembulatan ABK.
+ * Sesuai keputusan pengguna: struktural = 1 orang (satu posisi satu pemangku);
+ * pelaksana/fungsional minimal 2 orang (dibantu hierarki di atasnya).
+ */
+export function applyFormasiBatas(pembulatan: number, jenisJabatan: string): number {
+  const val = Number(pembulatan) || 0;
+  const kategori = getJenisJabatanKategori(jenisJabatan);
+  if (kategori === "struktural") return val > 0 ? 1 : 0;
+  if ((kategori === "pelaksana" || kategori === "fungsional") && val > 0 && val < 2) return 2;
+  return val;
+}
+

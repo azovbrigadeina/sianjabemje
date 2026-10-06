@@ -5,7 +5,7 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
 import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
-import { generateKodeJabatan, calculateFormasiPembulatan } from './utils';
+import { generateKodeJabatan, calculateFormasiPembulatan, applyFormasiBatas } from './utils';
 import { INSTANSI_NAME } from './constants';
 
 // Helper to convert base64 string to ArrayBuffer
@@ -336,7 +336,8 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     minimumFractionDigits: 3,
     maximumFractionDigits: 4
   });
-  const pembulatan = calculateFormasiPembulatan(sumKebutuhan);
+  // Batas per jenis jabatan (paritas dengan server): struktural = 1, pelaksana/fungsional min 2
+  const pembulatan = applyFormasiBatas(calculateFormasiPembulatan(sumKebutuhan), jabatan.jenisJabatan || "");
 
   result[mappings.totalWaktuEfektif || 'totalWaktuEfektif'] = formattedTotalWaktuEfektif;
   result[mappings.totalKebutuhanPegawai || 'totalKebutuhanPegawai'] = formattedTotalKebutuhan;

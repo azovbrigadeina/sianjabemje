@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
 
 const DEFAULT_FLAT_MAPPINGS: Record<string, string> = {
@@ -431,7 +431,7 @@ export default function LaporanPage() {
             totalWaktuEfektif += we;
           });
           kebutuhanPegawai = totalWaktuEfektif / 1250;
-          pembulatanFormasi = calculateFormasiPembulatan(kebutuhanPegawai);
+          pembulatanFormasi = applyFormasiBatas(calculateFormasiPembulatan(kebutuhanPegawai), j.jenisJabatan || "");
         }
 
         return {
