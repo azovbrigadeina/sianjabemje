@@ -2710,9 +2710,9 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
                "  }\n" +
                "}\n\n" +
                "Catatan PENTING:\n" +
-               "- WAJIB menghasilkan MINIMAL 5 entri/item untuk tugasPokok, hasilKerja (di root JSON), bahanKerja, perangkatKerja, tanggungJawab, dan wewenang.\n" +
+               "- WAJIB menghasilkan MINIMAL 7 entri uraian tugas pokok (tugasPokok) DAN MINIMAL 7 item hasilKerja (di root JSON) — jumlah keduanya WAJIB sama persis. Untuk bahanKerja, perangkatKerja, tanggungJawab, dan wewenang minimal 5 entri/item.\n" +
                "- Dalam tugasPokok, kolom hasilKerja harus diisi dengan nama SATUAN singkat saja (misalnya 'Dokumen', 'Berkas', 'Laporan', 'Kegiatan', 'Data', dll).\n" +
-               "- Nilai hasilKerja (array di root JSON yang merepresentasikan 7. Hasil Kerja) harus berupa list dari NARASI DESKRIPTIF singkat hasil kerja (bukan satuan/kata tunggal) yang jumlahnya SAMA PERSIS dengan jumlah tugasPokok (berurutan 1-ke-1, minimal 5 item).\n" +
+               "- Nilai hasilKerja (array di root JSON yang merepresentasikan 7. Hasil Kerja) harus berupa list dari NARASI DESKRIPTIF singkat hasil kerja (bukan satuan/kata tunggal) yang jumlahnya SAMA PERSIS dengan jumlah tugasPokok (berurutan 1-ke-1, minimal 7 item).\n" +
                "- Setiap 'uraianTugas' dalam 'tugasPokok' WAJIB mengandung unsur Bagaimana cara mengerjakan (How) (contoh: 'Sesuai dengan peraturan perundangan yang berlaku', 'Sesuai dengan tugas dan fungsi jabatan', 'Berdasarkan rencana kerja yang ditetapkan') DAN unsur Dalam rangka apa/tujuan (Why) (contoh: 'agar diperoleh kinerja yang diharapkan', 'untuk ketepatan dan kelancaran pelaksanaan tugas', 'demi kelancaran tugas jabatan') yang disesuaikan secara logis dengan level jabatannya.\n" +
                "- Uraian tugas WAJIB disesuaikan dengan Level Jabatan yang dideteksi dari nama jabatan:\n" +
                "  1. Jabatan Pimpinan Tinggi (Eselon I/II) (Fokus: Strategi, kepemimpinan, kebijakan, pengambilan keputusan). Kata kerja utama: Merumuskan, Mengambil (keputusan strategis), Memimpin, Mengkoordinasikan, Mengevaluasi (dan mengendalikan). Contoh: 'Merumuskan kebijakan strategis bidang...'\n" +
