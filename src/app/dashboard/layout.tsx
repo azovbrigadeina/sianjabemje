@@ -170,7 +170,7 @@ export default function DashboardLayout({
               title="Perluas Menu"
               aria-label="Perluas Menu"
             >
-              ◀
+              ▶
             </button>
           )}
         </div>

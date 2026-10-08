@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
 import { BRANDING } from "@/config/branding";
 
@@ -21,7 +21,8 @@ export type ABKRow = {
 };
 
 export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: QuickAbkModalProps) {
-  const [wke, setWke] = useState<number>(72000);
+  // B1 (audit 2026-10-07): default WKE dari satu sumber (75000 menit = 1250 jam)
+  const [wke, setWke] = useState<number>(WKE_DEFAULT_MENIT);
   const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('menit');
   const [rows, setRows] = useState<ABKRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -159,13 +160,13 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
                 onChange={(e) => {
                   const newSat = e.target.value as 'jam' | 'menit';
                   setWaktuSatuan(newSat);
-                  if (newSat === 'menit' && wke === 1250) setWke(72000);
-                  else if (newSat === 'jam' && wke === 72000) setWke(1250);
+                  if (newSat === 'menit' && wke === WKE_DEFAULT_JAM) setWke(WKE_DEFAULT_MENIT);
+                  else if (newSat === 'jam' && wke === WKE_DEFAULT_MENIT) setWke(WKE_DEFAULT_JAM);
                 }}
                 style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem' }}
               >
                 <option value="jam">Jam / Tahun (Standar: 1250 Jam)</option>
-                <option value="menit">Menit / Tahun (Standar: 72000 Menit)</option>
+                <option value="menit">Menit / Tahun (Standar: 75000 Menit)</option>
               </select>
             </div>
           </div>

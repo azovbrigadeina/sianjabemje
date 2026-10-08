@@ -2,6 +2,7 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { api } from "@/lib/api";
+import { useUser } from "@/lib/UserContext";
 import type { User, UnitKerja } from "@/lib/types";
 import styles from "./users.module.css";
 
@@ -41,6 +42,7 @@ export default function UsersPage() {
   const [savingFooter, setSavingFooter] = useState(false);
   const [showSecretSetting, setShowSecretSetting] = useState(false);
   const [secretClickCount, setSecretClickCount] = useState(0);
+  const { user } = useUser();
 
   const handleSecretClick = () => {
     setSecretClickCount((prev) => {
@@ -180,6 +182,11 @@ export default function UsersPage() {
   };
 
   const handleToggleActive = async (u: User) => {
+    // C1 (audit 2026-10-07): cegah admin menonaktifkan akunnya sendiri (self-lockout)
+    if (user && u.id === user.id) {
+      setError("Anda tidak dapat menonaktifkan akun Anda sendiri. Minta Administrator lain bila diperlukan.");
+      return;
+    }
     try {
       await api.updateUser(u.id, { isActive: !u.isActive });
       await loadData();
@@ -189,6 +196,11 @@ export default function UsersPage() {
   };
 
   const handleDelete = async (u: User) => {
+    // C1 (audit 2026-10-07): cegah admin menghapus akunnya sendiri (self-lockout)
+    if (user && u.id === user.id) {
+      setError("Anda tidak dapat menghapus akun Anda sendiri. Minta Administrator lain, atau gunakan fitur nonaktifkan.");
+      return;
+    }
     if (!confirm(`Yakin ingin menghapus user "${u.username}"? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
       await api.deleteUser(u.id);

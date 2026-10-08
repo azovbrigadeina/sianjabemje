@@ -78,6 +78,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    // A8 (audit 2026-10-07): cabut token di server SEBELUM cookie dihapus
+    // (fire-and-forget; token dibaca dari cookie di dalam api.logout)
+    api.logout();
     setUserState(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem("sianjab_last_activity");

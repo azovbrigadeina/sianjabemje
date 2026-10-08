@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
 import { UnitKerja } from "@/lib/types";
 import ModalDuplikasiUnit from "@/components/ModalDuplikasiUnit";
 
@@ -282,7 +283,7 @@ export default function OPDManagementPage() {
       await loadData(true);
     } catch (error) {
       console.error("Gagal menghapus unit kerja", error);
-      alert("Gagal menghapus: " + error);
+      alert("Gagal menghapus: " + getErrorMessage(error));
     }
   };
 
@@ -331,7 +332,7 @@ export default function OPDManagementPage() {
       await loadData(true);
     } catch (error) {
       console.error("Gagal menyimpan unit kerja", error);
-      alert("Gagal menyimpan: " + error);
+      alert("Gagal menyimpan: " + getErrorMessage(error));
     } finally {
       setModalSaving(false);
     }

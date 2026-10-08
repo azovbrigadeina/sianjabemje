@@ -203,7 +203,7 @@ function invalidateAllCaches_() {
 // =============================================
 
 // Action yang diizinkan TANPA token (public endpoints)
-var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'ping', 'checkVerificationCode', 'getDashboardStats', 'getBulkData'];
+var PUBLIC_ACTIONS_ = ['login', 'autoRegisterOperator', 'ping', 'checkVerificationCode', 'getDashboardStats', 'getBulkData', 'logout'];
 
 // Action khusus ADMIN (Role-Based Access Control)
 var ADMIN_ONLY_ACTIONS_ = [
@@ -229,11 +229,16 @@ function computeHmacHex_(dataStr, secretKey) {
   return hexString;
 }
 
+// A8 (audit 2026-10-07): token kini memuat nonce (jti) sehingga per-sesi
+// dan dapat dicabut di server saat logout. Format baru:
+//   base64(username:timestamp:nonce:hmac(username:timestamp:nonce))
+// Token format lama (3 bagian) otomatis tidak berlaku setelah deploy.
 function generateAuthToken_(username) {
   var timestamp = Date.now();
+  var nonce = Utilities.getUuid();
   var secret = getApiSecret_();
-  var sig = computeHmacHex_(username + ':' + timestamp, secret);
-  return Utilities.base64Encode(username + ':' + timestamp + ':' + sig);
+  var sig = computeHmacHex_(username + ':' + timestamp + ':' + nonce, secret);
+  return Utilities.base64Encode(username + ':' + timestamp + ':' + nonce + ':' + sig);
 }
 
 function validateToken_(token) {
@@ -241,21 +246,25 @@ function validateToken_(token) {
   try {
     var decoded = Utilities.newBlob(Utilities.base64Decode(token)).getDataAsString();
     var parts = decoded.split(':');
-    // Wajib memiliki 3 bagian: username:timestamp:hmacSignature
-    if (parts.length < 3) return false;
+    // Wajib memiliki 4 bagian: username:timestamp:nonce:hmacSignature (A8)
+    if (parts.length < 4) return false;
     var username = parts[0];
     var timestamp = parseInt(parts[1], 10);
-    var signature = parts[2];
-    if (!username || isNaN(timestamp) || !signature) return false;
+    var nonce = parts[2];
+    var signature = parts[3];
+    if (!username || isNaN(timestamp) || !nonce || !signature) return false;
 
     // Token berlaku 24 jam (1 hari)
     var oneDayMs = 24 * 60 * 60 * 1000;
     if (Date.now() - timestamp > oneDayMs) return false;
 
-    // HMAC Signature Check (fail-closed)
+    // HMAC Signature Check (fail-closed) — nonce ikut ditandatangani
     var secret = getApiSecret_();
-    var expectedSig = computeHmacHex_(username + ':' + timestamp, secret);
+    var expectedSig = computeHmacHex_(username + ':' + timestamp + ':' + nonce, secret);
     if (signature !== expectedSig) return false;
+
+    // A8: cek daftar pencabutan (logout) — fail-closed
+    if (isTokenRevoked_(nonce)) return false;
 
     // Verifikasi user masih ada dan aktif
     var users = cachedFbGet_('users', 300);
@@ -269,6 +278,87 @@ function validateToken_(token) {
   } catch (e) {
     return false;
   }
+}
+
+// A8 (audit 2026-10-07): daftar pencabutan token per nonce (jti), non-tahunan.
+// Fail-closed: bila pembacaan gagal, token dianggap dicabut.
+function isTokenRevoked_(nonce) {
+  if (!nonce) return true;
+  try {
+    return fbGet_(getFirebasePath_('revokedTokens', nonce)) != null;
+  } catch (err) {
+    try { console.error('Gagal membaca daftar pencabutan token: ' + err.message); } catch (e2) {}
+    return true;
+  }
+}
+
+// A8: tandai token sebagai dicabut. Hanya token dengan HMAC valid dan masih
+// dalam masa berlaku yang dicatat (mencegah key sampah dari token palsu).
+function revokeToken_(token) {
+  var decoded, parts;
+  try {
+    decoded = Utilities.newBlob(Utilities.base64Decode(token)).getDataAsString();
+    parts = decoded.split(':');
+  } catch (err) {
+    return { success: false, reason: 'format' };
+  }
+  if (!parts || parts.length < 4) return { success: false, reason: 'format' };
+  var username = parts[0];
+  var timestamp = parseInt(parts[1], 10);
+  var nonce = parts[2];
+  var signature = parts[3];
+  if (!username || isNaN(timestamp) || !nonce || !signature) {
+    return { success: false, reason: 'format' };
+  }
+  var secret = getApiSecret_();
+  if (signature !== computeHmacHex_(username + ':' + timestamp + ':' + nonce, secret)) {
+    return { success: false, reason: 'signature' };
+  }
+  var oneDayMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - timestamp > oneDayMs) return { success: false, reason: 'expired' };
+
+  var payload = {};
+  payload[nonce] = {
+    username: username,
+    revokedAt: new Date().toISOString(),
+    expiresAt: new Date(timestamp + oneDayMs).toISOString()
+  };
+  fbPatch_(getFirebasePath_('revokedTokens'), payload);
+  return { success: true, reason: 'revoked', username: username };
+}
+
+// Hapus entri pencabutan yang sudah lewat masa berlaku token aslinya
+function pruneExpiredRevocations_() {
+  try {
+    var all = fbGet_(getFirebasePath_('revokedTokens')) || {};
+    var now = Date.now();
+    var del = {};
+    var keys = Object.keys(all);
+    for (var i = 0; i < keys.length; i++) {
+      var entry = all[keys[i]];
+      var exp = entry && entry.expiresAt ? new Date(entry.expiresAt).getTime() : 0;
+      if (!exp || exp < now) del[keys[i]] = null;
+    }
+    if (Object.keys(del).length > 0) {
+      fbPatch_(getFirebasePath_('revokedTokens'), del);
+      invalidateCache_('revokedTokens');
+    }
+  } catch (err) {
+    try { console.error('Gagal membersihkan daftar pencabutan: ' + err.message); } catch (e2) {}
+  }
+}
+
+// A8: aksi logout — mencabut token di server (dulu: hanya cookie browser).
+// Idempotent: token tak valid/kedaluwarsa tetap mengembalikan sukses.
+function logoutUser_(token) {
+  if (!token) return { success: true, message: 'Tidak ada token untuk dicabut.' };
+  var res = revokeToken_(token);
+  if (res.success) {
+    invalidateCache_('revokedTokens');
+    pruneExpiredRevocations_();
+    return { success: true, message: 'Logout berhasil; token sudah dicabut di server.' };
+  }
+  return { success: true, message: 'Logout berhasil (token tidak dikenali atau di luar masa berlaku).' };
 }
 
 function getUserFromToken_(token) {
@@ -305,7 +395,7 @@ function getUserFromToken_(token) {
 var CURRENT_TAHUN = '2026';
 
 function isYearlyEntity_(entity) {
-  var nonYearly = ['users', 'settings', 'sianjab_export', 'referensiJabatan', 'security_logs'];
+  var nonYearly = ['users', 'settings', 'sianjab_export', 'referensiJabatan', 'security_logs', 'revokedTokens'];
   return nonYearly.indexOf(entity) === -1;
 }
 
@@ -313,7 +403,7 @@ var ALLOWED_ENTITIES_ = [
   'unitKerja','jabatan','users','settings','abk','referensiJabatan',
   'security_logs','tugasPokok','bahanKerja','perangkatKerja','tanggungJawab',
   'wewenang','korelasiJabatan','kondisiLingkungan','risikoBahaya','syaratJabatan',
-  'kualifikasi','hasilKerja','prestasiKerja','verification_logs','sianjab_export','anomaliExclusion'
+  'kualifikasi','hasilKerja','prestasiKerja','verification_logs','sianjab_export','anomaliExclusion','revokedTokens'
 ];
 
 function getFirebasePath_(entity, id) {
@@ -344,6 +434,17 @@ function handleRequest_(e) {
   try {
     var params = e.parameter || {};
     CURRENT_TAHUN = params.tahun || BASE_YEAR;
+
+    // A4 (audit 2026-10-07): whitelist format tahun — getFirebasePath_ hanya
+    // memvalidasi entity, bukan prefix tahun. Bila params.tahun bebas, pemegang
+    // token sah bisa menulis di luar jalur tahun (mis. tahun=users → users/jabatan/...).
+    // Karena itu format yang diizinkan dibatasi 4 digit angka.
+    if (!/^\d{4}$/.test(CURRENT_TAHUN)) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: false, error: 'Parameter tahun tidak valid. Gunakan periode 4 digit (contoh: 2026).' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var action = params.action || '';
     var entity = params.entity || '';
     var id = params.id || '';
@@ -381,14 +482,20 @@ function handleRequest_(e) {
       case 'ping':
         result = 'pong';
         break;
+      case 'logout':
+        // A8 (audit 2026-10-07): cabut token di server saat logout
+        result = logoutUser_(token);
+        break;
       case 'create':
         assertWritePermission_(currentUser, entity, null, data);
         result = createRecord_(entity, data);
         break;
       case 'read':
+        assertSensitiveReadPermission_(currentUser, entity);
         result = readRecord_(entity, id, currentUser);
         break;
       case 'readAll':
+        assertSensitiveReadPermission_(currentUser, entity);
         result = readAllRecords_(entity, parentId, currentUser);
         break;
       case 'update':
@@ -397,10 +504,14 @@ function handleRequest_(e) {
         break;
       case 'delete':
         assertWritePermission_(currentUser, entity, id, null);
+        assertNotSelfDelete_(currentUser, entity, id);
         result = deleteRecord_(entity, id);
         break;
 
       case 'getJabatanFull':
+        // A3 (audit 2026-10-07): operator hanya boleh membaca detail jabatan
+        // pada OPD dalam lingkupnya (admin bebas).
+        assertJabatanReadAccess_(currentUser, id);
         result = getJabatanFull_(id);
         break;
       case 'getJabatanByUnit':
@@ -413,6 +524,7 @@ function handleRequest_(e) {
         result = readAllRecords_('unitKerja', '');
         break;
       case 'getHierarchy':
+        assertJabatanReadAccess_(currentUser, id);
         result = getJabatanHierarchy_(id);
         break;
       case 'saveSingleEntity':
@@ -424,7 +536,8 @@ function handleRequest_(e) {
         result = saveMultiEntity_(entity, parentId, data);
         break;
       case 'updateUrutanBatch':
-        result = updateUrutanBatch_(entity, data);
+        // A6 (audit 2026-10-07): currentUser wajib — cek kepemilikan tiap baris
+        result = updateUrutanBatch_(currentUser, entity, data);
         break;
       case 'saveBulkAnjabData':
         assertJabatanAccess_(currentUser, parentId);
@@ -455,7 +568,7 @@ function handleRequest_(e) {
         result = duplicateUnitKerja_(data || params);
         break;
       case 'createBatchJabatans':
-        result = createBatchJabatans_(data && data.items ? data.items : data);
+        result = createBatchJabatans_(data && data.items ? data.items : data, currentUser);
         break;
       case 'cleanupOrphanedRecords':
         result = cleanupOrphanedRecords_();
@@ -481,6 +594,7 @@ function handleRequest_(e) {
         result = saveABK_(parentId, data);
         break;
       case 'getABK':
+        assertJabatanReadAccess_(currentUser, parentId);
         result = getABK_(parentId);
         break;
       case 'saveTemplate':
@@ -530,6 +644,11 @@ function handleRequest_(e) {
             }
           }
         }
+        // A3 (audit 2026-10-07): entitas sensitif tidak ikut bulk untuk non-admin
+        // (dulu operator bisa memaksa users/security_logs masuk getBulkData).
+        for (var sIdx = 0; sIdx < bulkEntities.length; sIdx++) {
+          assertSensitiveReadPermission_(currentUser, bulkEntities[sIdx]);
+        }
         result = readMultipleEntities_(bulkEntities);
         break;
 
@@ -570,9 +689,29 @@ function handleRequest_(e) {
 // FIREBASE REST API HELPERS
 // =============================================
 
+// A1 (audit 2026-10-07): assert guarded Firebase REST helper.
+// Semua helper wajib menolak respons non-2xx agar kegagalan tulis/baca
+// (401 secret SALAH, 412 rules, 400 payload invalid, 429 limit) TIDAK lagi
+// dipulihkan sebagai "data" (yang membuat createRecord_ mengembalikan id=undefined
+// dan UI menganggap 'berhasil disimpan' padahal data hilang).
+// Paritas perilaku dengan fbPutSitpp_/fbPatchSitpp_ yang sudah fail-closed.
+function assertFirebaseOk_(res, label) {
+  var code = res.getResponseCode();
+  if (code < 200 || code >= 300) {
+    var bodySnippet = '';
+    try {
+      bodySnippet = res.getContentText().substring(0, 200);
+    } catch (eBody) {
+      bodySnippet = ''; // abaikan kegagalan baca body
+    }
+    throw new Error('Firebase REST API gagal (' + (label || 'request') + ') — HTTP ' + code + ': ' + bodySnippet);
+  }
+}
+
 function fbGet_(path) {
   var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
   var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  assertFirebaseOk_(res, 'GET ' + path);
   return JSON.parse(res.getContentText());
 }
 
@@ -584,6 +723,7 @@ function fbPut_(path, data) {
     payload: JSON.stringify(data),
     muteHttpExceptions: true
   });
+  assertFirebaseOk_(res, 'PUT ' + path);
   return JSON.parse(res.getContentText());
 }
 
@@ -595,6 +735,7 @@ function fbPost_(path, data) {
     payload: JSON.stringify(data),
     muteHttpExceptions: true
   });
+  assertFirebaseOk_(res, 'POST ' + path);
   return JSON.parse(res.getContentText());
 }
 
@@ -606,12 +747,14 @@ function fbPatch_(path, data) {
     payload: JSON.stringify(data),
     muteHttpExceptions: true
   });
+  assertFirebaseOk_(res, 'PATCH ' + path);
   return JSON.parse(res.getContentText());
 }
 
 function fbDelete_(path) {
   var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
-  UrlFetchApp.fetch(url, { method: 'delete', muteHttpExceptions: true });
+  var res = UrlFetchApp.fetch(url, { method: 'delete', muteHttpExceptions: true });
+  assertFirebaseOk_(res, 'DELETE ' + path);
   return { deleted: true };
 }
 
@@ -656,6 +799,27 @@ function getAllowedUnitKerjaIds_(userUnitId) {
   return allowed;
 }
 
+// A3 (audit 2026-10-07): daftar entitas berisi PII/security yang HANYA boleh
+// dibaca admin. Operator tidak lagi bisa readAll/read/getBulkData entitas ini
+// (dulu: daftar user seluruh kabupaten (NIP+email), security_logs (IP+userAgent),
+// verification_logs).
+var ADMIN_ONLY_READ_ENTITIES_ = ['users', 'security_logs', 'verification_logs'];
+
+// Guard baca: blokir entitas sensitif untuk non-admin (fail-closed untuk anon).
+function assertSensitiveReadPermission_(currentUser, entity) {
+  if (ADMIN_ONLY_READ_ENTITIES_.indexOf(entity) === -1) return;
+  if (!currentUser || currentUser.role !== 'admin') {
+    throw new Error('Akses ditolak: Data ' + entity + ' hanya dapat dilihat oleh Administrator.');
+  }
+}
+
+// Guard baca jabatan: operator hanya boleh membaca detail jabatan (dan ABK-
+// Anjab terkait) di dalam lingkup OPD-nya. Admin bebas. Pemanggilan ini
+// versi baca — dipakai untuk getJabatanFull/getHierarchy/getABK.
+function assertJabatanReadAccess_(currentUser, jabatanId) {
+  assertJabatanAccess_(currentUser, jabatanId);
+}
+
 function assertJabatanAccess_(currentUser, jabatanId) {
   if (!currentUser || currentUser.role === 'admin') {
     return; // Admin memiliki hak akses penuh
@@ -674,6 +838,15 @@ function assertJabatanAccess_(currentUser, jabatanId) {
   var allowedUnits = getAllowedUnitKerjaIds_(userUnitId);
   if (targetJbt.unitKerjaId && !allowedUnits[targetJbt.unitKerjaId]) {
     throw new Error('Akses ditolak: Anda tidak memiliki wewenang untuk mengubah data jabatan pada OPD ini.');
+  }
+}
+
+// C1 (audit 2026-10-07): cegah admin menghapus akunnya sendiri (self-lockout).
+// Guard di client saja tidak cukup — token masih sah sehingga aplikasi terasa
+// normal lalu mati; server menolak keras di sini.
+function assertNotSelfDelete_(currentUser, entity, id) {
+  if (entity === 'users' && currentUser && currentUser.id && String(currentUser.id) === String(id)) {
+    throw new Error('Akses ditolak: Anda tidak dapat menghapus akun Anda sendiri. Gunakan fitur nonaktifkan, atau minta Administrator lain.');
   }
 }
 
@@ -735,7 +908,7 @@ function createRecord_(entity, data) {
   return { id: result.name, data: data };
 }
 
-function createBatchJabatans_(items) {
+function createBatchJabatans_(items, currentUser) {
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new Error("Daftar jabatan baru tidak boleh kosong.");
   }
@@ -745,6 +918,10 @@ function createBatchJabatans_(items) {
   var now = new Date().toISOString();
 
   items.forEach(function(data) {
+    // A2 (audit 2026-10-07): RBAC per item — operator hanya boleh membuat jabatan
+    // pada OPD dalam lingkupnya (unitKerjaId target & parent wajib lolos allowedUnits).
+    assertWritePermission_(currentUser, 'jabatan', null, data);
+
     var newId = Utilities.getUuid();
     var record = JSON.parse(JSON.stringify(data));
     record.createdAt = now;
@@ -951,6 +1128,14 @@ function checkCycle_(entity, id, newParentId) {
 }
 
 function updateRecord_(entity, id, data) {
+  // C2 (audit 2026-10-07): tolak pengajuan berdasarkan status basi — operator
+  // dengan UI lama tidak boleh menimpa 'Disetujui' kembali menjadi 'Diajukan'.
+  if (entity === 'unitKerja' && data && data.statusValidasi === 'Diajukan') {
+    var currentUnit = fbGet_(getFirebasePath_('unitKerja', id));
+    if (currentUnit && currentUnit.statusValidasi === 'Disetujui') {
+      throw new Error('Tidak dapat mengajukan validasi: data OPD ini sudah DISSETUJUI oleh Admin. Hubungi Admin Kabupaten bila ada perubahan.');
+    }
+  }
   if ((entity === 'unitKerja' || entity === 'jabatan') && data && data.parentId !== undefined) {
     checkCycle_(entity, id, data.parentId);
   }
@@ -1023,35 +1208,39 @@ function deleteRecord_(entity, id) {
     for (var i = 0; i < childEntities.length; i++) {
       var ent = childEntities[i];
       var res = responses[i];
-      if (res && res.getResponseCode() === 200) {
-        var tableData = JSON.parse(res.getContentText());
-        if (tableData) {
-          var patchPayload = {};
-          var count = 0;
-          Object.keys(tableData).forEach(function(key) {
-            var item = tableData[key];
-            if (item && (item.jabatanId === id || item.parentId === id)) {
-              patchPayload[key] = null;
-              count++;
-            }
-          });
-
-          if (count > 0) {
-            writeRequests.push({
-              url: baseUrl + getFirebasePath_(ent) + authQuery,
-              method: 'patch',
-              contentType: 'application/json',
-              payload: JSON.stringify(patchPayload),
-              muteHttpExceptions: true
-            });
-            entitiesToInvalidate.push(ent);
+      // A1 (audit 2026-10-07): fail-closed — gagal baca tabel anak menghentikan
+      // delete jabatan agar tidak menghapus induk dengan sisa anak terkena zombie.
+      assertFirebaseOk_(res, 'CASCADE-READ ' + ent);
+      var tableData = JSON.parse(res.getContentText());
+      if (tableData) {
+        var patchPayload = {};
+        var count = 0;
+        Object.keys(tableData).forEach(function(key) {
+          var item = tableData[key];
+          if (item && (item.jabatanId === id || item.parentId === id)) {
+            patchPayload[key] = null;
+            count++;
           }
+        });
+
+        if (count > 0) {
+          writeRequests.push({
+            url: baseUrl + getFirebasePath_(ent) + authQuery,
+            method: 'patch',
+            contentType: 'application/json',
+            payload: JSON.stringify(patchPayload),
+            muteHttpExceptions: true
+          });
+          entitiesToInvalidate.push(ent);
         }
       }
     }
 
     if (writeRequests.length > 0) {
-      UrlFetchApp.fetchAll(writeRequests);
+      var cascadeWriteResponses = UrlFetchApp.fetchAll(writeRequests);
+      cascadeWriteResponses.forEach(function(res, wIdx) {
+        assertFirebaseOk_(res, 'CASCADE-WRITE #' + (wIdx + 1));
+      });
       entitiesToInvalidate.forEach(function(ent) {
         invalidateCache_(ent);
       });
@@ -1108,26 +1297,42 @@ function cleanupOrphanedRecords_() {
 
 // Save/upsert single entity (syaratJabatan, kualifikasi, prestasiKerja, hasilKerja)
 function saveSingleEntity_(entity, jabatanId, data) {
-  var allData = fbGet_(getFirebasePath_(entity));
-  var existingId = null;
-
-  if (allData) {
-    var keys = Object.keys(allData);
-    for (var i = 0; i < keys.length; i++) {
-      if (allData[keys[i]].jabatanId === jabatanId) {
-        existingId = keys[i];
-        break;
-      }
-    }
+  // A5 (audit 2026-10-07): LockService wajib — pola read-then-write tanpa lock
+  // membuat dua saveSingleEntity_ bersamaan menghasilkan DUPLIKAT baris tunggal
+  // (dua record syaratJabatan/kualifikasi/... untuk 1 jabatan; getJabatanFull_
+  // hanya memuat yang pertama ditemukan sehingga duplikat tak terlihat di UI,
+  // baru muncul saat ekspor/laporan). Paritas dengan saveMultiEntity_/saveBulkAnjabData_.
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    throw new Error("Server sibuk: Operasi penyimpan bersamaan terdeteksi. Silakan coba beberapa saat lagi.");
   }
 
-  data.jabatanId = jabatanId;
-  invalidateJabatanCache_(jabatanId);
+  try {
+    var allData = fbGet_(getFirebasePath_(entity));
+    var existingId = null;
 
-  if (existingId) {
-    return updateRecord_(entity, existingId, data);
-  } else {
-    return createRecord_(entity, data);
+    if (allData) {
+      var keys = Object.keys(allData);
+      for (var i = 0; i < keys.length; i++) {
+        if (allData[keys[i]].jabatanId === jabatanId) {
+          existingId = keys[i];
+          break;
+        }
+      }
+    }
+
+    data.jabatanId = jabatanId;
+    invalidateJabatanCache_(jabatanId);
+
+    if (existingId) {
+      return updateRecord_(entity, existingId, data);
+    } else {
+      return createRecord_(entity, data);
+    }
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
   }
 }
 
@@ -1177,7 +1382,10 @@ function saveMultiEntity_(entity, parentId, rows) {
 }
 
 // Batch update urutan property without mutating/recreating items
-function updateUrutanBatch_(entity, updates) {
+// A6 (audit 2026-10-07): wajib cek kepemilikan — operator hanya boleh
+// mengurutkan baris milik jabatan pada OPD yang diizinkan baginya;
+// baris tak dikenal / tanpa jabatanId ditolak (fail-closed), bukan diabaikan.
+function updateUrutanBatch_(currentUser, entity, updates) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
@@ -1187,12 +1395,26 @@ function updateUrutanBatch_(entity, updates) {
 
   try {
     var basePath = getFirebasePath_(entity);
+    var allRecords = fbGet_(basePath) || {};
     var patchPayload = {};
     var now = new Date().toISOString();
+    var assertedJabatanIds = {};
 
     if (updates && Array.isArray(updates)) {
       updates.forEach(function (item) {
         if (item && item.id && typeof item.urutan === 'number') {
+          var rec = allRecords[item.id];
+          if (!rec) {
+            throw new Error('Urutan gagal: baris "' + item.id + '" tidak ditemukan pada ' + entity + '.');
+          }
+          var ownerJabatanId = (entity === 'jabatan') ? item.id : rec.jabatanId;
+          if (!ownerJabatanId) {
+            throw new Error('Akses ditolak: baris "' + item.id + '" tidak terikat pada jabatan mana pun.');
+          }
+          if (!assertedJabatanIds[ownerJabatanId]) {
+            assertJabatanAccess_(currentUser, ownerJabatanId);
+            assertedJabatanIds[ownerJabatanId] = true;
+          }
           patchPayload[item.id + '/urutan'] = item.urutan;
           patchPayload[item.id + '/updatedAt'] = now;
         }
@@ -1241,13 +1463,11 @@ function saveBulkAnjabData_(parentId, payload) {
 
     var readResponses = UrlFetchApp.fetchAll(readRequests);
     var currentData = {};
+    // A1 (audit 2026-10-07): fail-closed — HTTP gagal menghentikan seluruh saveBulk
+    // agar tidak ada half-saved draft: sebagian tabel baru, sebagian lama.
     allEntities.forEach(function(ent, index) {
-      var res = readResponses[index];
-      if (res.getResponseCode() === 200) {
-        currentData[ent] = JSON.parse(res.getContentText()) || {};
-      } else {
-        currentData[ent] = {};
-      }
+      assertFirebaseOk_(readResponses[index], 'BULK-READ ' + ent);
+      currentData[ent] = JSON.parse(readResponses[index].getContentText()) || {};
     });
 
     // 2. Prepare parallel write requests
@@ -1270,6 +1490,32 @@ function saveBulkAnjabData_(parentId, payload) {
       if (payload[ent]) {
         var itemData = payload[ent];
         itemData.jabatanId = parentId;
+
+        // Reset bersih (laporan 2026-10-07): payload single-entity TANPA konten
+        // (mis. hasil "Reset Isian") berarti HAPUS record lama — jangan tulis
+        // record kosong yang tetap dihitung "terisi" oleh statistik Anjab.
+        if (!anjabRowHasContent_(itemData)) {
+          var emptyDelId = null;
+          var emptyTable = currentData[ent];
+          if (emptyTable) {
+            var emptyKeys = Object.keys(emptyTable);
+            for (var ed = 0; ed < emptyKeys.length; ed++) {
+              if (emptyTable[emptyKeys[ed]].jabatanId === parentId) { emptyDelId = emptyKeys[ed]; break; }
+            }
+          }
+          if (emptyDelId) {
+            var emptyPatch = {};
+            emptyPatch[emptyDelId] = null;
+            writeRequests.push({
+              url: baseUrl + getFirebasePath_(ent) + authQuery,
+              method: 'patch',
+              contentType: 'application/json',
+              payload: JSON.stringify(emptyPatch),
+              muteHttpExceptions: true
+            });
+          }
+          return;
+        }
 
         var existingId = null;
         var tableData = currentData[ent];
@@ -1347,7 +1593,10 @@ function saveBulkAnjabData_(parentId, payload) {
 
     // 3. Execute all write requests in parallel
     if (writeRequests.length > 0) {
-      UrlFetchApp.fetchAll(writeRequests);
+      var writeResponses = UrlFetchApp.fetchAll(writeRequests);
+      writeResponses.forEach(function(res, wIdx) {
+        assertFirebaseOk_(res, 'BULK-WRITE #' + (wIdx + 1));
+      });
     }
 
     // 4. Invalidate all cache
@@ -1499,6 +1748,32 @@ function hashPassword_(password, username) {
   return computeHmacHex_(password, salt);
 }
 
+// A10 (audit 2026-10-07): rotasi security_logs — node dijaga tetap kecil agar
+// tidak tumbuh tanpa batas (dulu: dibatasi hanya saat DIBACA). Sisakan
+// SECURITY_LOGS_PRUNE_TO_ entri terbaru; fail-safe (kegagalan rotasi tidak
+// pernah mengganggu alur utama).
+var SECURITY_LOGS_MAX_KEEP_ = 500;
+var SECURITY_LOGS_PRUNE_TO_ = 400;
+
+function rotateSecurityLogs_() {
+  try {
+    var all = fbGet_('security_logs') || {};
+    var keys = Object.keys(all);
+    if (keys.length <= SECURITY_LOGS_MAX_KEEP_) return;
+    keys.sort(function (a, b) {
+      var ta = (all[a] && all[a].timestamp) ? String(all[a].timestamp) : '';
+      var tb = (all[b] && all[b].timestamp) ? String(all[b].timestamp) : '';
+      return ta < tb ? -1 : (ta > tb ? 1 : 0);
+    });
+    var overflow = keys.length - SECURITY_LOGS_PRUNE_TO_;
+    var del = {};
+    for (var i = 0; i < overflow; i++) del[keys[i]] = null;
+    if (overflow > 0) fbPatch_('security_logs', del);
+  } catch (err) {
+    try { console.error('Gagal rotasi security_logs: ' + err.message); } catch (e2) {}
+  }
+}
+
 function writeSecurityLog_(username, status, reason, ip, userAgent) {
   try {
     var logData = {
@@ -1510,6 +1785,7 @@ function writeSecurityLog_(username, status, reason, ip, userAgent) {
       userAgent: userAgent || 'unknown'
     };
     fbPost_('security_logs', logData);
+    rotateSecurityLogs_();
   } catch (err) {
     console.error("Failed to write security log: " + err.message);
   }
@@ -2077,8 +2353,33 @@ function listOpdInduk() {
 
 function saveABK_(jabatanId, data) {
   if (!jabatanId) throw new Error("jabatanId wajib diisi");
+  if (!data || typeof data !== 'object') throw new Error("Data ABK wajib diisi");
   data.jabatanId = jabatanId;
   data.updatedAt = new Date().toISOString();
+
+  // B3 (audit 2026-10-07): server menghitung ulang angka final dari baris tugas
+  // (sumber kebenaran) — angka kirim-an klien ditimpa. Kebutuhan = rasio waktu
+  // efektif / WKE sehingga konsisten di satuan 'jam' maupun 'menit'; formasi
+  // memakai batas yang sama dengan draf AI (SSOT kebijakan formasi di server).
+  var rows = Array.isArray(data.rows) ? data.rows : [];
+  var totalWaktuEfektif = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i] || {};
+    totalWaktuEfektif += (Number(r.waktu) || 0) * (Number(r.volume) || 0);
+  }
+  var wke = Number(data.wke) || 0;
+  var kebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
+
+  var jenis = '';
+  try {
+    var jbt = readRecord_('jabatan', jabatanId);
+    if (jbt && jbt.jenisJabatan) jenis = jbt.jenisJabatan;
+  } catch (eJ) { /* jenis tidak tersedia -> tanpa batas khusus */ }
+
+  data.totalWaktuEfektif = totalWaktuEfektif;
+  data.totalKebutuhan = kebutuhan;
+  data.formasiPembulatan = applyFormasiBatasServer_(calculateFormasiPembulatanServer_(kebutuhan), jenis);
+
   fbPut_(getFirebasePath_('abk', jabatanId), data);
   invalidateCache_('abk');
   invalidateJabatanCache_(jabatanId);
@@ -2108,6 +2409,11 @@ function checkVerificationCode_(code) {
   if (!code) return null;
   var safeKey = code.replace(/[^a-zA-Z0-9_-]/g, '_');
   var record = fbGet_('verification_logs/' + safeKey);
+  // Catatan A3 (audit 2026-10-07): endpoint ini sengaja tetap publik (tanpa
+  // token) karena dipakai layanan cek keabsahan dokumen oleh pihak eksternal
+  // (halaman /verify). Data per kode diamkan terbatas (jenis dokumen, OPD,
+  // judul, pencetak), bukan daftar isi node berisi PII; enumerasi kode dipagasi
+  // oleh keacakan akhiran (BAGORMJ-YYYYMMDD-XXXXXX).
   return record || null;
 }
 
@@ -2186,17 +2492,65 @@ function autoRegisterOperator_(data) {
   var username = String(data.nip).trim();
   
   // 1. Resolve unitKerjaId by opdName
+  // A7 (audit 2026-10-07): pencocokan diperketat agar akun operator tidak
+  // terikat ke OPD yang salah — urutan prioritas:
+  //   (a) persis setelah normalisasi (harus unik),
+  //   (b) kode OPD bila integrasi mengirim data.opdKode,
+  //   (c) fallback substring HANYA bila tepat 1 kandidat.
+  // Bila 0 kandidat atau ambigu -> akun dibuat TANPA unit kerja
+  // (dapat diikat manual oleh admin) + catatan di pesan respons.
   var unitKerjaId = "";
+  var opdMatchNote = "";
   if (data.opdName) {
     var allUnit = fbGet_('unitKerja') || {};
     var targetNorm = normalizeOpdName_(data.opdName);
-    for (var key in allUnit) {
-      var unitNorm = normalizeOpdName_(allUnit[key].nama);
-      if (unitNorm === targetNorm || unitNorm.indexOf(targetNorm) !== -1 || targetNorm.indexOf(unitNorm) !== -1) {
-        unitKerjaId = key;
-        break;
+
+    if (targetNorm) {
+      // (a) Kecocokan persis setelah normalisasi
+      var exactKeys = [];
+      for (var key in allUnit) {
+        if (normalizeOpdName_(allUnit[key].nama) === targetNorm) exactKeys.push(key);
+      }
+      if (exactKeys.length === 1) {
+        unitKerjaId = exactKeys[0];
+      } else if (exactKeys.length > 1) {
+        opdMatchNote = "OPD '" + data.opdName + "' cocok dengan " + exactKeys.length + " unit kerja berbeda";
+      }
+
+      // (b) Kecocokan berdasarkan kode OPD
+      if (!unitKerjaId && !opdMatchNote && data.opdKode) {
+        var targetKode = String(data.opdKode).trim();
+        for (var keyK in allUnit) {
+          if (allUnit[keyK].kode && String(allUnit[keyK].kode).trim() === targetKode) {
+            unitKerjaId = keyK;
+            break;
+          }
+        }
+      }
+
+      // (c) Fallback substring — hanya bila tepat 1 kandidat
+      if (!unitKerjaId && !opdMatchNote) {
+        var fuzzyKeys = [];
+        for (var keyF in allUnit) {
+          var unitNormF = normalizeOpdName_(allUnit[keyF].nama);
+          if (unitNormF && (unitNormF.indexOf(targetNorm) !== -1 || targetNorm.indexOf(unitNormF) !== -1)) {
+            fuzzyKeys.push(keyF);
+          }
+        }
+        if (fuzzyKeys.length === 1) {
+          unitKerjaId = fuzzyKeys[0];
+        } else if (fuzzyKeys.length > 1) {
+          opdMatchNote = "OPD '" + data.opdName + "' cocok dengan " + fuzzyKeys.length + " unit kerja berbeda";
+        }
       }
     }
+
+    if (!unitKerjaId && !opdMatchNote) {
+      opdMatchNote = "OPD '" + data.opdName + "' tidak ditemukan";
+    }
+  }
+  if (opdMatchNote) {
+    opdMatchNote = opdMatchNote + "; akun tidak diikat ke OPD mana pun (silakan diikat manual oleh admin).";
   }
 
   // 2. Check if user already exists
@@ -2224,7 +2578,7 @@ function autoRegisterOperator_(data) {
     }
     fbPatch_('users/' + foundUserId, updatePayload);
     invalidateCache_('users');
-    return { status: "updated", id: foundUserId, message: "User sudah ada, data diperbarui." };
+    return { status: "updated", id: foundUserId, message: "User sudah ada, data diperbarui." + (opdMatchNote ? " Catatan: " + opdMatchNote : "") };
   }
 
   if (!data.password || data.password.toString().trim() === "") {
@@ -2245,7 +2599,7 @@ function autoRegisterOperator_(data) {
 
   var result = fbPost_('users', newUser);
   invalidateCache_('users');
-  return { status: "created", id: result.name, message: "User berhasil didaftarkan otomatis." };
+  return { status: "created", id: result.name, message: "User berhasil didaftarkan otomatis." + (opdMatchNote ? " Catatan: " + opdMatchNote : "") };
 }
 
 function normalizeOpdName_(str) {
@@ -2260,7 +2614,23 @@ function normalizeOpdName_(str) {
     .replace(/dan/g, "");
 }
 
+// A10 (audit 2026-10-07): lock agar dua admin yang menekan kloning bersamaan
+// tidak menghasilkan data ganda; waitLock 15s, release pasti di finally.
 function cloneYearData_(fromYear, toYear) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    throw new Error("Server sibuk: Operasi kloning tahun bersamaan terdeteksi. Silakan coba beberapa saat lagi.");
+  }
+  try {
+    return cloneYearDataInternal_(fromYear, toYear);
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function cloneYearDataInternal_(fromYear, toYear) {
   if (!fromYear || !toYear) {
     throw new Error("Tahun sumber (fromYear) dan tahun sasaran (toYear) wajib diisi.");
   }
@@ -2360,7 +2730,23 @@ function migrateRootTo2026_() {
   };
 }
 
+// A10 (audit 2026-10-07): lock agar dua admin yang menduplikasi unit bersamaan
+// tidak menghasilkan kode unit/kodeCustom ganda; waitLock 15s, release di finally.
 function duplicateUnitKerja_(params) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    throw new Error("Server sibuk: Operasi duplikasi unit kerja bersamaan terdeteksi. Silakan coba beberapa saat lagi.");
+  }
+  try {
+    return duplicateUnitKerjaInternal_(params);
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function duplicateUnitKerjaInternal_(params) {
   if (!params) throw new Error("Parameter duplikasi tidak boleh kosong.");
   var sourceUnitId = params.sourceUnitId;
   var mode = params.mode || 'createNew';
@@ -2703,9 +3089,9 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
                "    \"uraian\": \"Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan.\"\n" +
                "  },\n" +
                "  \"analisisBebanKerja\": {\n" +
-               "    \"totalWaktuEfektifMenit\": 3600,\n" +
-               "    \"kebutuhanPegawaiIdeal\": 2.5,\n" +
-               "    \"formasiIdeal\": 3,\n" +
+               "    \"totalWaktuEfektifMenit\": 81000,\n" +
+               "    \"kebutuhanPegawaiIdeal\": 1.08,\n" +
+               "    \"formasiIdeal\": 1,\n" +
                "    \"catatan\": \"Ringkasan singkat dasar perhitungan beban kerja...\"\n" +
                "  }\n" +
                "}\n\n" +
@@ -2837,7 +3223,7 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
       throw new Error("Kunci API untuk provider " + activeProvider + " belum dikonfigurasi.");
     }
 
-    return callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt);
+    return callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt, ctx);
   }
 }
 
@@ -2933,7 +3319,7 @@ function testAiConnection_(data) {
   }
 }
 
-function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt) {
+function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt, ctx) {
   var payload = {
     model: modelName,
     messages: [
@@ -2984,6 +3370,13 @@ function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt) {
 // =============================================
 // DRAF AI PINTAR: KONTEKS OPD & VERIFIKASI FORMASI
 // =============================================
+
+// Regulasi TPP: satu jabatan layak TPP bila kumulatif waktu efektif seluruh
+// uraian tugas minimal 1.350 jam/tahun (beban kerja penuh); lebih dari itu tetap layak.
+// Padanan menit dipakai sebagai target tunggal server agar konsisten, baik OPD
+// memakai WKE 1250 jam/tahun (75000 menit) maupun satuan menit (72000 menit/tahun).
+var AMBANG_TPP_JAM_TAHUN = 1350;
+var AMBANG_TPP_MENIT_TAHUN = AMBANG_TPP_JAM_TAHUN * 60; // 81000 menit/tahun
 
 /**
  * Mengumpulkan konteks organisasi & beban kerja OPD untuk grounding prompt AI:
@@ -3116,12 +3509,34 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
       lines.push('Nomenklatur jabatan yang diakui (referensi):');
       lines = lines.concat(refLines);
     }
-    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja dan MAKSIMAL 480 menit (8 jam kerja) per hasil; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; formasiIdeal: jabatan STRUKTURAL (Pimpinan Tinggi/Administrator/Pengawas) WAJIB 1 orang saja, jabatan PELAKSANA/FUNSIONAL minimal 2 orang (atau lebih sesuai beban riil); pembulatan kebutuhan >= 1.5 dibulatkan ke atas.');
+    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja dan MAKSIMAL 480 menit (8 jam kerja) per hasil; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; AMBANG TPP WAJIB: kumulatif total waktu efektif seluruh tugasPokok (jumlahkan waktuPenyelesaian x jumlahHasil dari semua baris) HARUS minimal ' + AMBANG_TPP_MENIT_TAHUN + ' menit/tahun (1.350 jam/tahun) agar jabatan layak TPP — naikkan nilai jumlahHasil (volume) hingga kumulatifnya sedikit di atas ' + AMBANG_TPP_MENIT_TAHUN + ' menit; kumulatif yang lebih besar dari ambang tetap sah; formasiIdeal: jabatan STRUKTURAL (Pimpinan Tinggi/Administrator/Pengawas) WAJIB 1 orang saja, jabatan PELAKSANA/FUNSIONAL minimal 2 orang (atau lebih sesuai beban riil); pembulatan kebutuhan >= 1.5 dibulatkan ke atas.');
     ctx.promptBlock = lines.join('\n');
   } catch (eCtx) {
     ctx.promptBlock = '=== KONTEKS: Data organisasi tidak tersedia. Gunakan norma umum Permenpan RB 1/2020. ===';
   }
   return ctx;
+}
+
+// B3 (audit 2026-10-07): SSOT kebijakan pembulatan & batas formasi di server —
+// dipakai bersama oleh verifyFormasiIdeal_ (draf AI) dan saveABK_ (ABK tersimpan),
+// paritas dengan calculateFormasiPembulatan/applyFormasiBatas di src/lib/utils.ts.
+function calculateFormasiPembulatanServer_(totalKebutuhan) {
+  var val = Number(totalKebutuhan) || 0;
+  if (val <= 0) return 0;
+  if (val < 1.5) return 1;
+  return Math.round(val);
+}
+
+function applyFormasiBatasServer_(pembulatan, jenisJabatan) {
+  var val = Number(pembulatan) || 0;
+  var jenis = String(jenisJabatan || '').toLowerCase();
+  var isStruktural = jenis.indexOf('pimpinan tinggi') !== -1 || jenis.indexOf('administrator') !== -1 ||
+    jenis.indexOf('pengawas') !== -1 || jenis.indexOf('struktural') !== -1;
+  var isPelaksana = jenis.indexOf('pelaksana') !== -1;
+  var isFungsional = jenis.indexOf('fungsional') !== -1;
+  if (isStruktural) return val > 0 ? 1 : 0;
+  if ((isPelaksana || isFungsional) && val > 0 && val < 2) return 2;
+  return val;
 }
 
 /**
@@ -3169,21 +3584,44 @@ function verifyFormasiIdeal_(data, ctx) {
       totalWaktuEfektif += (Number(row.waktuPenyelesaian) || 0) * (Number(row.jumlahHasil) || 1);
     }
 
+    // === AMBANG TPP (regulasi): kumulatif waktu efektif seluruh uraian tugas
+    // minimal 1.350 jam/tahun (81000 menit/tahun) agar jabatan layak TPP.
+    // Bila draf AI di bawah ambang, volume (jumlahHasil) dinaikkan proporsional
+    // lalu didorong minimal per baris (waktu terbesar dulu) hingga mencapai ambang.
+    var catatanTpp = '';
+    if (totalWaktuEfektif > 0 && totalWaktuEfektif < AMBANG_TPP_MENIT_TAHUN) {
+      var faktorTpp = AMBANG_TPP_MENIT_TAHUN / totalWaktuEfektif;
+      for (var p = 0; p < data.tugasPokok.length; p++) {
+        var rTpp = data.tugasPokok[p] || {};
+        var jhTpp = Math.round((Number(rTpp.jumlahHasil) || 1) * faktorTpp);
+        rTpp.jumlahHasil = jhTpp < 1 ? 1 : jhTpp;
+        data.tugasPokok[p] = rTpp;
+      }
+      var totalTpp = 0, maxWaktuTpp = 0, idxMaxTpp = -1;
+      for (var q = 0; q < data.tugasPokok.length; q++) {
+        var rQ = data.tugasPokok[q] || {};
+        var wQ = Number(rQ.waktuPenyelesaian) || 0;
+        totalTpp += wQ * (Number(rQ.jumlahHasil) || 1);
+        if (wQ > maxWaktuTpp) { maxWaktuTpp = wQ; idxMaxTpp = q; }
+      }
+      var iterTpp = 0;
+      while (totalTpp < AMBANG_TPP_MENIT_TAHUN && idxMaxTpp >= 0 && maxWaktuTpp > 0 && iterTpp++ < 10000) {
+        data.tugasPokok[idxMaxTpp].jumlahHasil = (Number(data.tugasPokok[idxMaxTpp].jumlahHasil) || 1) + 1;
+        totalTpp += maxWaktuTpp;
+      }
+      totalWaktuEfektif = totalTpp;
+      catatanTpp = 'Kumulatif waktu efektif draf AI di bawah ambang TPP; volume hasil (jumlahHasil) dinaikkan proporsional hingga kumulatif minimal ' + AMBANG_TPP_JAM_TAHUN + ' jam/tahun (' + AMBANG_TPP_MENIT_TAHUN + ' menit) agar layak TPP.';
+    }
+
     var wke = (ctx && ctx.sumber && ctx.sumber.wkeReferensi > 0) ? ctx.sumber.wkeReferensi : 75000; // 1250 jam x 60
     var kebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
-    var formasi = 0;
-    if (kebutuhan > 0) formasi = kebutuhan < 1.5 ? 1 : Math.round(kebutuhan);
+    // B3: pembulatan lewat helper bersama (paritas dengan klien)
+    var formasi = calculateFormasiPembulatanServer_(kebutuhan);
 
     // === BATAS FORMASI PER JENIS JABATAN (keputusan pengguna) ===
     // Struktural (Pimpinan Tinggi & Administrator/Pengawas) selalu 1 orang: satu posisi satu pemangku.
     // Pelaksana & Fungsional: minimal 2 orang (bantuannya dari jabatan di atasnya di hierarki),
     // ke atas mengikuti hasil hitung kondisi riil (tanpa cap).
-    var jenis = String((data && data.jenisJabatan) || '').toLowerCase();
-    var isStruktural = jenis.indexOf('pimpinan tinggi') !== -1 || jenis.indexOf('administrator') !== -1 ||
-      jenis.indexOf('pengawas') !== -1 || jenis.indexOf('struktural') !== -1;
-    var isPelaksana = jenis.indexOf('pelaksana') !== -1;
-    var isFungsional = jenis.indexOf('fungsional') !== -1;
-
     var jenis = String((data && data.jenisJabatan) || (ctx && ctx.jenisJabatan) || '').toLowerCase();
     var isStruktural = jenis.indexOf('pimpinan tinggi') !== -1 || jenis.indexOf('administrator') !== -1 ||
       jenis.indexOf('pengawas') !== -1 || jenis.indexOf('struktural') !== -1;
@@ -3204,6 +3642,9 @@ function verifyFormasiIdeal_(data, ctx) {
     if (adaClampWaktu) {
       var clampNote = 'Waktu penyelesaian > 480 menit dibatasi 480 menit (maks 1 hari kerja per hasil kerja).';
       catatanBatas = catatanBatas ? clampNote + ' ' + catatanBatas : clampNote;
+    }
+    if (catatanTpp) {
+      catatanBatas = catatanBatas ? catatanBatas + ' ' + catatanTpp : catatanTpp;
     }
 
     var aiCatatan = (data.analisisBebanKerja && data.analisisBebanKerja.catatan) || '';
@@ -3690,11 +4131,10 @@ function readMultipleEntities_(entities) {
       var miss = misses[i];
       var res = responses[i];
       var allData = {};
-      if (res.getResponseCode() === 200) {
-        var text = res.getContentText();
-        if (text && text !== 'null') {
-          allData = JSON.parse(text);
-        }
+      assertFirebaseOk_(res, 'BULK-GET ' + miss.entity);
+      var text = res.getContentText();
+      if (text && text !== 'null') {
+        allData = JSON.parse(text);
       }
       
       if (miss.isCacheable && allData && Object.keys(allData).length > 0) {
@@ -3722,6 +4162,34 @@ function readMultipleEntities_(entities) {
   }
   
   return result;
+}
+
+// Reset isian & statistik Anjab (laporan 2026-10-07): record dihitung "berisi"
+// hanya bila punya konten nyata. Record kosong (hasil "Reset Isian" yang dulu
+// ditulis ulang sebagai record kosong) tidak lagi dihitung terisi oleh
+// getAnjabStatusSummary_, dan dihapus oleh saveBulkAnjabData_.
+function anjabRowHasContent_(row) {
+  if (!row || typeof row !== 'object') return false;
+  var meta = { jabatanId: 1, id: 1, createdAt: 1, updatedAt: 1 };
+  function hasValue(v) {
+    if (v == null) return false;
+    if (typeof v === 'string') return v.trim() !== '' && v !== '-';
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === 'object') {
+      var ks = Object.keys(v);
+      for (var j = 0; j < ks.length; j++) {
+        if (hasValue(v[ks[j]])) return true;
+      }
+      return false;
+    }
+    return true;
+  }
+  var keys = Object.keys(row);
+  for (var i = 0; i < keys.length; i++) {
+    if (meta[keys[i]]) continue;
+    if (hasValue(row[keys[i]])) return true;
+  }
+  return false;
 }
 
 function getAnjabStatusSummary_() {
@@ -3753,7 +4221,7 @@ function getAnjabStatusSummary_() {
     if (cData !== null && cData !== undefined) {
       Object.keys(cData).forEach(function(k) {
         var row = cData[k];
-        if (row && row.jabatanId) anjabFilledSet[row.jabatanId] = true;
+        if (row && row.jabatanId && anjabRowHasContent_(row)) anjabFilledSet[row.jabatanId] = true;
       });
     } else {
       misses.push({ entity: ent, cacheKey: cKey, path: p });
@@ -3770,16 +4238,15 @@ function getAnjabStatusSummary_() {
     for (var i = 0; i < requests.length; i++) {
       var miss = misses[i];
       var res = responses[i];
-      if (res.getResponseCode() === 200) {
-        var text = res.getContentText();
-        if (text && text !== 'null') {
-          var data = JSON.parse(text);
-          putLargeCache_(miss.cacheKey, data, 300);
-          Object.keys(data).forEach(function(k) {
-            var row = data[k];
-            if (row && row.jabatanId) anjabFilledSet[row.jabatanId] = true;
-          });
-        }
+      assertFirebaseOk_(res, 'SUMMARY-GET ' + miss.entity);
+      var text = res.getContentText();
+      if (text && text !== 'null') {
+        var data = JSON.parse(text);
+        putLargeCache_(miss.cacheKey, data, 300);
+        Object.keys(data).forEach(function(k) {
+          var row = data[k];
+          if (row && row.jabatanId && anjabRowHasContent_(row)) anjabFilledSet[row.jabatanId] = true;
+        });
       }
     }
   }
@@ -3938,6 +4405,7 @@ function restoreFullDatabase_(backupPayload, currentUser) {
 function logSecurityEvent_(eventObj) {
   try {
     fbPost_('security_logs', eventObj);
+    rotateSecurityLogs_();
   } catch (err) {
     Logger.log('Failed to log security event: ' + err.message);
   }
@@ -3957,8 +4425,13 @@ function checkSptOpd_(unitKerjaId) {
     return { success: false, hasSubmitted: false, message: 'Nama Unit Kerja / OPD tidak ditemukan.' };
   }
   var props = PropertiesService.getScriptProperties();
-  var sptUrl = props.getProperty('SPT_DIGITAL_URL') || 'https://script.google.com/macros/s/AKfycbwpg9HwsDrzEvox2SQyl6T3uJJvLO8z3OFA6zVu8wygVoPdbArMMp_Nc2LaqpLKsrRd/exec';
-  var sptToken = props.getProperty('SPT_DIGITAL_TOKEN') || 'sianjab_secure_token_abc123';
+  // A9 (audit 2026-10-07): fail-closed — tanpa fallback URL/token hardcoded.
+  // Bila properti belum diisi, integrasi gagal keras (konsisten INTEGRATION_TOKEN).
+  var sptUrl = props.getProperty('SPT_DIGITAL_URL');
+  var sptToken = props.getProperty('SPT_DIGITAL_TOKEN');
+  if (!sptUrl || !sptToken) {
+    throw new Error('Integrasi SPT Digital belum dikonfigurasi: SPT_DIGITAL_URL dan SPT_DIGITAL_TOKEN wajib diisi di Script Properties.');
+  }
   var checkUrl = sptUrl + '?action=checkSpt&opd=' + encodeURIComponent(opdName) + '&integrasi=SIANJAB&token=' + encodeURIComponent(sptToken);
   try {
     var response = UrlFetchApp.fetch(checkUrl, { muteHttpExceptions: true });

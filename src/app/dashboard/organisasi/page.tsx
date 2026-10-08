@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
 import { UnitKerja, ReferensiJabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -412,7 +413,7 @@ export default function OrganisasiPage() {
       await api.exportForSitpp();
       showToast("🚀 Data struktur berhasil dipublish! SiTPP sekarang menggunakan versi terbaru ini.");
     } catch (error) {
-      alert("Gagal mempublish: " + error);
+      alert("Gagal mempublish: " + getErrorMessage(error));
     }
     setIsSyncing(false);
   };
@@ -530,7 +531,7 @@ export default function OrganisasiPage() {
       }
       showToast(`✅ ${type} "${node.label}" berhasil dihapus.`);
     } catch (error) {
-      alert("Gagal menghapus: " + error);
+      alert("Gagal menghapus: " + getErrorMessage(error));
     }
   };
 
@@ -711,7 +712,7 @@ export default function OrganisasiPage() {
 
       setModalMode(null);
     } catch (error) {
-      alert("Gagal menyimpan: " + error);
+      alert("Gagal menyimpan: " + getErrorMessage(error));
     }
     setModalSaving(false);
   };

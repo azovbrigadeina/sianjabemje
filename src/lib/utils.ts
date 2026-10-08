@@ -3,6 +3,26 @@
  */
 
 /**
+ * Normalisasi pesan error menjadi string yang aman ditampilkan ke user.
+ * Mencegah toast/alert menampilkan "[object Object]" atau prefix "Error:".
+ */
+export function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const anyErr = err as { message?: unknown; error?: unknown };
+    if (typeof anyErr.message === "string" && anyErr.message) return anyErr.message;
+    if (typeof anyErr.error === "string" && anyErr.error) return anyErr.error;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+  return String(err);
+}
+
+/**
  * Returns current timestamp formatted to Western Indonesia Time (WIB)
  * Example output: "2026-06-24 12:05:30 WIB"
  */
@@ -31,7 +51,7 @@ export const getWibTimestamp = (): string => {
     const second = getPart("second");
     
     return `${year}-${month}-${day} ${hour}:${minute}:${second} WIB`;
-  } catch (err) {
+  } catch {
     // Basic fallback if Intl is not fully supported or throws an error
     const now = new Date();
     // UTC time + 7 hours for WIB
@@ -115,6 +135,14 @@ export function filterTreeNodes<T extends { label: string; children?: T[] }>(nod
   
   return filter(nodes);
 }
+
+/**
+ * B1 (audit 2026-10-07): satu sumber WKE default untuk seluruh aplikasi.
+ * 1250 jam/tahun = 75000 menit/tahun — paritas dengan verifyFormasiIdeal_
+ * di gas/Code.gs (draf AI) sehingga formasi ABK editor == formasi draf AI.
+ */
+export const WKE_DEFAULT_JAM = 1250;
+export const WKE_DEFAULT_MENIT = 75000;
 
 /**
  * Calculates formasi pembulatan for ABK:

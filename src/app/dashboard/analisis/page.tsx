@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes } from "@/lib/utils";
+import { filterTreeNodes, getErrorMessage } from "@/lib/utils";
 import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan } from "@/lib/types";
 
 import TabIdentitas from "./components/TabIdentitas";
@@ -304,7 +304,7 @@ export default function AnalisisPage() {
   const handleResetAnjab = async () => {
     if (!jabatanData) return;
     const confirmReset = window.confirm(
-      `Apakah Anda yakin ingin me-reset seluruh isian jabatan "${jabatanData.namaJabatan}"? \n\nTindakan ini akan mengosongkan seluruh data yang diinput manual (Tugas Pokok, Bahan/Perangkat Kerja, Syarat Jabatan, dll) dan menyisakan data bawaan yang terisi otomatis. Tindakan ini tidak dapat dibatalkan.`
+      `Apakah Anda yakin ingin me-reset seluruh isian jabatan "${jabatanData.namaJabatan}"? \n\nTindakan ini akan menghapus seluruh isian (Tugas Pokok, Kualifikasi, Syarat Jabatan, Bahan/Perangkat Kerja, Hasil Kerja, dll) sampai ke record-nya, sehingga jabatan kembali dihitung BELUM terisi pada statistik Anjab. Tindakan ini tidak dapat dibatalkan.`
     );
     if (!confirmReset) return;
 
@@ -658,7 +658,7 @@ export default function AnalisisPage() {
     }).then(() => {
       showToast("✅ Identitas berhasil disimpan permanen");
     }).catch(err => {
-      showToast("❌ Gagal menyimpan identitas: " + err);
+      showToast("❌ Gagal menyimpan identitas: " + getErrorMessage(err));
     });
   };
 
@@ -672,7 +672,7 @@ export default function AnalisisPage() {
       await api.saveMultiEntity('tugasPokok', jabatanData.id, tugas);
       showToast("✅ Tugas pokok berhasil disimpan");
     } catch (err) {
-      showToast("❌ Gagal menyimpan tugas: " + err);
+      showToast("❌ Gagal menyimpan tugas: " + getErrorMessage(err));
     }
   };
 
@@ -687,7 +687,7 @@ export default function AnalisisPage() {
       await api.saveSingleEntity('kualifikasi', jabatanData.id, data);
       showToast("✅ Kualifikasi berhasil disimpan");
     } catch (err) {
-      showToast("❌ Gagal menyimpan kualifikasi: " + err);
+      showToast("❌ Gagal menyimpan kualifikasi: " + getErrorMessage(err));
     }
   };
 
@@ -702,7 +702,7 @@ export default function AnalisisPage() {
       await api.saveSingleEntity('hasilKerja', jabatanData.id, { uraian });
       showToast("✅ Hasil kerja berhasil disimpan");
     } catch (err) {
-      showToast("❌ Gagal menyimpan hasil kerja: " + err);
+      showToast("❌ Gagal menyimpan hasil kerja: " + getErrorMessage(err));
     }
   };
 
@@ -716,7 +716,7 @@ export default function AnalisisPage() {
       await api.saveMultiEntity(entity, jabatanData.id, rows);
       showToast(`✅ ${entity} berhasil disimpan`);
     } catch (err) {
-      showToast(`❌ Gagal menyimpan ${entity}: ${err}`);
+      showToast(`❌ Gagal menyimpan ${entity}: ${getErrorMessage(err)}`);
     }
   };
 
@@ -731,7 +731,7 @@ export default function AnalisisPage() {
       await api.saveSingleEntity('syaratJabatan', jabatanData.id, data);
       showToast("✅ Syarat jabatan berhasil disimpan");
     } catch (err) {
-      showToast("❌ Gagal menyimpan syarat: " + err);
+      showToast("❌ Gagal menyimpan syarat: " + getErrorMessage(err));
     }
   };
 
@@ -746,7 +746,7 @@ export default function AnalisisPage() {
       await api.saveSingleEntity('prestasiKerja', jabatanData.id, { uraian });
       showToast("✅ Prestasi kerja berhasil disimpan");
     } catch (err) {
-      showToast("❌ Gagal menyimpan prestasi: " + err);
+      showToast("❌ Gagal menyimpan prestasi: " + getErrorMessage(err));
     }
   };
 

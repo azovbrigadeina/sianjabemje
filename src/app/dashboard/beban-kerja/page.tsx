@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
+import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from "@/lib/utils";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -39,7 +39,7 @@ type ABKData = {
   formasiPembulatan: number;
 };
 
-const WKE_DEFAULT = 72000; // menit per tahun
+// B1 (audit 2026-10-07): konstanta WKE pindah ke @/lib/utils (satu sumber)
 
 export default function BebanKerjaPage() {
   const [mode, setMode] = useState<'tree' | 'editor'>('tree');
@@ -67,7 +67,7 @@ export default function BebanKerjaPage() {
   // ABK data
   const [abkRows, setAbkRows] = useState<ABKRow[]>([]);
   const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('jam');
-  const [wke, setWke] = useState(1250);
+  const [wke, setWke] = useState(WKE_DEFAULT_JAM);
   const [anjabStatus, setAnjabStatus] = useState<'none' | 'partial' | 'done'>('none');
   const [anjabTasks, setAnjabTasks] = useState<{ uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[]>([]);
 
@@ -320,7 +320,7 @@ export default function BebanKerjaPage() {
       if (abkData && abkData.rows && abkData.rows.length > 0) {
         setAbkRows(abkData.rows);
         setWaktuSatuan(abkData.waktuSatuan || 'jam');
-        setWke(abkData.wke || (abkData.waktuSatuan === 'menit' ? 72000 : 1250));
+        setWke(abkData.wke || (abkData.waktuSatuan === 'menit' ? WKE_DEFAULT_MENIT : WKE_DEFAULT_JAM));
       } else {
         const initRows: ABKRow[] = tugasPokok.map(t => ({
           tugas: t.uraianTugas || '',
@@ -329,9 +329,9 @@ export default function BebanKerjaPage() {
           volume: t.jumlahHasil || 0
         }));
         setAbkRows(initRows);
-        // Data berasal dari Anjab (satuan menit sesuai prompt draf AI) -> gunakan menit/WKE 72000
+        // Data berasal dari Anjab (satuan menit sesuai prompt draf AI) -> WKE default dari satu sumber
         setWaktuSatuan('menit');
-        setWke(72000);
+        setWke(WKE_DEFAULT_MENIT);
       }
     } catch (err) {
       showToast("❌ Gagal memuat data beban kerja");
@@ -635,17 +635,17 @@ export default function BebanKerjaPage() {
                   <div style={{ fontSize: '0.9rem', opacity: 0.8, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span><strong>WKE:</strong></span>
                     <input type="number" className={styles.editableInput} value={wke}
-                      onChange={(e) => setWke(parseInt(e.target.value) || (waktuSatuan === 'jam' ? 1250 : 72000))}
+                      onChange={(e) => setWke(Number(e.target.value) || (waktuSatuan === 'jam' ? WKE_DEFAULT_JAM : WKE_DEFAULT_MENIT))}
                       style={{ width: '100px' }} />
                     <select className={styles.editableInput} style={{ width: '130px', cursor: 'pointer' }}
                       value={waktuSatuan} onChange={(e) => {
                         const val = e.target.value as 'jam' | 'menit';
                         if (val !== waktuSatuan) {
                           setWaktuSatuan(val);
-                          setWke(val === 'jam' ? 1250 : 72000);
+                          setWke(val === 'jam' ? WKE_DEFAULT_JAM : WKE_DEFAULT_MENIT);
                           setAbkRows(prev => prev.map(r => ({
                             ...r,
-                            waktu: val === 'menit' ? Math.round(r.waktu * 60) : Math.round((r.waktu / 60) * 100) / 100
+                            waktu: val === 'menit' ? Math.round(r.waktu * 60) : Math.round((r.waktu / 60) * 10000) / 10000
                           })));
                         }
                       }}>
@@ -676,7 +676,7 @@ export default function BebanKerjaPage() {
                             volume: t.jumlahHasil || 0
                           })));
                           setWaktuSatuan('menit');
-                          setWke(72000);
+                          setWke(WKE_DEFAULT_MENIT);
                           showToast("✅ Berhasil menarik data dari Anjab");
                           setAlertModal({
                             title: "Berhasil",
@@ -764,9 +764,9 @@ export default function BebanKerjaPage() {
                               <td><input type="text" className={styles.editableInput} value={row.satuan}
                                 onChange={(e) => handleUpdateRow(idx, 'satuan', e.target.value)} /></td>
                               <td><input type="number" className={styles.editableInput} value={row.waktu}
-                                onChange={(e) => handleUpdateRow(idx, 'waktu', parseInt(e.target.value) || 0)} /></td>
+                                onChange={(e) => handleUpdateRow(idx, 'waktu', Number(e.target.value) || 0)} /></td>
                               <td><input type="number" className={styles.editableInput} value={row.volume}
-                                onChange={(e) => handleUpdateRow(idx, 'volume', parseInt(e.target.value) || 0)} /></td>
+                                onChange={(e) => handleUpdateRow(idx, 'volume', Number(e.target.value) || 0)} /></td>
                               <td style={{ textAlign: 'center', fontWeight: 500 }}>{waktuEfektif.toLocaleString('id-ID')}</td>
                               <td className={styles.resultCell}>{kebutuhan.toFixed(4)}</td>
                               <td style={{ textAlign: 'center' }}>

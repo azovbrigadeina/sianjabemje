@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import { UnitKerja, ReferensiJabatan } from "@/lib/types";
 
@@ -428,7 +429,7 @@ export default function OperatorOrganisasiPage() {
       await api.exportForSitpp();
       showToast("🚀 Data struktur berhasil dipublish! SiTPP sekarang menggunakan versi terbaru ini.");
     } catch (error) {
-      alert("Gagal publish ke SiTPP: " + error);
+      alert("Gagal publish ke SiTPP: " + getErrorMessage(error));
     }
     setIsSyncing(false);
   };
@@ -514,7 +515,7 @@ export default function OperatorOrganisasiPage() {
       }
       showToast(`✅ ${type} "${node.label}" berhasil dihapus.`);
     } catch (error) {
-      alert("Gagal menghapus: " + error);
+      alert("Gagal menghapus: " + getErrorMessage(error));
     }
   };
 
@@ -700,7 +701,7 @@ export default function OperatorOrganisasiPage() {
         }));
       }
     } catch (error) {
-      alert("Gagal menyimpan: " + error);
+      alert("Gagal menyimpan: " + getErrorMessage(error));
     }
     setModalSaving(false);
   };

@@ -29,7 +29,7 @@ interface CacheEntry {
 
 // In-memory cache (fast primary)
 const API_CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3 menit
+const CACHE_TTL_MS = 90 * 1000; // 90 detik (dikecilkan 2x dari 3 menit agar data lebih segar)
 
 const DB_NAME = 'sianjab_cache_db';
 const STORE_NAME = 'api_cache';
@@ -269,6 +269,9 @@ function getAuthToken(): string {
 
 // Queue hanya untuk WRITE operations (serialize writes, parallelkan reads)
 let writeQueuePromise = Promise.resolve();
+
+// Dedup ping warm-up: cegah request ganda saat React StrictMode / remount UserProvider
+let lastWarmUpAt = 0;
 
 // In-flight deduplication untuk GET requests (cegah duplicate fetch yang sama)
 const inFlightRequests = new Map<string, Promise<unknown>>();
@@ -746,8 +749,22 @@ export const api = {
       { params: { unitKerjaId } }
     ),
 
+  // A8 (audit 2026-10-07): cabut token di server saat logout (best-effort).
+  // Pemanggil (UserContext) wajib memanggil ini SEBELUM cookie dihapus.
+  logout: () => {
+    if (typeof window === 'undefined') return;
+    const authToken = getAuthToken();
+    if (!authToken) return;
+    const activeYear = getActiveYear();
+    const url = `${API_BASE}?action=logout&tahun=${activeYear}&token=${encodeURIComponent(authToken)}`;
+    fetch(url, { method: 'GET', redirect: 'follow' }).catch(() => {});
+  },
+
   warmUpGas: () => {
     if (typeof window === 'undefined') return;
+    const now = Date.now();
+    if (now - lastWarmUpAt < CACHE_TTL_MS) return; // baru saja di-warm-up, jangan gandakan request
+    lastWarmUpAt = now;
     const activeYear = getActiveYear();
     const url = `${API_BASE}?action=ping&tahun=${activeYear}`;
     fetch(url, { method: 'GET', redirect: 'follow' })
