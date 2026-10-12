@@ -136,30 +136,20 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
 
         {/* Content */}
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
-            💡 <strong>Info {BRANDING.shortName}:</strong> Satuan waktu yang digunakan adalah <strong>jam dalam satu tahun</strong>. Konversi dari menit: 60 menit = 1 jam, sehingga 100 menit = 1,67 jam. Contoh: mengelompokkan 1 dokumen 5 menit = 0,08 jam; menyusun 1 laporan 90 menit = 1,5 jam.
-            <br />Rumus: <strong>Kebutuhan Pegawai = Waktu (jam) × Volume per tahun ÷ 1250</strong> (jam kerja efektif satu tahun); Pembulatan Formasi dari kebutuhan total.
-          </div>
-
-          {/* Settings Bar — konsep tunggal: jam satu tahun, tanpa istilah WKE */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+          <div style={{
+            backgroundColor: '#eef2ff', border: '1.5px dashed #818cf8', borderRadius: '12px',
+            padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#3730a3', lineHeight: 1.5,
+            display: 'flex', gap: '0.6rem', alignItems: 'flex-start'
+          }}>
+            <span style={{ fontSize: '1.2rem', lineHeight: 1.2 }}>💡</span>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>Satuan Waktu</label>
-              <input 
-                type="text"
-                readOnly
-                value="Jam dalam satu tahun"
-                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#f1f5f9', color: '#64748b' }} 
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>Pembagi Tahunan (fix)</label>
-              <input 
-                type="text"
-                readOnly
-                value="1250 jam kerja efektif"
-                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#f1f5f9', color: '#64748b' }} 
-              />
+              <strong>Cara mengisi:</strong> isi kolom <strong>Waktu (Jam)</strong> dengan perkiraan <em>berapa lama waktu yang dibutuhkan untuk menyelesaikan satu satuan hasil kerja</em>, dalam jam.
+              <div style={{ marginTop: '0.35rem', background: '#ffffff', border: '1px solid #c7d2fe', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+                📘 Contoh: tugas mengelola dokumen — dalam setahun ada 400 dokumen (kolom Volume/Thn diisi 400), dan menyelesaikan satu dokumen butuh 3 jam, maka kolom Waktu diisi <strong>3</strong>.
+              </div>
+              <div style={{ marginTop: '0.35rem' }}>
+                Seluruh uraian tugas dijumlahkan menjadi <strong>kebutuhan pegawai</strong> yang dibutuhkan jabatan ini (pembagi tetap 1250 jam/tahun).
+              </div>
             </div>
           </div>
 

@@ -614,8 +614,48 @@ export default function BebanKerjaPage() {
             </button>
             <div className={styles.mainPanel}>
               <div className={styles.panelHeader}>
-            <div className={styles.panelHeaderContent}>
+            <div className={styles.panelHeaderContent} style={{ justifyContent: 'space-between', alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
               <span className={styles.jobBadge}>{activeJobData?.eselon || "Jabatan"}</span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginRight: '2.75rem' }}>
+                <button className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  onClick={async () => {
+                    if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
+                      const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
+                      const tp = fullData?.tugasPokok || [];
+                      if (tp.length === 0) {
+                        showToast("⚠️ Anjab masih kosong!");
+                        setAlertModal({
+                          title: "Perhatian",
+                          message: "Anjab masih kosong!",
+                          type: "warning"
+                        });
+                        return;
+                      }
+                      // Konsep tunggal: satuan draf AI = menit, tapi ABK WAJIB jam
+                      // (WKE 1250). Konversi menit -> jam agar tidak inflasi 60x.
+                      setAbkRows(tp.map(t => ({
+                        tugas: t.uraianTugas || '',
+                        satuan: t.hasilKerja || '',
+                        waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
+                        volume: t.jumlahHasil || 0
+                      })));
+                      setWaktuSatuan('jam');
+                      setWke(WKE_DEFAULT_JAM);
+                      showToast("✅ Berhasil menarik data dari Anjab");
+                      setAlertModal({
+                        title: "Berhasil",
+                        message: "Tarik Anjab berhasil",
+                        type: "success"
+                      });
+                    }
+                  }}>🔄 Tarik Anjab</button>
+                <button className="btn-primary" style={{ padding: '5px 12px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}
+                  onClick={handleAddRow}>+ Baris</button>
+                <button className="btn-primary" style={{ padding: '5px 12px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}
+                  onClick={handleSave} disabled={saving}>
+                  {saving ? '...' : '💾 Simpan'}
+                </button>
+              </div>
             </div>
             <div className={styles.jobTitle}>{activeJobData?.label || "— Pilih Jabatan —"}</div>
             {activeJob && (
@@ -637,56 +677,19 @@ export default function BebanKerjaPage() {
               <>                <div className={styles.actionRow}>
                   <div style={{ fontSize: '0.9rem', opacity: 0.8, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     {/* Konsep tunggal: satuan jam per tahun; tanpa istilah WKE */}
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <strong>Satuan:</strong>
-                      <span style={{ fontWeight: 600 }}>Jam dalam satu tahun</span>
-                      <span
-                        title="Petunjuk konversi menit ke jam: 60 menit = 1 jam, jadi 100 menit = 100/60 = 1,67 jam. Contoh kewajaran: mengelompokkan 1 dokumen memakan 5 menit = 0,083 jam; selesainya 1 laporan memakan 90 menit = 1,5 jam. Kolom Kebutuhan Pegawai = Waktu (jam) x Volume per tahun dibagi 1250 (jam kerja efektif satu tahun)."
-                        style={{ cursor: 'help', display: 'inline-flex', background: '#eef2ff', color: '#4338ca', borderRadius: '999px', fontSize: '0.75rem', padding: '0.1rem 0.55rem', border: '1px solid #c7d2fe' }}
-                      >ⓘ konversi 100 menit = 1,67 jam</span>
-                    </span>
-
-
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <button className="btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer' }}
-                      onClick={async () => {
-                        if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
-                          const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
-                          const tp = fullData?.tugasPokok || [];
-                          if (tp.length === 0) {
-                            showToast("⚠️ Anjab masih kosong!");
-                            setAlertModal({
-                              title: "Perhatian",
-                              message: "Anjab masih kosong!",
-                              type: "warning"
-                            });
-                            return;
-                          }
-                          // Konsep tunggal: satuan draf AI = menit, tapi ABK WAJIB jam
-                          // (WKE 1250). Konversi menit -> jam agar tidak inflasi 60x.
-                          setAbkRows(tp.map(t => ({
-                            tugas: t.uraianTugas || '',
-                            satuan: t.hasilKerja || '',
-                            waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
-                            volume: t.jumlahHasil || 0
-                          })));
-                          setWaktuSatuan('jam');
-                          setWke(WKE_DEFAULT_JAM);
-                          showToast("✅ Berhasil menarik data dari Anjab");
-                          setAlertModal({
-                            title: "Berhasil",
-                            message: "Tarik Anjab berhasil",
-                            type: "success"
-                          });
-                        }
-                      }}>🔄 Tarik dari Anjab</button>
-                    <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                      onClick={handleAddRow}>+ Tambah Baris</button>
-                    <button className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                      onClick={handleSave} disabled={saving}>
-                      {saving ? 'Menyimpan...' : '💾 Simpan'}
-                    </button>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '0.6rem',
+                      background: 'linear-gradient(90deg, #eef2ff 0%, #f5f3ff 100%)',
+                      border: '1.5px dashed #818cf8', borderRadius: '12px',
+                      padding: '0.55rem 0.9rem', fontSize: '0.82rem', color: '#3730a3',
+                    }}>
+                      <span style={{ fontSize: '1.15rem' }}>💡</span>
+                      <span>
+                        <strong>Cara mengisi:</strong> lihat kolom <em>Volume / Tahun</em> (jumlah hasil kerja selama setahun), lalu perkirakan <em>berapa lama waktu yang dibutuhkan untuk menyelesaikan satu hasil kerja tersebut</em>, tuliskan di kolom <em>Waktu</em> dalam jam.
+                        <br />Contoh: tugas mengelola dokumen — dalam setahun ada 400 dokumen (volume 400), dan menyelesaikan satu dokumen butuh 3 jam, maka Waktu diisi <strong>3</strong>.
+                        <br />Semakin banyak uraian tugas semakin besar total beban — jumlah akhir otomatis dihitung sebagai <strong>kebutuhan pegawai</strong> (pembagi tetap 1250 jam/tahun).
+                      </span>
+                    </div>
                   </div>
                 </div>
 
