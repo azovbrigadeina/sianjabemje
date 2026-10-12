@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan, applyFormasiBatas, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
 import { BRANDING } from "@/config/branding";
 
@@ -21,19 +21,20 @@ export type ABKRow = {
 };
 
 export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: QuickAbkModalProps) {
-  // B1 (audit 2026-10-07): default WKE dari satu sumber (75000 menit = 1250 jam)
-  const [wke, setWke] = useState<number>(WKE_DEFAULT_MENIT);
-  const [waktuSatuan, setWaktuSatuan] = useState<'jam' | 'menit'>('menit');
+  // Konsep tunggal: satuan jam, WKE fix 1250 (tidak dapat diubah)
+  const [wke] = useState<number>(WKE_DEFAULT_JAM);
+  const [waktuSatuan] = useState<'jam' | 'menit'>('jam');
   const [rows, setRows] = useState<ABKRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     if (isOpen && jabatan) {
+      // Konsep tunggal: satuan Anjab = menit -> dikonversi ke jam (÷60)
       const initialRows: ABKRow[] = (jabatan.tugasPokok || []).map((tp) => ({
         tugas: tp.uraianTugas || "-",
         satuan: tp.hasilKerja || "Dokumen",
-        waktu: Number(tp.waktuPenyelesaian) || 0,
+        waktu: Math.round(((Number(tp.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
         volume: Number(tp.jumlahHasil) || 0,
       }));
 
@@ -43,9 +44,12 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
           if (!isMounted) return;
           const abkData = res?.data || res;
           if (abkData && abkData.rows && Array.isArray(abkData.rows) && abkData.rows.length > 0) {
-            setRows(abkData.rows);
-            if (abkData.wke) setWke(Number(abkData.wke));
-            if (abkData.waktuSatuan) setWaktuSatuan(abkData.waktuSatuan);
+            // Konsep tunggal (jam): bila data lama memakai menit, konversi ke jam saat dimuat
+            const isLegacyMenit = abkData.waktuSatuan === 'menit';
+            setRows(abkData.rows.map((r: ABKRow) => ({
+              ...r,
+              waktu: isLegacyMenit ? Math.round(((Number(r.waktu) || 0) / 60) * 10000) / 10000 : r.waktu
+            })));
           } else {
             setRows(initialRows);
           }
@@ -69,15 +73,9 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
     });
   };
 
-  const calculateWaktuEfektif = (waktu: number, volume: number) => {
-    return waktu * volume;
-  };
+  const calculateWaktuEfektif = (waktu: number, volume: number) => hitungWaktuEfektif(waktu, volume);
 
-  const calculateKebutuhan = (waktu: number, volume: number) => {
-    const waktuEfektif = calculateWaktuEfektif(waktu, volume);
-    if (wke <= 0) return 0;
-    return waktuEfektif / wke;
-  };
+  const calculateKebutuhan = (waktu: number, volume: number) => hitungKebutuhanPegawai(waktu, volume, wke);
 
   const totalWaktuEfektif = rows.reduce((acc, r) => acc + calculateWaktuEfektif(r.waktu, r.volume), 0);
   const totalKebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
@@ -139,35 +137,29 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
         {/* Content */}
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
-            💡 <strong>Info {BRANDING.shortName}:</strong> Dokumen Anjab & ABK merupakan satu kesatuan laporan. Mohon verifikasi WKE dan volume beban kerja di bawah ini untuk menghasilkan dokumen laporan yang sah.
+            💡 <strong>Info {BRANDING.shortName}:</strong> Satuan waktu yang digunakan adalah <strong>jam dalam satu tahun</strong>. Konversi dari menit: 60 menit = 1 jam, sehingga 100 menit = 1,67 jam. Contoh: mengelompokkan 1 dokumen 5 menit = 0,08 jam; menyusun 1 laporan 90 menit = 1,5 jam.
+            <br />Rumus: <strong>Kebutuhan Pegawai = Waktu (jam) × Volume per tahun ÷ 1250</strong> (jam kerja efektif satu tahun); Pembulatan Formasi dari kebutuhan total.
           </div>
 
-          {/* Settings Bar */}
+          {/* Settings Bar — konsep tunggal: jam satu tahun, tanpa istilah WKE */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>WKE (Waktu Kerja Efektif / Tahun)</label>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>Satuan Waktu</label>
               <input 
-                type="number" 
-                value={wke} 
-                onChange={(e) => setWke(Number(e.target.value))} 
-                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem' }} 
+                type="text"
+                readOnly
+                value="Jam dalam satu tahun"
+                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#f1f5f9', color: '#64748b' }} 
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>Satuan Norma Waktu</label>
-              <select 
-                value={waktuSatuan} 
-                onChange={(e) => {
-                  const newSat = e.target.value as 'jam' | 'menit';
-                  setWaktuSatuan(newSat);
-                  if (newSat === 'menit' && wke === WKE_DEFAULT_JAM) setWke(WKE_DEFAULT_MENIT);
-                  else if (newSat === 'jam' && wke === WKE_DEFAULT_MENIT) setWke(WKE_DEFAULT_JAM);
-                }}
-                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem' }}
-              >
-                <option value="jam">Jam / Tahun (Standar: 1250 Jam)</option>
-                <option value="menit">Menit / Tahun (Standar: 75000 Menit)</option>
-              </select>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '0.3rem' }}>Pembagi Tahunan (fix)</label>
+              <input 
+                type="text"
+                readOnly
+                value="1250 jam kerja efektif"
+                style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#f1f5f9', color: '#64748b' }} 
+              />
             </div>
           </div>
 
@@ -179,9 +171,10 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
                   <th style={{ padding: '0.65rem 0.75rem', width: '40px', textAlign: 'center' }}>No</th>
                   <th style={{ padding: '0.65rem 0.75rem' }}>Uraian Tugas Pokok</th>
                   <th style={{ padding: '0.65rem 0.75rem', width: '100px' }}>Satuan</th>
-                  <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }}>Waktu ({waktuSatuan})</th>
+                  <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }}>Waktu (Jam)</th>
+                  {/* kolom beban kerja tahunan */}
                   <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }}>Volume / Thn</th>
-                  <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }}>Waktu Efektif</th>
+                  <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }} title="Waktu × Volume per tahun = beban kerja tahunan uraian ini">Beban Kerja/Tahun (jam)</th>
                   <th style={{ padding: '0.65rem 0.75rem', width: '110px', textAlign: 'center' }}>Kebutuhan</th>
                 </tr>
               </thead>

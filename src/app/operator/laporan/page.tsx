@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "../../dashboard/laporan/page.module.css";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan, applyFormasiBatas } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, WKE_DEFAULT_JAM } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
 
@@ -256,10 +256,10 @@ export default function OperatorLaporanPage() {
         } else {
           const tp = j.tugasPokok || [];
           tp.forEach(t => {
-            const we = (t.waktuPenyelesaian || 0) * (t.jumlahHasil || 0);
+            const we = hitungWaktuEfektif(t.waktuPenyelesaian || 0, t.jumlahHasil || 0);
             totalWaktuEfektif += we;
           });
-          kebutuhanPegawai = totalWaktuEfektif / 1250;
+          kebutuhanPegawai = totalWaktuEfektif / WKE_DEFAULT_JAM;
           pembulatanFormasi = applyFormasiBatas(calculateFormasiPembulatan(kebutuhanPegawai), j.jenisJabatan || "");
         }
 

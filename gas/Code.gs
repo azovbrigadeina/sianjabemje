@@ -2361,14 +2361,26 @@ function saveABK_(jabatanId, data) {
   // (sumber kebenaran) — angka kirim-an klien ditimpa. Kebutuhan = rasio waktu
   // efektif / WKE sehingga konsisten di satuan 'jam' maupun 'menit'; formasi
   // memakai batas yang sama dengan draf AI (SSOT kebijakan formasi di server).
+  // Konsep TUNGGAL (keputusan pengguna): satuan waktu ABK selalu JAM dan
+  // WKE fix 1250 jam/tahun. Rumus: kebutuhan per baris = waktu × volume ÷ 1250;
+  // total = penjumlahan seluruh baris; formasi = pembulatan total.
+  // Data legacy satuan menit dinormalisasi ke jam (÷ 60) di server.
+  var WKE_FIX_JAM_ = 1250;
   var rows = Array.isArray(data.rows) ? data.rows : [];
   var totalWaktuEfektif = 0;
+  var isLegacyMenit = String(data.waktuSatuan) === 'menit';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i] || {};
-    totalWaktuEfektif += (Number(r.waktu) || 0) * (Number(r.volume) || 0);
+    var waktuR = Number(r.waktu) || 0;
+    if (isLegacyMenit && waktuR > 0) {
+      waktuR = Math.round(waktuR / 60 * 10000) / 10000;
+      rows[i].waktu = waktuR; // normalisasi tersimpan: jam
+    }
+    totalWaktuEfektif += waktuR * (Number(r.volume) || 0);
   }
-  var wke = Number(data.wke) || 0;
-  var kebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
+  data.waktuSatuan = 'jam'; // satuan tunggal
+  var wke = WKE_FIX_JAM_;
+  var kebutuhan = totalWaktuEfektif / wke;
 
   var jenis = '';
   try {
@@ -4452,6 +4464,241 @@ function checkSptOpd_(unitKerjaId) {
   } catch (err) {
     return { success: false, hasSubmitted: false, message: 'Gagal menghubungi server SPT Digital: ' + err.toString() };
   }
+}
+
+// =============================================
+// MIGRASI WKE ABK LAMA -> STANDAR 1250 JAM (75000 MENIT)
+// =============================================
+/**
+ * Migrasi data ABK lama yang memakai WKE non-standar (mis. 72000 menit atau
+ * nilai di luar 1250 jam/75000 menit) agar seluruh histori berhitung dengan
+ * WKE standar. Logika (sesuai rumus kebijakan: waktu efektif = waktu × volume):
+ *  - Satuan menit: WKE diubah ke 75000. totalWaktuEfektif (menit) TIDAK diubah
+ *    (waktu × volume adalah fakta riil, bukan hasil WKE). Total kebutuhan
+ *    dihitung ulang = totalWaktuEfektif / 75000; formasi pembulatan dihitung
+ *    ulang lalu menerapkan batas jenis jabatan (struktural = 1; pelaksana /
+ *    fungsional min 2).
+ *  - Satuan jam: WKE diubah ke 1250 bila berbeda; total & kebutuhan dihitung
+ *    ulang dengan cara yang sama (total dalam jam / 1250).
+ *  - ABK tanpa satuan dianggap 'menit' bila wke besar (>=1000) atau 'jam'
+ *    bila wke kecil, mengikuti konvensi aplikasi.
+ * Fungsi ini HANYA dipanggil manual dari editor Apps Script (bukan via
+ * doGet/doPost), wajib dijalankan dry-run dulu: migrateOldAbkWke_(true).
+ */
+function migrateOldAbkWke_(dryRun) {
+  var startMs = Date.now();
+  var timeoutMs = 5 * 60 * 1000; // guard kuota eksekusi 6 menit
+  var tahunList = [2026, 2025]; // ABK adalah entity per-tahun
+  var ringkasan = {
+    dryRun: !!dryRun,
+    tahunSaatIni: CURRENT_TAHUN,
+    perTahun: {},
+    totalKena: 0
+  };
+
+  for (var t = 0; t < tahunList.length; t++) {
+    var tahun = tahunList[t];
+    if (Date.now() - startMs > timeoutMs) {
+      Logger.log('TIMEOUT guard: hentikan sebelum tahun ' + tahun);
+      break;
+    }
+    var path = tahun + '/abk';
+    var all;
+    try {
+      all = fbGet_(path);
+    } catch (eGet) {
+      // Tahun belum punya data abk -> skip
+      Logger.log('Tahun ' + tahun + ': tidak ada data abk (skip). ' + eGet.message);
+      continue;
+    }
+    if (!all) {
+      Logger.log('Tahun ' + tahun + ': kosong (skip).');
+      continue;
+    }
+
+    var updatePayload = {}; // PATCH multipath dalam satu request
+    var count = 0;
+    var detail = {
+      wke72000: 0,
+      wke1350: 0,
+      wkeLain: 0,
+      sudahStandar: 0,
+      patched: 0
+    };
+
+    for (var id in all) {
+      if (!Object.prototype.hasOwnProperty.call(all, id)) continue;
+      var abk = all[id];
+      if (!abk || typeof abk !== 'object') continue;
+      if (Date.now() - startMs > timeoutMs) break;
+
+      var wkeLama = Number(abk.wke) || 0;
+      var satuan = String(abk.waktuSatuan || (wkeLama >= 1000 ? 'menit' : 'jam'));
+      var wkeStandar = satuan === 'menit' ? 75000 : 1250;
+
+      // Sudah standar? lewati (tidak menyentuh data yang sudah sesuai)
+      if (wkeLama === wkeStandar && abk.kategori === 'pegawai') {
+        detail.sudahStandar++; continue;
+      }
+
+      var rows = Array.isArray(abk.rows) ? abk.rows : [];
+      var totalWaktuEfektif = 0;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i] || {};
+        totalWaktuEfektif += (Number(r.waktu) || 0) * (Number(r.volume) || 0);
+      }
+      var kebutuhan = wkeStandar > 0 ? totalWaktuEfektif / wkeStandar : 0;
+
+      var jenis = '';
+      try {
+        var jbt = fbGet_(tahun + '/jabatan/' + id);
+        if (jbt && jbt.jenisJabatan) jenis = jbt.jenisJabatan;
+      } catch (eJ) { /* jenis tidak tersedia -> tanpa batas khusus */ }
+
+      var kategori = getKategoriServer_(jenis); // 'struktural' | 'fungsional' | 'pelaksana' | 'lainnya'
+      var pembulatan = kebutuhan > 0 ? (kebutuhan < 1.5 ? 1 : Math.round(kebutuhan)) : 0;
+      if (kategori === 'struktural') { pembulatan = pembulatan > 0 ? 1 : 0; }
+      else if ((kategori === 'pelaksana' || kategori === 'fungsional') && pembulatan > 0 && pembulatan < 2) { pembulatan = 2; }
+
+      var catatanMigrasi = '[Migrasi WKE ' + (dryRun ? '[DRY-RUN]' : '') + ': ' + wkeLama + ' -> ' + wkeStandar + ' (' + satuan + ')] ';
+      var patch = {
+        wke: wkeStandar,
+        waktuSatuan: satuan,
+        totalWaktuEfektif: totalWaktuEfektif,
+        totalKebutuhan: kebutuhan,
+        formasiPembulatan: pembulatan,
+        kategori: 'pegawai',
+        catatanMigrasiWke: catatanMigrasi + 'total kebutuhan ' + Math.round(kebutuhan * 10000) / 10000 + ', formasi ' + pembulatan +
+          '. Baris tugas & volume TIDAK diubah - hanya rumus penyebut yang dinormalisasi.'
+      };
+      updatePayload[id] = patch;
+
+      // Klasifikasi untuk laporan
+      if (wkeLama === 72000) detail.wke72000++;
+      else if (wkeLama === 1350) detail.wke1350++;
+      else if (wkeLama !== wkeStandar) detail.wkeLain++;
+      count++;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      Logger.log('Tahun ' + tahun + ': tidak ada yang perlu dinormalisasi.');
+      ringkasan.perTahun[tahun] = { kena: 0, detail: detail };
+      continue;
+    }
+
+    ringkasan.totalKena += count;
+    detail.patched = count;
+    ringkasan.perTahun[tahun] = { kena: count, detail: detail };
+
+    if (dryRun) {
+      Logger.log('Tahun ' + tahun + ' [DRY-RUN]: akan PATCH ' + count + ' ABK: ' + JSON.stringify(detail));
+    } else {
+      // BACKUP dulu sebelum tulis (snapshot penuh path tahun/abk)
+      var backupPath = 'backup/migrasi-wke/' + tahun + '/' + new Date().toISOString().replace(/[.:]/g, '-');
+      fbPut_(backupPath, all);
+      // PATCH sekaligus (multipath) untuk minimalisasi penulisan
+      var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
+      var resPatch = UrlFetchApp.fetch(url, {
+        method: 'patch',
+        contentType: 'application/json',
+        payload: JSON.stringify(updatePayload),
+        muteHttpExceptions: true
+      });
+      assertFirebaseOk_(resPatch, 'PATCH ' + path);
+      Logger.log('Tahun ' + tahun + ': PATCH sukses ' + count + ' ABK (backup di ' + backupPath + ').');
+      invalidateCache_('abk');
+    }
+  }
+  Logger.log('MIGRASI ' + (dryRun ? 'DRY-RUN' : 'SELESAI') + ': total ' + ringkasan.totalKena + ' ABK. Ringkasan: ' + JSON.stringify(ringkasan));
+  return ringkasan;
+}
+
+/**
+ * Ikat kategori jenis jabatan di server (paritas dengan klien).
+ */
+function getKategoriServer_(jenisJabatan) {
+  var j = String(jenisJabatan || '').toLowerCase();
+  if (j.indexOf('pimpinan tinggi') !== -1 || j.indexOf('administrator') !== -1 ||
+      j.indexOf('pengawas') !== -1 || j.indexOf('struktural') !== -1) return 'struktural';
+  if (j.indexOf('fungsional') !== -1) return 'fungsional';
+  if (j.indexOf('pelaksana') !== -1) return 'pelaksana';
+  return 'lainnya';
+}
+
+/**
+ * Pembersih ABK yatim/orphan & data uji: hapus abk yang jabatan induknya
+ * sudah tidak ada, atau yang barisnya masih “urtu1/urtu2/hk1/jk2/test/coba”
+ * (artefak percobaan). Jalankan manual dari editor Apps Script, bukan via web.
+ * Dry-run dulu: cleanupTestAbk_(true) — hanya laporan; cleanupTestAbk_(false)
+ * akan backup dulu setiap record lalu menghapusnya per tahun.
+ */
+function cleanupTestAbk_(dryRun) {
+  var startMs = Date.now();
+  var timeoutMs = 5 * 60 * 1000;
+  var tahunList = [2026, 2025];
+  var polaUji = /(^|\b)(urtu\d*|test|coba|percobaan|dummy)(\b|$)/i;
+  var ringkasan = { dryRun: !!dryRun, perTahun: {}, totalTarget: 0 };
+
+  for (var t = 0; t < tahunList.length; t++) {
+    var tahun = tahunList[t];
+    if (Date.now() - startMs > timeoutMs) break;
+    var pathAbk = tahun + '/abk';
+    var allAbk, allJbt;
+    try { allAbk = fbGet_(pathAbk); } catch (eAbk) { continue; }
+    if (!allAbk) continue;
+    try { allJbt = fbGet_(tahun + '/jabatan') || {}; } catch (eJbt) { allJbt = {}; }
+
+    var targets = {};
+    Object.keys(allAbk).forEach(function (id) {
+      var a = allAbk[id];
+      if (!a || typeof a !== 'object') return;
+      var jabatanAda = !!(allJbt[id] && typeof allJbt[id] === 'object');
+      var rows = Array.isArray(a.rows) ? a.rows : [];
+      var semuaRow = rows.length > 0;
+      rows.forEach(function (r) {
+        var nama = String((r && r.tugas) || '');
+        var sat = String((r && r.satuan) || '');
+        if (!polaUji.test(nama) && !polaUji.test(sat)) semuaRow = false;
+      });
+      var alasan = [];
+      if (!jabatanAda) alasan.push('orphan: jabatan induk tidak ada');
+      if (semuaRow) alasan.push('data uji (urasian “urtu”/flag test)');
+      if (alasan.length > 0) targets[id] = { alasan: alasan.join('; '), snapshot: a };
+    });
+
+    ringkasan.perTahun[tahun] = { target: Object.keys(targets).length, detail: [] };
+    Object.keys(targets).forEach(function (id) {
+      ringkasan.perTahun[tahun].detail.push({ id: id, alasan: targets[id].alasan });
+    });
+    ringkasan.totalTarget += Object.keys(targets).length;
+
+    if (Object.keys(targets).length === 0) {
+      Logger.log('Tahun ' + tahun + ': tidak ada ABK yatim/data uji.');
+      continue;
+    }
+
+    if (dryRun) {
+      Logger.log('Tahun ' + tahun + ' [DRY-RUN] target hapus ' + Object.keys(targets).length + ': ' + JSON.stringify(ringkasan.perTahun[tahun].detail));
+    } else {
+      var backupPath = 'backup/cleanup-test-abk/' + tahun + '/' + new Date().toISOString().replace(/[.:]/g, '-');
+      var snapshot = {};
+      Object.keys(targets).forEach(function (id2) { snapshot[id2] = targets[id2].snapshot; });
+      fbPut_(backupPath, snapshot);
+      // PATCH null menghapus node dalam satu request
+      var nullPayload = {};
+      Object.keys(targets).forEach(function (id3) { nullPayload[id3] = null; });
+      var url = FIREBASE_URL + '/' + pathAbk + '.json?auth=' + FIREBASE_SECRET;
+      var resPatch = UrlFetchApp.fetch(url, {
+        method: 'patch', contentType: 'application/json',
+        payload: JSON.stringify(nullPayload), muteHttpExceptions: true
+      });
+      assertFirebaseOk_(resPatch, 'PATCH hapus ' + pathAbk);
+      Logger.log('Tahun ' + tahun + ': hapus ' + Object.keys(targets).length + ' abk (backup di ' + backupPath + ')');
+      invalidateCache_('abk');
+    }
+  }
+  Logger.log('CLEANUP ' + (dryRun ? 'DRY-RUN' : 'SELESAI') + ': ' + ringkasan.totalTarget + ' target. ' + JSON.stringify(ringkasan));
+  return ringkasan;
 }
 
 

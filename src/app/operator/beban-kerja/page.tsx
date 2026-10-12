@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "../../dashboard/beban-kerja/page.module.css";
 import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from "@/lib/utils";
+import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
@@ -350,20 +350,26 @@ export default function OperatorBebanKerjaPage() {
       }
 
       if (abkData && abkData.rows && abkData.rows.length > 0) {
-        setAbkRows(abkData.rows);
-        setWaktuSatuan(abkData.waktuSatuan || 'jam');
-        setWke(abkData.wke || (abkData.waktuSatuan === 'menit' ? WKE_DEFAULT_MENIT : WKE_DEFAULT_JAM));
+        // Konsep tunggal (jam & WKE 1250): bila data lama memakai satuan menit,
+        // konversi waktu tiap baris ke jam saat dimuat.
+        const isLegacyMenit = abkData.waktuSatuan === 'menit';
+        setAbkRows(abkData.rows.map(r => ({
+          ...r,
+          waktu: isLegacyMenit ? Math.round(((Number(r.waktu) || 0) / 60) * 10000) / 10000 : r.waktu
+        })));
+        setWaktuSatuan('jam');
+        setWke(WKE_DEFAULT_JAM);
       } else {
         const initRows: ABKRow[] = tugasPokok.map(t => ({
           tugas: t.uraianTugas || '',
           satuan: t.hasilKerja || '',
-          waktu: t.waktuPenyelesaian || 0,
+          // Satuan Anjab/draf AI = menit -> dikonversi ke jam (konsep tunggal ABK)
+          waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
           volume: t.jumlahHasil || 0
         }));
         setAbkRows(initRows);
-        // Data berasal dari Anjab (satuan menit sesuai prompt draf AI) -> WKE default dari satu sumber
-        setWaktuSatuan('menit');
-        setWke(WKE_DEFAULT_MENIT);
+        setWaktuSatuan('jam');
+        setWke(WKE_DEFAULT_JAM);
       }
     } catch (err) {
       showToast("❌ Gagal memuat data beban kerja");
@@ -407,15 +413,13 @@ export default function OperatorBebanKerjaPage() {
     setAbkRows(newRows);
   };
 
-  const calculateRequired = (waktu: number, volume: number) => {
-    if (!wke) return 0;
-    return (waktu * volume) / wke;
-  };
+  // Kebutuhan Pegawai per uraian tugas = Waktu × Volume/tahun ÷ WKE (default 1250 jam/tahun)
+  const calculateRequired = (waktu: number, volume: number) => hitungKebutuhanPegawai(waktu, volume, wke);
 
   let totalWaktuEfektif = 0;
   let totalRequired = 0;
   abkRows.forEach(row => {
-    const we = row.waktu * row.volume;
+    const we = hitungWaktuEfektif(row.waktu, row.volume);
     totalWaktuEfektif += we;
     totalRequired += calculateRequired(row.waktu, row.volume);
   });
@@ -647,27 +651,15 @@ export default function OperatorBebanKerjaPage() {
               <>
                 <div className={styles.actionRow}>
                   <div style={{ fontSize: '0.9rem', opacity: 0.8, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <span><strong>WKE:</strong></span>
-                    <input type="number" className={styles.editableInput} value={wke}
-                      disabled={isReadOnly}
-                      onChange={(e) => setWke(Number(e.target.value) || (waktuSatuan === 'jam' ? WKE_DEFAULT_JAM : WKE_DEFAULT_MENIT))}
-                      style={{ width: '100px' }} />
-                    <select className={styles.editableInput} style={{ width: '130px', cursor: 'pointer' }}
-                      disabled={isReadOnly}
-                      value={waktuSatuan} onChange={(e) => {
-                        const val = e.target.value as 'jam' | 'menit';
-                        if (val !== waktuSatuan) {
-                          setWaktuSatuan(val);
-                          setWke(val === 'jam' ? WKE_DEFAULT_JAM : WKE_DEFAULT_MENIT);
-                          setAbkRows(prev => prev.map(r => ({
-                            ...r,
-                            waktu: val === 'menit' ? Math.round(r.waktu * 60) : Math.round((r.waktu / 60) * 10000) / 10000
-                          })));
-                        }
-                      }}>
-                      <option value="jam">Jam / Tahun</option>
-                      <option value="menit">Menit / Tahun</option>
-                    </select>
+                    {/* Konsep tunggal: satuan jam per tahun; tanpa istilah WKE */}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <strong>Satuan:</strong>
+                      <span style={{ fontWeight: 600 }}>Jam dalam satu tahun</span>
+                      <span
+                        title="Petunjuk konversi menit ke jam: 60 menit = 1 jam, jadi 100 menit = 100/60 = 1,67 jam. Contoh kewajaran: mengelompokkan 1 dokumen memakan 5 menit = 0,083 jam; menyusun 1 laporan memakan 90 menit = 1,5 jam. Kolom Kebutuhan Pegawai = Waktu (jam) x Volume per tahun dibagi 1250 (jam kerja efektif satu tahun)."
+                        style={{ cursor: 'help', display: 'inline-flex', background: '#eef2ff', color: '#4338ca', borderRadius: '999px', fontSize: '0.75rem', padding: '0.1rem 0.55rem', border: '1px solid #c7d2fe' }}
+                      >ⓘ konversi 100 menit = 1,67 jam</span>
+                    </span>
                   </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
                     {!isReadOnly && (
@@ -686,15 +678,15 @@ export default function OperatorBebanKerjaPage() {
                                 });
                                 return;
                               }
-                              // Satuan draf AI = menit (prompt server) -> jangan dianggap jam agar tidak inflasi 60x
+                              // Konsep tunggal: satuan Anjab = menit -> ABK WAJIB jam, konversi /60
                               setAbkRows(tp.map(t => ({
                                 tugas: t.uraianTugas || '',
                                 satuan: t.hasilKerja || '',
-                                waktu: t.waktuPenyelesaian || 0,
+                                waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
                                 volume: t.jumlahHasil || 0
                               })));
-                              setWaktuSatuan('menit');
-                              setWke(WKE_DEFAULT_MENIT);
+                              setWaktuSatuan('jam');
+                              setWke(WKE_DEFAULT_JAM);
                               showToast("✅ Berhasil menarik data dari Anjab");
                               setAlertModal({
                                 title: "Berhasil",
@@ -723,7 +715,7 @@ export default function OperatorBebanKerjaPage() {
                         <th style={{ width: '10%' }}>Satuan Hasil</th>
                         <th style={{ width: '12%', textAlign: 'center' }}>Waktu ({waktuSatuan === 'jam' ? 'Jam' : 'Menit'})</th>
                         <th style={{ width: '10%', textAlign: 'center' }}>Volume / Tahun</th>
-                        <th style={{ width: '12%', textAlign: 'center' }}>Waktu Efektif</th>
+                        <th style={{ width: '12%', textAlign: 'center' }} title="Waktu × Volume per tahun = beban kerja tahunan untuk uraian tugas ini">Beban Kerja/Tahun (jam)</th>
                         <th style={{ width: '10%', textAlign: 'center' }}>Kebutuhan Pegawai</th>
                         <th style={{ width: '60px' }}>Aksi</th>
                       </tr>
@@ -737,7 +729,7 @@ export default function OperatorBebanKerjaPage() {
                         </tr>
                       ) : (
                         abkRows.map((row, idx) => {
-                          const waktuEfektif = row.waktu * row.volume;
+                          const waktuEfektif = hitungWaktuEfektif(row.waktu, row.volume);
                           const kebutuhan = calculateRequired(row.waktu, row.volume);
                           return (
                             <tr key={idx}>

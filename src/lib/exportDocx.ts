@@ -5,7 +5,7 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
 import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
-import { generateKodeJabatan, calculateFormasiPembulatan, applyFormasiBatas } from './utils';
+import { generateKodeJabatan, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from './utils';
 import { INSTANSI_NAME } from './constants';
 
 // Helper to convert base64 string to ArrayBuffer
@@ -267,10 +267,11 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   const abkRows = Array.isArray(abkData?.rows) ? abkData.rows : [];
   let wke = Number(abkData?.wke) || 0;
   const isMenit = abkData?.waktuSatuan === 'menit';
+  // SSOT WKE: fix 1250 jam/tahun (75000 menit/tahun) bila tidak tersedia.
   if (wke <= 0) {
-    wke = isMenit ? 72000 : 1250;
-  } else if (isMenit && wke === 1250) {
-    wke = 72000;
+    wke = isMenit ? WKE_DEFAULT_MENIT : WKE_DEFAULT_JAM;
+  } else if (isMenit && wke === WKE_DEFAULT_JAM) {
+    wke = WKE_DEFAULT_MENIT;
   }
 
   const tpMapping = mappings.tugasPokok || {};
@@ -312,8 +313,8 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     row['volume'] = volume;
     row['satuan'] = (abkRow && abkRow.satuan) || tp.hasilKerja || "-";
 
-    const waktuEfektif = waktu * volume;
-    const kebutuhanPegawai = wke > 0 ? (waktuEfektif / wke) : 0;
+    const waktuEfektif = hitungWaktuEfektif(waktu, volume);
+    const kebutuhanPegawai = hitungKebutuhanPegawai(waktu, volume, wke);
     
     sumWaktuEfektif += waktuEfektif;
     sumKebutuhan += kebutuhanPegawai;

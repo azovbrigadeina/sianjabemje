@@ -136,13 +136,34 @@ export function filterTreeNodes<T extends { label: string; children?: T[] }>(nod
   return filter(nodes);
 }
 
-/**
- * B1 (audit 2026-10-07): satu sumber WKE default untuk seluruh aplikasi.
- * 1250 jam/tahun = 75000 menit/tahun — paritas dengan verifyFormasiIdeal_
- * di gas/Code.gs (draf AI) sehingga formasi ABK editor == formasi draf AI.
+ /**
+ * SSOT WKE (Waktu Kerja Efektif) untuk seluruh aplikasi: FIX 1250 jam/tahun
+ * (setara 75000 menit/tahun). Rumus kebutuhan pegawai:
+ *   Kebutuhan Pegawai per uraian tugas = Waktu (jam) × Volume/tahun ÷ 1250
+ *   Kebutuhan Pegawai total           = Σ Kebutuhan per uraian tugas
+ *   Pembulatan Formasi                = pembulatan dari total di atas.
  */
 export const WKE_DEFAULT_JAM = 1250;
-export const WKE_DEFAULT_MENIT = 75000;
+export const WKE_DEFAULT_MENIT = WKE_DEFAULT_JAM * 60;
+
+/**
+ * Waktu efektif satu uraian tugas = Waktu (per satu hasil kerja) × Volume/tahun.
+ * Satuan waktu ikut satuan yang dipilih (jam atau menit), tetap konsisten
+ * dengan satuan WKE yang dipakai.
+ */
+export function hitungWaktuEfektif(waktu: number, volume: number): number {
+  return (Number(waktu) || 0) * (Number(volume) || 0);
+}
+
+/**
+ * Kebutuhan Pegawai per uraian tugas = Waktu × Volume/tahun ÷ WKE (default 1250).
+ * Satuan WKE harus sama dengan satuan `waktu` (jam↔jam, menit↔menit).
+ */
+export function hitungKebutuhanPegawai(waktu: number, volume: number, wke: number): number {
+  const w = Number(wke) || 0;
+  if (w <= 0) return 0;
+  return hitungWaktuEfektif(waktu, volume) / w;
+}
 
 /**
  * Calculates formasi pembulatan for ABK:
