@@ -28,14 +28,29 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
     if (jabatan) {
       const draftKey = `anjab_draft_identitas_${jabatan.id}`;
       const savedDraft = localStorage.getItem(draftKey);
-      
-      if (savedDraft) {
+      let draftMeta: (Record<string, unknown> & { _draftSavedAt?: string }) | null = null;
+      try { draftMeta = savedDraft ? JSON.parse(savedDraft) : null; } catch { draftMeta = null; }
+      const serverMeta = jabatan as JabatanFull;
+
+      // HANYA pakai draft jika data server TIDAK lebih baru dari draft.
+      // Fix bug: setelah Import Anjab / Draf AI, server menyimpan data segar
+      // (updatedAt baru) tapi draft lama di localStorage menimpanya sehingga
+      // editor terlihat "tidak terupdate". Draft hanya menang bila lebih baru.
+      const draftIsNewer = !!(savedDraft && serverMeta.updatedAt && draftMeta?._draftSavedAt &&
+        new Date(draftMeta._draftSavedAt).getTime() > new Date(serverMeta.updatedAt).getTime());
+
+      if (savedDraft && draftIsNewer) {
         try {
           const parsed = JSON.parse(savedDraft);
           setForm(parsed);
           isInitialMount.current = false;
           return;
-        } catch (e) {}
+        } catch {}
+      }
+
+      if (savedDraft && !draftIsNewer) {
+        // Draft lama sudah basi (server ada versi lebih baru) -> buang agar tidak ditulis ulang
+        localStorage.removeItem(draftKey);
       }
 
       isInitialMount.current = true;
@@ -69,7 +84,10 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
       return;
     }
     if (jabatan && form.namaJabatan) {
-      localStorage.setItem(`anjab_draft_identitas_${jabatan.id}`, JSON.stringify(form));
+      localStorage.setItem(`anjab_draft_identitas_${jabatan.id}`, JSON.stringify({
+        ...form,
+        _draftSavedAt: new Date().toISOString()
+      }));
     }
   }, [form, jabatan]);
 

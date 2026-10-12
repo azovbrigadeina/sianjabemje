@@ -54,23 +54,35 @@ export default function TabTugasPokok({
     if (jabatan) {
       const draftKey = `anjab_draft_tugas_${jabatan.id}`;
       const savedDraft = localStorage.getItem(draftKey);
-      
-      if (savedDraft) {
-        try {
-          const parsed = JSON.parse(savedDraft);
-          setTugasRows(parsed.tugasRows || []);
-          setKualifikasi(parsed.kualifikasi || {
-            pendidikanFormal: "", pendidikanPelatihan: "", pengalamanKerja: "",
-          });
-          setHasilKerjaRows(parsed.hasilKerjaRows || []);
-          isInitialMount.current = false;
-          return;
-        } catch (e) {}
+      let draftMeta: (Record<string, unknown> & { _draftSavedAt?: string }) | null = null;
+      try { draftMeta = savedDraft ? JSON.parse(savedDraft) : null; } catch { draftMeta = null; }
+      const serverMeta = jabatan as JabatanFull;
+
+      // HANYA pakai draft jika data server TIDAK lebih baru dari draft.
+      // Fix bug: setelah Import Anjab / Draf AI, server menyimpan data segar
+      // (updatedAt baru) tapi draft lama di localStorage menimpanya sehingga
+      // editor terlihat "tidak terupdate". Draft hanya menang bila lebih baru.
+      const draftIsNewer = !!(savedDraft && serverMeta.updatedAt && draftMeta?._draftSavedAt &&
+        new Date(draftMeta._draftSavedAt).getTime() > new Date(serverMeta.updatedAt).getTime());
+
+      if (savedDraft && draftIsNewer && draftMeta) {
+        setTugasRows((draftMeta.tugasRows as Record<string, unknown>[]) || []);
+        setKualifikasi((draftMeta.kualifikasi as { pendidikanFormal: string; pendidikanPelatihan: string; pengalamanKerja: string }) || {
+          pendidikanFormal: "", pendidikanPelatihan: "", pengalamanKerja: "",
+        });
+        setHasilKerjaRows((draftMeta.hasilKerjaRows as Record<string, unknown>[]) || []);
+        isInitialMount.current = false;
+        return;
+      }
+
+      if (savedDraft && !draftIsNewer) {
+        // Draft lama sudah basi (server ada versi lebih baru) -> buang agar tidak ditulis ulang
+        localStorage.removeItem(draftKey);
       }
 
       isInitialMount.current = true;
 
-      const parseStringOrArray = (val: any): string[] => {
+      const parseStringOrArray = (val: unknown): string[] => {
         if (!val) return [];
         if (Array.isArray(val)) return val;
         if (typeof val === 'string') {
@@ -99,16 +111,16 @@ export default function TabTugasPokok({
         });
       }
 
-      let parsedHasilKerja = [];
+      let parsedHasilKerja: Record<string, unknown>[] = [];
       if (jabatan.hasilKerja?.uraian) {
         try {
           const parsed = JSON.parse(jabatan.hasilKerja.uraian);
           if (Array.isArray(parsed)) {
-            parsedHasilKerja = parsed.map((item: any) => typeof item === 'string' ? { uraian: item } : item);
+            parsedHasilKerja = parsed.map((item: unknown) => typeof item === 'string' ? { uraian: item } : (item as Record<string, unknown>));
           } else {
             parsedHasilKerja = [{ uraian: jabatan.hasilKerja.uraian }];
           }
-        } catch (e) {
+        } catch {
           parsedHasilKerja = jabatan.hasilKerja.uraian.split('\n').filter(Boolean).map(s => ({ uraian: s }));
         }
       }
@@ -125,7 +137,8 @@ export default function TabTugasPokok({
       localStorage.setItem(`anjab_draft_tugas_${jabatan.id}`, JSON.stringify({
         tugasRows,
         kualifikasi,
-        hasilKerjaRows
+        hasilKerjaRows,
+        _draftSavedAt: new Date().toISOString()
       }));
     }
   }, [tugasRows, kualifikasi, hasilKerjaRows, jabatan]);
