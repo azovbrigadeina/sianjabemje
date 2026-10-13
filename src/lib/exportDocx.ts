@@ -267,7 +267,8 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   const abkRows = Array.isArray(abkData?.rows) ? abkData.rows : [];
   let wke = Number(abkData?.wke) || 0;
   const isMenit = abkData?.waktuSatuan === 'menit';
-  // SSOT WKE: fix 1250 jam/tahun (75000 menit/tahun) bila tidak tersedia.
+  // SSOT WKE: fix 1250 jam/tahun. Baris legacy berlabel satuan menit
+  // memakai padanan menitnya — hanya untuk membaca data lama saat ekspor.
   if (wke <= 0) {
     wke = isMenit ? WKE_DEFAULT_MENIT : WKE_DEFAULT_JAM;
   } else if (isMenit && wke === WKE_DEFAULT_JAM) {

@@ -147,6 +147,18 @@ export const WKE_DEFAULT_JAM = 1250;
 export const WKE_DEFAULT_MENIT = WKE_DEFAULT_JAM * 60;
 
 /**
+ * Normalisasi waktu Anjab ke jam (SSOT satuan tunggal: JAM).
+ * Sejak mesin draf AI berpindah ke jam, Anjab memuat jam. Baris legasi
+ * berformat menit dideteksi per-baris: nilai > 8 (di atas clamp 8 jam/hari)
+ * dianggap menit dan dikonversi ÷60.
+ */
+export function normalisasiWaktuJam(nilai: number): number {
+  const n = Number(nilai) || 0;
+  if (n <= 0) return 0;
+  return n > 8 ? Math.round((n / 60) * 10000) / 10000 : n;
+}
+
+/**
  * Waktu efektif satu uraian tugas = Waktu (per satu hasil kerja) × Volume/tahun.
  * Satuan waktu ikut satuan yang dipilih (jam atau menit), tetap konsisten
  * dengan satuan WKE yang dipakai.

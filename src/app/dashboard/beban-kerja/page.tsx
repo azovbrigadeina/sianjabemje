@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import treeStyles from "../organisasi/page.module.css";
 import { api } from "@/lib/api";
-import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM } from "@/lib/utils";
+import { filterTreeNodes, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, normalisasiWaktuJam, WKE_DEFAULT_JAM } from "@/lib/utils";
 import type { UnitKerja, Jabatan } from "@/lib/types";
 
 type TreeNode = {
@@ -331,8 +331,8 @@ export default function BebanKerjaPage() {
         const initRows: ABKRow[] = tugasPokok.map(t => ({
           tugas: t.uraianTugas || '',
           satuan: t.hasilKerja || '',
-          // Satuan Anjab/draf AI = menit -> dikonversi ke jam (konsep tunggal ABK)
-          waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
+          // Anjab kini satuan JAM; baris legasi menit (>8) dikonversi ÷60
+          waktu: normalisasiWaktuJam(t.waktuPenyelesaian),
           volume: t.jumlahHasil || 0
         }));
         setAbkRows(initRows);
@@ -616,7 +616,7 @@ export default function BebanKerjaPage() {
               <div className={styles.panelHeader}>
             <div className={styles.panelHeaderContent} style={{ justifyContent: 'space-between', alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
               <span className={styles.jobBadge}>{activeJobData?.eselon || "Jabatan"}</span>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginRight: '2.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginRight: '3.75rem' }}>
                 <button className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                   onClick={async () => {
                     if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
@@ -631,12 +631,11 @@ export default function BebanKerjaPage() {
                         });
                         return;
                       }
-                      // Konsep tunggal: satuan draf AI = menit, tapi ABK WAJIB jam
-                      // (WKE 1250). Konversi menit -> jam agar tidak inflasi 60x.
+                      // Anjab satuan JAM; baris legasi menit (>8) dikonversi ÷60
                       setAbkRows(tp.map(t => ({
                         tugas: t.uraianTugas || '',
                         satuan: t.hasilKerja || '',
-                        waktu: Math.round(((Number(t.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
+                        waktu: normalisasiWaktuJam(t.waktuPenyelesaian),
                         volume: t.jumlahHasil || 0
                       })));
                       setWaktuSatuan('jam');
@@ -700,7 +699,7 @@ export default function BebanKerjaPage() {
                         <th style={{ width: '50px', textAlign: 'center' }}>No</th>
                         <th style={{ width: '35%' }}>Uraian Tugas</th>
                         <th style={{ width: '10%' }}>Satuan Hasil</th>
-                        <th style={{ width: '12%', textAlign: 'center' }}>Waktu ({waktuSatuan === 'jam' ? 'Jam' : 'Menit'})</th>
+                        <th style={{ width: '12%', textAlign: 'center' }}>Waktu (Jam)</th>
                         <th style={{ width: '10%', textAlign: 'center' }}>Volume / Tahun</th>
                         <th style={{ width: '12%', textAlign: 'center' }} title="Waktu × Volume per tahun = beban kerja tahunan untuk uraian tugas ini">Beban Kerja/Tahun (jam)</th>
                         <th style={{ width: '10%', textAlign: 'center' }}>Kebutuhan Pegawai</th>

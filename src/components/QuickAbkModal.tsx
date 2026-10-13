@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM } from "@/lib/utils";
+import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, normalisasiWaktuJam, WKE_DEFAULT_JAM } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
 import { BRANDING } from "@/config/branding";
 
@@ -34,7 +34,8 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
       const initialRows: ABKRow[] = (jabatan.tugasPokok || []).map((tp) => ({
         tugas: tp.uraianTugas || "-",
         satuan: tp.hasilKerja || "Dokumen",
-        waktu: Math.round(((Number(tp.waktuPenyelesaian) || 0) / 60) * 10000) / 10000,
+        // Anjab kini satuan JAM; baris legasi menit (>8) dikonversi ÷60
+        waktu: normalisasiWaktuJam(tp.waktuPenyelesaian),
         volume: Number(tp.jumlahHasil) || 0,
       }));
 

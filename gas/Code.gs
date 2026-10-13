@@ -2988,7 +2988,7 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
                "      \"nomorUrut\": 1,\n" +
                "      \"uraianTugas\": \"Mengumpulkan bahan, regulasi, dan data terkait pelaksanaan tugas...\",\n" +
                "      \"hasilKerja\": \"Berkas\",\n" +
-               "      \"waktuPenyelesaian\": 60,\n" +
+               "      \"waktuPenyelesaian\": 4,\n" +
                "      \"jumlahHasil\": 1\n" +
                "    }\n" +
                "  ],\n" +
@@ -3101,7 +3101,7 @@ function generateAnjabWithAI_(namaJabatan, unitKerja, namaOPD, jabatanId, unitKe
                "    \"uraian\": \"Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan.\"\n" +
                "  },\n" +
                "  \"analisisBebanKerja\": {\n" +
-               "    \"totalWaktuEfektifMenit\": 81000,\n" +
+               "    \"totalWaktuEfektifJam\": 1350,\n" +
                "    \"kebutuhanPegawaiIdeal\": 1.08,\n" +
                "    \"formasiIdeal\": 1,\n" +
                "    \"catatan\": \"Ringkasan singkat dasar perhitungan beban kerja...\"\n" +
@@ -3385,10 +3385,11 @@ function callOpenAiCompatibleAPI_(endpoint, apiKey, modelName, prompt, ctx) {
 
 // Regulasi TPP: satu jabatan layak TPP bila kumulatif waktu efektif seluruh
 // uraian tugas minimal 1.350 jam/tahun (beban kerja penuh); lebih dari itu tetap layak.
-// Padanan menit dipakai sebagai target tunggal server agar konsisten, baik OPD
-// memakai WKE 1250 jam/tahun (75000 menit) maupun satuan menit (72000 menit/tahun).
+// Konsep TUNGGAL SEJAK 2026-10-12: seluruh aplikasi (ABK & draf AI) memakai JAM;
+// WKE fix 1250 jam/tahun, ambang TPP 81000 menit = 1350 jam.
 var AMBANG_TPP_JAM_TAHUN = 1350;
-var AMBANG_TPP_MENIT_TAHUN = AMBANG_TPP_JAM_TAHUN * 60; // 81000 menit/tahun
+var AMBANG_TPP_MENIT_TAHUN = AMBANG_TPP_JAM_TAHUN * 60; // dipelihara untuk kompatibilitas catatan lama
+var WKE_FIX_JAM = 1250; // pembagi tunggal seluruh sistem
 
 /**
  * Mengumpulkan konteks organisasi & beban kerja OPD untuk grounding prompt AI:
@@ -3464,10 +3465,10 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
     for (var sIdx = 0; sIdx < sejawat.length && sejawatLines.length < 10; sIdx++) {
       var s = sejawat[sIdx];
       if (s.formasi <= 0 && s.waktu <= 0) break; // sisanya tanpa data ABK
-      sejawatLines.push('- ' + s.nama + ' [' + s.unit + ']: waktu efektif ' + s.waktu + ' menit/tahun, WKE ' + (s.wke || 75000) + ' menit, formasi tersimulasikan ' + s.formasi + ' orang');
+      sejawatLines.push('- ' + s.nama + ' [' + s.unit + ']: waktu efektif ' + s.waktu + ' jam/tahun, pembagi tahunan 1250 jam, formasi tersimulasikan ' + s.formasi + ' orang');
       if (s.status === 'Disetujui') {
         ctx.sumber.abkTervalidasi++;
-        if (!ctx.sumber.wkeReferensi && s.wke > 0) ctx.sumber.wkeReferensi = s.wke;
+        // Konsep tunggal jam: wkeReferensi dilepas — pembagi selalu WKE_FIX_JAM (1250 jam)
       }
     }
     ctx.sumber.jabatanSejawat = sejawatLines.length;
@@ -3485,7 +3486,7 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
         var e = eks[eIdx];
         var ur = String(e.uraianTugas || '');
         if (ur.length > 120) ur = ur.substring(0, 117) + '...';
-        eksistingLines.push((eIdx + 1) + '. ' + ur + ' (waktu ' + (Number(e.waktuPenyelesaian) || 0) + ' menit)');
+        eksistingLines.push((eIdx + 1) + '. ' + ur + ' (waktu ' + (Number(e.waktuPenyelesaian) || 0) + ' jam untuk satu hasil kerja)');
       }
     }
 
@@ -3521,7 +3522,7 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
       lines.push('Nomenklatur jabatan yang diakui (referensi):');
       lines = lines.concat(refLines);
     }
-    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam MENIT per satu hasil kerja dan MAKSIMAL 480 menit (8 jam kerja) per hasil; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi WKE 1250 jam (75000 menit) per tahun; AMBANG TPP WAJIB: kumulatif total waktu efektif seluruh tugasPokok (jumlahkan waktuPenyelesaian x jumlahHasil dari semua baris) HARUS minimal ' + AMBANG_TPP_MENIT_TAHUN + ' menit/tahun (1.350 jam/tahun) agar jabatan layak TPP — naikkan nilai jumlahHasil (volume) hingga kumulatifnya sedikit di atas ' + AMBANG_TPP_MENIT_TAHUN + ' menit; kumulatif yang lebih besar dari ambang tetap sah; formasiIdeal: jabatan STRUKTURAL (Pimpinan Tinggi/Administrator/Pengawas) WAJIB 1 orang saja, jabatan PELAKSANA/FUNSIONAL minimal 2 orang (atau lebih sesuai beban riil); pembulatan kebutuhan >= 1.5 dibulatkan ke atas.');
+    lines.push('ATURAN ANGKA WAJIB: waktuPenyelesaian selalu dalam JAM per satu hasil kerja dan MAKSIMAL 8 jam kerja (1 hari kerja) per hasil — bila kegiatan satu hari lebih, bagilah menjadi beberapa tahap/hasil kerja; jumlahHasil adalah volume hasil per tahun; kebutuhanPegawaiIdeal = total(waktuPenyelesaian x jumlahHasil) dibagi 1250 jam/tahun (jam kerja efektif setahun); AMBANG TPP WAJIB: kumulatif total waktu efektif seluruh tugasPokok (jumlahkan waktuPenyelesaian x jumlahHasil dari semua baris) HARUS minimal ' + AMBANG_TPP_JAM_TAHUN + ' jam/tahun agar jabatan layak TPP — naikkan nilai jumlahHasil (volume) hingga kumulatifnya sedikit di atas ' + AMBANG_TPP_JAM_TAHUN + ' jam; kumulatif yang lebih besar dari ambang tetap sah; formasiIdeal: jabatan STRUKTURAL (Pimpinan Tinggi/Administrator/Pengawas) WAJIB 1 orang saja, jabatan PELAKSANA/FUNSIONAL minimal 2 orang (atau lebih sesuai beban riil); pembulatan kebutuhan >= 1.5 dibulatkan ke atas.');
     ctx.promptBlock = lines.join('\n');
   } catch (eCtx) {
     ctx.promptBlock = '=== KONTEKS: Data organisasi tidak tersedia. Gunakan norma umum Permenpan RB 1/2020. ===';
@@ -3552,9 +3553,9 @@ function applyFormasiBatasServer_(pembulatan, jenisJabatan) {
 }
 
 /**
- * Verifikasi rumus formasi ideal (SSOT di server):
- * - Konversi satuan bila AI mengisi jam (rata-rata > 480 menit)
- * - Hitung ulang total waktu efektif & kebutuhan pegawai dari tugasPokok
+ * Verifikasi rumus formasi ideal (SSOT di server) — KONSEP TUNGGAL JAM:
+ * - AI diinstruksikan mengisi jam; bila masih ada yang manit (rata-rata > 8 jam/hari) dikonversi /60
+ * - Hitung ulang total waktu efektif & kebutuhan pegawai dari tugasPokok dalam JAM
  * - Timpa analisisBebanKerja dengan hasil hitung deterministik (angka AI tidak dipercaya mentah)
  */
 function verifyFormasiIdeal_(data, ctx) {
@@ -3576,21 +3577,29 @@ function verifyFormasiIdeal_(data, ctx) {
       var w2 = Number(data.tugasPokok[i2].waktuPenyelesaian) || 0;
       if (w2 > 0) { total += w2; n++; }
     }
-    // Guard satuan: rata-rata > 480 menit (8 jam) -> dianggap jam, konversi x60
+    // Konsep tunggal: satuan riil adalah JAM (8 jam/hari). Bila AI masih mengisi menit
+    // (rata-rata nilai sehari lebih kecil karena input menit), rata-rata waktu riil > 8 dianggap anomali:
+    // guard menit: rata-rata <= 8 bila nilai terkecil menit kecil alam; deteksi menit di 480
+    if (n > 0 && (total / n) <= 8) {
+      // kemungkinan AI mengisi menit (bukan diri 1-3 jam per hasil); nilai <= 8 dengan rata 
+      // menit masuk akal untuk hasil kerja mikro namun volume besar justru lewat jumlahHasil,
+      // biarkan apa adanya — aturan prompt kini WJIB mengisi jam.
+    }
+    // Guard menit (nilai besar, biasanya asal menit dikirim AI lama)
     if (n > 0 && (total / n) > 480) {
       for (var k = 0; k < data.tugasPokok.length; k++) {
-        data.tugasPokok[k].waktuPenyelesaian = data.tugasPokok[k].waktuPenyelesaian * 60;
+        data.tugasPokok[k].waktuPenyelesaian = data.tugasPokok[k].waktuPenyelesaian / 60;
       }
     }
 
-    // Clamp waktu per hasil kerja: satu tugas tidak mungkin > 1 hari kerja (480 menit)
+    // Clamp waktu per hasil kerja: satu tugas tidak mungkin > 1 hari kerja (8 jam)
     // -> mencegah volume/waktu karangan AI yang membuat formasi meledak (kasus 2592 orang)
     var totalWaktuEfektif = 0;
     var adaClampWaktu = false;
     for (var m = 0; m < data.tugasPokok.length; m++) {
       var row = data.tugasPokok[m] || {};
-      if (row.waktuPenyelesaian > 480) {
-        row.waktuPenyelesaian = 480;
+      if (row.waktuPenyelesaian > 8) {
+        row.waktuPenyelesaian = 8;
         adaClampWaktu = true;
       }
       totalWaktuEfektif += (Number(row.waktuPenyelesaian) || 0) * (Number(row.jumlahHasil) || 1);
@@ -3601,8 +3610,8 @@ function verifyFormasiIdeal_(data, ctx) {
     // Bila draf AI di bawah ambang, volume (jumlahHasil) dinaikkan proporsional
     // lalu didorong minimal per baris (waktu terbesar dulu) hingga mencapai ambang.
     var catatanTpp = '';
-    if (totalWaktuEfektif > 0 && totalWaktuEfektif < AMBANG_TPP_MENIT_TAHUN) {
-      var faktorTpp = AMBANG_TPP_MENIT_TAHUN / totalWaktuEfektif;
+    if (totalWaktuEfektif > 0 && totalWaktuEfektif < AMBANG_TPP_JAM_TAHUN) {
+      var faktorTpp = AMBANG_TPP_JAM_TAHUN / totalWaktuEfektif;
       for (var p = 0; p < data.tugasPokok.length; p++) {
         var rTpp = data.tugasPokok[p] || {};
         var jhTpp = Math.round((Number(rTpp.jumlahHasil) || 1) * faktorTpp);
@@ -3617,16 +3626,17 @@ function verifyFormasiIdeal_(data, ctx) {
         if (wQ > maxWaktuTpp) { maxWaktuTpp = wQ; idxMaxTpp = q; }
       }
       var iterTpp = 0;
-      while (totalTpp < AMBANG_TPP_MENIT_TAHUN && idxMaxTpp >= 0 && maxWaktuTpp > 0 && iterTpp++ < 10000) {
+      while (totalTpp < AMBANG_TPP_JAM_TAHUN && idxMaxTpp >= 0 && maxWaktuTpp > 0 && iterTpp++ < 10000) {
         data.tugasPokok[idxMaxTpp].jumlahHasil = (Number(data.tugasPokok[idxMaxTpp].jumlahHasil) || 1) + 1;
         totalTpp += maxWaktuTpp;
       }
       totalWaktuEfektif = totalTpp;
-      catatanTpp = 'Kumulatif waktu efektif draf AI di bawah ambang TPP; volume hasil (jumlahHasil) dinaikkan proporsional hingga kumulatif minimal ' + AMBANG_TPP_JAM_TAHUN + ' jam/tahun (' + AMBANG_TPP_MENIT_TAHUN + ' menit) agar layak TPP.';
+      catatanTpp = 'Kumulatif waktu efektif draf AI di bawah ambang TPP; volume hasil (jumlahHasil) dinaikkan proporsional hingga kumulatif minimal ' + AMBANG_TPP_JAM_TAHUN + ' jam/tahun agar layak TPP.';
     }
 
-    var wke = (ctx && ctx.sumber && ctx.sumber.wkeReferensi > 0) ? ctx.sumber.wkeReferensi : 75000; // 1250 jam x 60
-    var kebutuhan = wke > 0 ? totalWaktuEfektif / wke : 0;
+    // Konsep tunggal jam: pembagi selalu WKE_FIX_JAM = 1250 jam/tahun
+    var wke = WKE_FIX_JAM;
+    var kebutuhan = totalWaktuEfektif / wke;
     // B3: pembulatan lewat helper bersama (paritas dengan klien)
     var formasi = calculateFormasiPembulatanServer_(kebutuhan);
 
@@ -3652,7 +3662,7 @@ function verifyFormasiIdeal_(data, ctx) {
     }
 
     if (adaClampWaktu) {
-      var clampNote = 'Waktu penyelesaian > 480 menit dibatasi 480 menit (maks 1 hari kerja per hasil kerja).';
+      var clampNote = 'Waktu penyelesaian > 8 jam dibatasi 8 jam (maks 1 hari kerja per hasil kerja).';
       catatanBatas = catatanBatas ? clampNote + ' ' + catatanBatas : clampNote;
     }
     if (catatanTpp) {
@@ -3671,7 +3681,8 @@ function verifyFormasiIdeal_(data, ctx) {
 
     data.analisisBebanKerja = {
       wkeTersimpan: wke,
-      totalWaktuEfektifMenit: Math.round(totalWaktuEfektif),
+      totalWaktuEfektifJam: Math.round(totalWaktuEfektif),
+      totalWaktuEfektifMenit: Math.round(totalWaktuEfektif), // DEPRECATED: alias kompatibilitas teks/UI lama, nilainya JAM
       kebutuhanPegawaiIdeal: Math.round(kebutuhan * 10000) / 10000,
       formasiIdeal: formasi,
       catatan: catatanFinal
@@ -3792,7 +3803,8 @@ function normalizeAiAnjabDraft_(data) {
   if (!data.analisisBebanKerja || typeof data.analisisBebanKerja !== 'object') {
     data.analisisBebanKerja = {
       wkeTersimpan: 0,
-      totalWaktuEfektifMenit: 0,
+      totalWaktuEfektifJam: 0,
+      totalWaktuEfektifMenit: 0, // DEPRECATED: alias kompatibilitas
       kebutuhanPegawaiIdeal: 0,
       formasiIdeal: 0,
       catatan: ''
@@ -3817,11 +3829,11 @@ function getMockAiAnjab_(namaJabatan, unitKerja, namaOPD) {
         pengalamanKerja: ["Minimal 2 tahun di bidang analisis kebijakan atau administrasi publik"]
       },
       tugasPokok: [
-        { nomorUrut: 1, uraianTugas: "Mengumpulkan bahan-bahan kerja dan regulasi terkait penelaahan kebijakan teknis di lingkungan " + unitKerja + ".", hasilKerja: "Berkas", waktuPenyelesaian: 45 },
-        { nomorUrut: 2, uraianTugas: "Melakukan penelaahan dan identifikasi permasalahan kebijakan berdasarkan data empiris lapangan.", hasilKerja: "Dokumen", waktuPenyelesaian: 90 },
-        { nomorUrut: 3, uraianTugas: "Menyusun draf rekomendasi dan usulan naskah kebijakan teknis untuk diajukan kepada atasan.", hasilKerja: "Naskah", waktuPenyelesaian: 120 },
-        { nomorUrut: 4, uraianTugas: "Mengevaluasi pelaksanaan kebijakan teknis secara berkala untuk perbaikan masa depan.", hasilKerja: "Laporan", waktuPenyelesaian: 60 },
-        { nomorUrut: 5, uraianTugas: "Melaporkan hasil pelaksanaan tugas secara berkala kepada atasan langsung.", hasilKerja: "Laporan", waktuPenyelesaian: 30 }
+        { nomorUrut: 1, uraianTugas: "Mengumpulkan bahan-bahan kerja dan regulasi terkait penelaahan kebijakan teknis di lingkungan " + unitKerja + ".", hasilKerja: "Berkas", waktuPenyelesaian: 3 },
+        { nomorUrut: 2, uraianTugas: "Melakukan penelaahan dan identifikasi permasalahan kebijakan berdasarkan data empiris lapangan.", hasilKerja: "Dokumen", waktuPenyelesaian: 5 },
+        { nomorUrut: 3, uraianTugas: "Menyusun draf rekomendasi dan usulan naskah kebijakan teknis untuk diajukan kepada atasan.", hasilKerja: "Naskah", waktuPenyelesaian: 6 },
+        { nomorUrut: 4, uraianTugas: "Mengevaluasi pelaksanaan kebijakan teknis secara berkala untuk perbaikan masa depan.", hasilKerja: "Laporan", waktuPenyelesaian: 4 },
+        { nomorUrut: 5, uraianTugas: "Melaporkan hasil pelaksanaan tugas secara berkala kepada atasan langsung.", hasilKerja: "Laporan", waktuPenyelesaian: 2 }
       ],
       hasilKerja: [
         "Dokumen hasil pengumpulan bahan dan regulasi kebijakan teknis",
@@ -3904,11 +3916,11 @@ function getMockAiAnjab_(namaJabatan, unitKerja, namaOPD) {
         pengalamanKerja: ["Minimal 2 tahun di bidang administrasi keuangan atau perbendaharaan"]
       },
       tugasPokok: [
-        { nomorUrut: 1, uraianTugas: "Menerima, mencatat, dan memverifikasi kelengkapan berkas Surat Pertanggungjawaban (SPJ) pengeluaran.", hasilKerja: "Berkas", waktuPenyelesaian: 30 },
-        { nomorUrut: 2, uraianTugas: "Memasukkan data transaksi penerimaan dan pengeluaran ke dalam sistem informasi aplikasi keuangan daerah (SIPD).", hasilKerja: "Data", waktuPenyelesaian: 60 },
-        { nomorUrut: 3, uraianTugas: "Menyusun draf laporan realisasi anggaran bulanan dan tahunan sebagai bahan pertanggungjawaban.", hasilKerja: "Dokumen", waktuPenyelesaian: 150 },
-        { nomorUrut: 4, uraianTugas: "Mengarsipkan dokumen transaksi belanja daerah secara teratur untuk mempermudah audit keuangan.", hasilKerja: "Berkas", waktuPenyelesaian: 45 },
-        { nomorUrut: 5, uraianTugas: "Melaporkan hasil pelaksanaan penatausahaan keuangan secara berkala kepada atasan.", hasilKerja: "Laporan", waktuPenyelesaian: 30 }
+        { nomorUrut: 1, uraianTugas: "Menerima, mencatat, dan memverifikasi kelengkapan berkas Surat Pertanggungjawaban (SPJ) pengeluaran.", hasilKerja: "Berkas", waktuPenyelesaian: 2 },
+        { nomorUrut: 2, uraianTugas: "Memasukkan data transaksi penerimaan dan pengeluaran ke dalam sistem informasi aplikasi keuangan daerah (SIPD).", hasilKerja: "Data", waktuPenyelesaian: 3 },
+        { nomorUrut: 3, uraianTugas: "Menyusun draf laporan realisasi anggaran bulanan dan tahunan sebagai bahan pertanggungjawaban.", hasilKerja: "Dokumen", waktuPenyelesaian: 8 },
+        { nomorUrut: 4, uraianTugas: "Mengarsipkan dokumen transaksi belanja daerah secara teratur untuk mempermudah audit keuangan.", hasilKerja: "Berkas", waktuPenyelesaian: 3 },
+        { nomorUrut: 5, uraianTugas: "Melaporkan hasil pelaksanaan penatausahaan keuangan secara berkala kepada atasan.", hasilKerja: "Laporan", waktuPenyelesaian: 2 }
       ],
       hasilKerja: [
         "Berkas Surat Pertanggungjawaban (SPJ) pengeluaran terverifikasi lengkap",
@@ -3991,11 +4003,11 @@ function getMockAiAnjab_(namaJabatan, unitKerja, namaOPD) {
         pengalamanKerja: ["Minimal 1 tahun di bidang kesekretariatan atau administrasi kantor"]
       },
       tugasPokok: [
-        { nomorUrut: 1, uraianTugas: "Menerima, mencatat, dan menyortir surat masuk dan keluar sesuai dengan klasifikasi tata kearsipan.", hasilKerja: "Berkas", waktuPenyelesaian: 20 },
-        { nomorUrut: 2, uraianTugas: "Menyusun draf surat undangan, nota dinas, dan administrasi surat keluar berdasarkan instruksi pimpinan.", hasilKerja: "Dokumen", waktuPenyelesaian: 45 },
-        { nomorUrut: 3, uraianTugas: "Menyiapkan ruang rapat dan kelengkapan dokumen pendukung pertemuan koordinasi internal.", hasilKerja: "Kegiatan", waktuPenyelesaian: 60 },
-        { nomorUrut: 4, uraianTugas: "Membuat laporan bulanan pelaksanaan kegiatan administrasi tata usaha untuk diserahkan ke atasan.", hasilKerja: "Laporan", waktuPenyelesaian: 90 },
-        { nomorUrut: 5, uraianTugas: "Melakukan pengarsipan berkas dinas dan dokumen kepegawaian agar tertata rapi.", hasilKerja: "Arsip", waktuPenyelesaian: 30 }
+        { nomorUrut: 1, uraianTugas: "Menerima, mencatat, dan menyortir surat masuk dan keluar sesuai dengan klasifikasi tata kearsipan.", hasilKerja: "Berkas", waktuPenyelesaian: 1 },
+        { nomorUrut: 2, uraianTugas: "Menyusun draf surat undangan, nota dinas, dan administrasi surat keluar berdasarkan instruksi pimpinan.", hasilKerja: "Dokumen", waktuPenyelesaian: 2 },
+        { nomorUrut: 3, uraianTugas: "Menyiapkan ruang rapat dan kelengkapan dokumen pendukung pertemuan koordinasi internal.", hasilKerja: "Kegiatan", waktuPenyelesaian: 3 },
+        { nomorUrut: 4, uraianTugas: "Membuat laporan bulanan pelaksanaan kegiatan administrasi tata usaha untuk diserahkan ke atasan.", hasilKerja: "Laporan", waktuPenyelesaian: 4 },
+        { nomorUrut: 5, uraianTugas: "Melakukan pengarsipan berkas dinas dan dokumen kepegawaian agar tertata rapi.", hasilKerja: "Arsip", waktuPenyelesaian: 1 }
       ],
       hasilKerja: [
         "Berkas pencatatan surat masuk dan surat keluar",

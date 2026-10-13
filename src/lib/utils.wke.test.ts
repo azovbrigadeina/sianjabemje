@@ -3,21 +3,16 @@ import assert from "node:assert/strict";
 import {
   hitungWaktuEfektif,
   hitungKebutuhanPegawai,
+  normalisasiWaktuJam,
   WKE_DEFAULT_JAM,
-  WKE_DEFAULT_MENIT,
 } from "./utils.ts";
 
 // ============================================================
-// Konstanta WKE (SSOT 1250 jam/tahun = 75000 menit/tahun)
+// Konstanta WKE (SSOT: 1250 jam kerja efektif per tahun)
 // ============================================================
 
 test("WKE_DEFAULT_JAM fix 1250 jam/tahun", () => {
   assert.equal(WKE_DEFAULT_JAM, 1250);
-});
-
-test("WKE_DEFAULT_MENIT = 1250 jam × 60 = 75000 menit/tahun", () => {
-  assert.equal(WKE_DEFAULT_MENIT, 75000);
-  assert.equal(WKE_DEFAULT_MENIT, WKE_DEFAULT_JAM * 60);
 });
 
 // ============================================================
@@ -36,7 +31,7 @@ test("waktu efektif dengan waktu nol -> 0", () => {
   assert.equal(hitungWaktuEfektif(0, 200), 0);
 });
 
-test("waktu efektif mendukung pecahan (menit)", () => {
+test("waktu efektif mendukung pecahan jam", () => {
   assert.equal(hitungWaktuEfektif(0.5, 12), 6);
 });
 
@@ -53,24 +48,12 @@ test("waktu efektif: input string number dikonversi", () => {
 });
 
 // ============================================================
-// hitungKebutuhanPegawai = Waktu × Volume ÷ WKE (default 1250)
+// hitungKebutuhanPegawai = Waktu × Volume ÷ WKE (default 1250 jam)
 // ============================================================
 
 test("kebutuhan pegawai pakai WKE default 1250 jam", () => {
   // 4 jam × 150 = 600 jam efektif / 1250 = 0,48 orang
   assert.equal(hitungKebutuhanPegawai(4, 150, WKE_DEFAULT_JAM), 0.48);
-});
-
-test("kebutuhan pegawai satuan menit pakai WKE 75000", () => {
-  // 240 menit × 150 = 36000 menit efektif / 75000 = 0,48 orang
-  assert.equal(hitungKebutuhanPegawai(240, 150, WKE_DEFAULT_MENIT), 0.48);
-});
-
-test("jam & menit menghasilkan angka kebutuhan sama", () => {
-  const jamResult = hitungKebutuhanPegawai(8, 50, WKE_DEFAULT_JAM);
-  const menitResult = hitungKebutuhanPegawai(480, 50, WKE_DEFAULT_MENIT);
-  assert.ok(Math.abs(jamResult - menitResult) < 1e-12);
-  assert.ok(Math.abs(menitResult - 0.32) < 1e-12);
 });
 
 test("kebutuhan = jumlah waktu efektif dibagi WKE", () => {
@@ -103,7 +86,6 @@ test("kebutuhan > 1 karena beban kerja lebih dari 1 pegawai", () => {
 
 // ============================================================
 // Integrasi: Σ kebutuhan per baris = kebutuhan total untuk sekian uraian tugas
-// Mengikuti rumus kebijakan: waktu efektif = waktu × volume/tahun; WKE fix 1250
 // ============================================================
 
 test("penjumlahan kebutuhan beberapa uraian tugas sesuai rumus kebijakan", () => {
@@ -128,17 +110,12 @@ test("pembulatan formasi dari total kebutuhan (contoh 1,28 -> 1)", () => {
 });
 
 // ============================================================
-// Kasus waktu DESIMAL (input bertitik, mis. 2.5 jam / 0.5 menit)
+// Kasus waktu DESIMAL (input bertitik, mis. 2.5 jam)
 // ============================================================
 
 test("waktu desimal 2.5 jam dihitung penuh (bukan dibulatkan)", () => {
   assert.equal(hitungWaktuEfektif(2.5, 100), 250);
   assert.ok(Math.abs(hitungKebutuhanPegawai(2.5, 100, WKE_DEFAULT_JAM) - 0.2) < 1e-12);
-});
-
-test("waktu desimal 0.5 menit dihitung penuh", () => {
-  assert.equal(hitungWaktuEfektif(0.5, 20), 10);
-  assert.ok(Math.abs(hitungKebutuhanPegawai(0.5, 20, WKE_DEFAULT_MENIT) - 10 / 75000) < 1e-15);
 });
 
 test("waktu desimal pecahan siklis 1/3 jam tetap presisi wajar", () => {
@@ -147,39 +124,48 @@ test("waktu desimal pecahan siklis 1/3 jam tetap presisi wajar", () => {
 });
 
 // ============================================================
-// KONVERSI SATUAN jam <-> menit: nilai konversi harus dipertahankan
-// helper tidak mengonversi, tetapi angka yang dihasilkan konversi
-// (waktu × 60 / ÷ 60) harus memberi kebutuhan yang identik.
+// normalisasiWaktuJam: satuan tunggal JAM, baris legasi menit (>8) ÷60
 // ============================================================
 
-test("konversi 2.5 jam -> 150 menit memberi kebutuhan sama", () => {
+test("normalisasi: waktu ≤ 8 jam diteruskan apa adanya", () => {
+  assert.equal(normalisasiWaktuJam(2), 2);
+  assert.equal(normalisasiWaktuJam(8), 8);
+  assert.equal(normalisasiWaktuJam(0.5), 0.5);
+});
+
+test("normalisasi: nilai > 8 dianggap legasi menit, dikonversi ÷60", () => {
+  // 30 menit = 0,5 jam; 45 menit = 0,75 jam
+  assert.equal(normalisasiWaktuJam(30), Math.round((30 / 60) * 10000) / 10000);
+  assert.equal(normalisasiWaktuJam(480), 8);
+});
+
+test("normalisasi: nol / negatif / NaN -> 0", () => {
+  assert.equal(normalisasiWaktuJam(0), 0);
+  assert.equal(normalisasiWaktuJam(-3), 0);
+  assert.equal(normalisasiWaktuJam(Number.NaN), 0);
+});
+
+test("normalisasi: baris legasi menit memberi kebutuhan yang benar", () => {
+  // 30 menit (legasi) -> 0,5 jam; 0,5 jam × 100 ÷ 1250 = 0,04 orang
+  const jam = normalisasiWaktuJam(30);
+  assert.equal(hitungKebutuhanPegawai(jam, 100, WKE_DEFAULT_JAM), 0.04);
+});
+
+// ============================================================
+// Kompatibilitas satuan jam↔menit (konsep dua-satuan lama tetap identik)
+// ============================================================
+
+test("konversi 2.5 jam <-> 150 menit memberi kebutuhan sama", () => {
   const jam = hitungKebutuhanPegawai(2.5, 100, WKE_DEFAULT_JAM);
-  const menit = hitungKebutuhanPegawai(2.5 * 60, 100, WKE_DEFAULT_MENIT);
+  const menit = hitungKebutuhanPegawai(150, 100, WKE_DEFAULT_JAM * 60);
   assert.equal(menit, jam);
   assert.ok(Math.abs(jam - 0.2) < 1e-12);
 });
 
-test("konversi 150 menit -> 2.5 jam memberi kebutuhan sama", () => {
-  const menit = hitungKebutuhanPegawai(150, 100, WKE_DEFAULT_MENIT);
-  const jam = hitungKebutuhanPegawai(150 / 60, 100, WKE_DEFAULT_JAM);
-  assert.ok(Math.abs(jam - menit) < 1e-12);
-  assert.ok(Math.abs(menit - 0.2) < 1e-12);
-});
-
-test("pembulatan 4-desimal konversi menit->jam tetap dalam toleransi kebutuhan", () => {
-  // Editor membulatkan ke 4 desimal saat konversi menit->jam:
-  // 0.5 menit -> Math.round((0.5/60)*10000)/10000 = 0.0083 jam
-  const roundedJam = Math.round((0.5 / 60) * 10000) / 10000;
-  const asli = hitungKebutuhanPegawai(0.5, 50, WKE_DEFAULT_MENIT);
-  const denganRounded = hitungKebutuhanPegawai(roundedJam, 50, WKE_DEFAULT_JAM);
-  // Selisihnya sangat kecil: tidak mengubah pembulatan formasi (0 -> 0)
-  assert.ok(Math.abs(asli - denganRounded) < 0.0001);
-  assert.equal(Math.round(denganRounded), Math.round(asli)); // formasi sama
-});
-
-test("konversi jam->menit (×60) tidak membulatkan nilai riil", () => {
-  // 2.5 jam × 60 = 150 (bulat); 1.75 jam × 60 = 105; waktu riil ×60 selalu
-  // bulat bila jam sendiri pecahan menit-utuh — diuji tanpa kehilangan.
-  assert.equal(2.5 * 60, 150);
-  assert.equal(hitungWaktuEfektif(1.75, 4), hitungWaktuEfektif(105, 4) / 60);
+test("asal 75000 menit = 1250 jam (identitas satuan), tanpa konstanta menit", () => {
+  // Rumus konversi dipertahankan dalam pengujian saja, agar perhitungan
+  // data legasi lama (menit) tetap bisa direproduksi saat audit.
+  const ekuivalenMenit = WKE_DEFAULT_JAM * 60;
+  assert.equal(ekuivalenMenit, 75000);
+  assert.equal(hitungKebutuhanPegawai(240, 150, ekuivalenMenit), 0.48); // 4 jam × 150
 });

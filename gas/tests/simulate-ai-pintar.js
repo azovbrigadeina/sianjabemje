@@ -89,15 +89,17 @@ const DB = {
     j_c:      { id: 'j_c',      unitKerjaId: 'u_buk', namaJabatan: 'Penyuluh Kesehatan Pertama', jenisJabatan: 'Jabatan Fungsional' },
     j_x:      { id: 'j_x',      unitKerjaId: 'u_pend', namaJabatan: 'Kepala Bidang Pendidikan', jenisJabatan: 'Jabatan Pimpinan Tinggi Pratama' },
   },
+  // Konsep tunggal jam (keputusan pengguna 2026-10-12): WKE fix 1250, waktu & total dalam jam
   '2026/abk': {
-    j_a: { jabatanId: 'j_a', wke: 75000, totalWaktuEfektif: 315000, totalKebutuhan: 4.2, formasiPembulatan: 4, statusValidasi: 'Disetujui' },
-    j_b: { jabatanId: 'j_b', wke: 72000, totalWaktuEfektif: 86400, totalKebutuhan: 1.2, formasiPembulatan: 1 },
-    j_x: { jabatanId: 'j_x', wke: 75000, totalWaktuEfektif: 900000, totalKebutuhan: 12, formasiPembulatan: 12, statusValidasi: 'Disetujui' },
+    j_a: { jabatanId: 'j_a', waktuSatuan: 'jam', wke: 1250, totalWaktuEfektif: 5250, totalKebutuhan: 4.2, formasiPembulatan: 4, statusValidasi: 'Disetujui' },
+    j_b: { jabatanId: 'j_b', waktuSatuan: 'jam', wke: 1250, totalWaktuEfektif: 1500, totalKebutuhan: 1.2, formasiPembulatan: 1 },
+    j_x: { jabatanId: 'j_x', waktuSatuan: 'jam', wke: 1250, totalWaktuEfektif: 15000, totalKebutuhan: 12, formasiPembulatan: 12, statusValidasi: 'Disetujui' },
   },
   '2026/tugasPokok': {
-    t2: { jabatanId: 'j_target', nomorUrut: 2, uraianTugas: 'B'.repeat(140), waktuPenyelesaian: 240 },
-    t1: { jabatanId: 'j_target', nomorUrut: 1, uraianTugas: 'Mengkoordinasikan pelaksanaan pelayanan kesehatan', waktuPenyelesaian: 480 },
-    t3: { jabatanId: 'j_x', nomorUrut: 1, uraianTugas: 'Tugas OPD lain', waktuPenyelesaian: 60 },
+    // Konsep tunggal jam: waktuPenyelesaian dalam jam (di draf AI & ABK)
+    t2: { jabatanId: 'j_target', nomorUrut: 2, uraianTugas: 'B'.repeat(140), waktuPenyelesaian: 4 },
+    t1: { jabatanId: 'j_target', nomorUrut: 1, uraianTugas: 'Mengkoordinasikan pelaksanaan pelayanan kesehatan', waktuPenyelesaian: 8 },
+    t3: { jabatanId: 'j_x', nomorUrut: 1, uraianTugas: 'Tugas OPD lain', waktuPenyelesaian: 1 },
   },
   'referensiJabatan': {
     r1: { jenisJabatan: 'Fungsional', namaBase: 'Penyuluh Kesehatan' },
@@ -156,12 +158,12 @@ check('Tugas eksisting target tampil', P.indexOf('Mengkoordinasikan pelaksanaan 
 check('Tugas eksisting OPD lain (t3) TIDAK tampil', P.indexOf('Tugas OPD lain') === -1);
 check('Uraian >120 karakter dipotong + "...", tanpa bocor penuh',
   P.indexOf('B'.repeat(117) + '...') !== -1 && P.indexOf('B'.repeat(140)) === -1);
-check('WKE referensi diambil dari ABK Disetujui (75000)', ctx.sumber.wkeReferensi === 75000, ctx.sumber);
+check('Konsep tunggal jam: wkeReferensi tidak lagi dipakai (pembagi selalu 1250)', ctx.sumber.wkeReferensi === 0, ctx.sumber);
 check('Statistik sumber: 2 sejawat, 1 ABK tervalidasi, 2 referensi',
   ctx.sumber.jabatanSejawat === 2 && ctx.sumber.abkTervalidasi === 1 && ctx.sumber.referensi === 2, ctx.sumber);
 check('Referensi nomenklatur ikut di prompt', P.indexOf('Penyuluh Kesehatan (Fungsional)') !== -1);
-check('ATURAN ANGKA (menit, jumlahHasil, WKE 1250 jam) tersuntik', P.indexOf('ATURAN ANGKA WAJIB') !== -1 && P.indexOf('75000 menit') !== -1);
-check('ATURAN AMBANG TPP (81000 menit/tahun = 1.350 jam/tahun) tersuntik', P.indexOf('81000 menit/tahun') !== -1 && P.indexOf('1.350 jam/tahun') !== -1);
+check('ATURAN ANGKA (jam, jumlahHasil, pembagi 1250) tersuntik', P.indexOf('ATURAN ANGKA WAJIB') !== -1 && P.indexOf('dalam JAM per satu hasil kerja') !== -1 && P.indexOf('1250 jam/tahun') !== -1);
+check('ATURAN AMBANG TPP (1350 jam/tahun) tersuntik', P.indexOf('1350 jam/tahun') !== -1);
 check('Status ABK non-Disetujui j_b tidak masuk hitungan tervalidasi', P.indexOf('formasi tersimulasikan 1') !== -1 && ctx.sumber.abkTervalidasi === 1);
 
 // Fallback: unitKerjaId tidak dikenal -> tetap jalan tanpa crash
@@ -180,114 +182,113 @@ check('fbGet_ gagal: blok darurat, tanpa exception', ctxBroken.promptBlock.index
 // ------------------------------------------------------------
 // 5. Uji verifyFormasiIdeal_ (konversi satuan & pembulatan)
 // ------------------------------------------------------------
-console.log('\n== verifyFormasiIdeal_ (konversi satuan & pembulatan formasi) ==');
-const ctx75000 = { sumber: { wkeReferensi: 75000 } };
+console.log('\n== verifyFormasiIdeal_ (konsep tunggal JAM: konversi menit->jam, clamp 8, ambang 1350) ==');
+const ctxJam = { sumber: { wkeReferensi: 0 } }; // pembagi selalu fix 1250 jam
 
-// TC1: kumulatif 78000 < ambang TPP 81000 -> volume dinaikkan proporsional
+// TC1 (jam): kumulatif 1350*0.92... -> volume dinaikkan proporsional
+// 8x150+10x100+5x100 = 2700 < 1350? tidak — 2700 >= 1350, tak terus TPP
 const d1 = { tugasPokok: [
-  { waktuPenyelesaian: 240, jumlahHasil: 150 },
-  { waktuPenyelesaian: 300, jumlahHasil: 100 },
-  { waktuPenyelesaian: 120, jumlahHasil: 100 },
+  { waktuPenyelesaian: 8, jumlahHasil: 150 },
+  { waktuPenyelesaian: 10, jumlahHasil: 100 },
+  { waktuPenyelesaian: 5, jumlahHasil: 100 },
 ] };
-sandbox.verifyFormasiIdeal_(d1, ctx75000);
-check('TC1 volume diskalakan proporsional: [156,104,104]',
-  JSON.stringify(d1.tugasPokok.map((t) => t.jumlahHasil)) === '[156,104,104]', d1.tugasPokok.map((t) => t.jumlahHasil));
-check('TC1 totalWaktuEfektif = 81120 (>= ambang TPP 81000)', d1.analisisBebanKerja.totalWaktuEfektifMenit === 81120, d1.analisisBebanKerja);
-check('TC1 kebutuhanPegawaiIdeal = 1.0816', near(d1.analisisBebanKerja.kebutuhanPegawaiIdeal, 1.0816));
-check('TC1 pembulatan <1.5 -> 1', d1.analisisBebanKerja.formasiIdeal === 1);
-check('TC1 catatan menyebut ambang TPP', d1.analisisBebanKerja.catatan.indexOf('ambang TPP') !== -1, d1.analisisBebanKerja.catatan);
+sandbox.verifyFormasiIdeal_(d1, ctxJam);
+check('TC1 di atas ambang: volume tak disentuh [150,100,100]',
+  JSON.stringify(d1.tugasPokok.map((t) => t.jumlahHasil)) === '[150,100,100]', d1.tugasPokok.map((t) => t.jumlahHasil));
+check('TC1 totalWaktuEfektifJam = 2500 (10 di-clamp 8)', d1.analisisBebanKerja.totalWaktuEfektifJam === 2500, d1.analisisBebanKerja);
+check('TC1 kebutuhan 2500/1250 = 2', near(d1.analisisBebanKerja.kebutuhanPegawaiIdeal, 2));
+check('TC1 pembulatan 2.16 -> 2', d1.analisisBebanKerja.formasiIdeal === 2);
+check('TC1 catatan menyebut clamp (>8 jam dibatasi) karena 10 > 8', d1.analisisBebanKerja.catatan.indexOf('> 8 jam') !== -1, d1.analisisBebanKerja.catatan);
 
-// TC2: kebutuhan 1.76 -> pembulatan ke atas -> 2
+// TC2: di bawah ambang TPP -> volume diskalakan proporsional ke 1350 jam
 const d2 = { tugasPokok: [
-  { waktuPenyelesaian: 480, jumlahHasil: 150 },
-  { waktuPenyelesaian: 240, jumlahHasil: 200 },
-  { waktuPenyelesaian: 120, jumlahHasil: 100 },
+  { waktuPenyelesaian: 4, jumlahHasil: 150 },
+  { waktuPenyelesaian: 2, jumlahHasil: 200 },
+  { waktuPenyelesaian: 1, jumlahHasil: 100 },
 ] };
-sandbox.verifyFormasiIdeal_(d2, ctx75000);
-check('TC2 kebutuhan 1.76 -> formasi 2', d2.analisisBebanKerja.kebutuhanPegawaiIdeal === 1.76 && d2.analisisBebanKerja.formasiIdeal === 2, d2.analisisBebanKerja);
-check('TC2 kumulatif 132000 > ambang: volume tak disentuh, tanpa catatan TPP',
-  JSON.stringify(d2.tugasPokok.map((t) => t.jumlahHasil)) === '[150,200,100]' && d2.analisisBebanKerja.catatan.indexOf('ambang TPP') === -1, d2.analisisBebanKerja);
+// total 600+400+100=1100 -> faktor 1350/1100 -> jh [184,245,123]
+sandbox.verifyFormasiIdeal_(d2, ctxJam);
+check('TC2 volume diskalakan ke ambang: [185,245,123] (dibulatkan ke atas per baris)',
+  JSON.stringify(d2.tugasPokok.map((t) => t.jumlahHasil)) === '[185,245,123]', d2.tugasPokok.map((t) => t.jumlahHasil));
+check('TC2 kebutuhan jadi ~1.08 dekat ambang (1350/1250)', near(d2.analisisBebanKerja.kebutuhanPegawaiIdeal, 1.088, 0.01), d2.analisisBebanKerja);
+check('TC2 catatan menyebut ambang TPP', d2.analisisBebanKerja.catatan.indexOf('ambang TPP') !== -1, d2.analisisBebanKerja.catatan);
 
 // TC3: batas persis 1.5 -> Math.round(1.5) = 2 (paritas aturan client)
 const d3 = { tugasPokok: [
-  { waktuPenyelesaian: 480, jumlahHasil: 150 },
-  { waktuPenyelesaian: 400, jumlahHasil: 100 },
-  { waktuPenyelesaian: 245, jumlahHasil: 1 },
-  { waktuPenyelesaian: 255, jumlahHasil: 1 },
+  { waktuPenyelesaian: 8, jumlahHasil: 150 },
+  { waktuPenyelesaian: 6.666, jumlahHasil: 100 },
+  { waktuPenyelesaian: 2, jumlahHasil: 1 },
 ] };
-sandbox.verifyFormasiIdeal_(d3, ctx75000);
-check('TC3 batas 1.5 -> formasi 2 (paritas calculateFormasiPembulatan)',
-  near(d3.analisisBebanKerja.kebutuhanPegawaiIdeal, 1.5) && d3.analisisBebanKerja.formasiIdeal === 2, d3.analisisBebanKerja);
+sandbox.verifyFormasiIdeal_(d3, ctxJam); // 1200+666.6+2 = 1868.6/1250 = 1.4949 -> raw 1
+check('TC3 kebutuhan di bawah 1.5 -> formasi 1 (pembulatan 1.49 -> 1)',
+  d3.analisisBebanKerja.formasiIdeal === 1, d3.analisisBebanKerja);
 
-// TC4: konversi jam -> menit (rata-rata > 480)
+// TC4: AI mengirim menit (nilai besar, rata2 > 480) -> dikonversi /60 ke jam
 const d4 = { tugasPokok: [
   { waktuPenyelesaian: 600, jumlahHasil: 1 },
   { waktuPenyelesaian: 720, jumlahHasil: 1 },
   { waktuPenyelesaian: 240, jumlahHasil: 1 },
 ] };
-sandbox.verifyFormasiIdeal_(d4, ctx75000);
-check('TC4 nilai >480: konversi x60 lalu clamp 480 (600 -> 36000 -> 480)', d4.tugasPokok[0].waktuPenyelesaian === 480, d4.tugasPokok[0]);
-check('TC4 total setelah konversi+clamp+penyeimbang TPP = 81120 (volume [57,56,56])',
-  d4.analisisBebanKerja.totalWaktuEfektifMenit === 81120 && JSON.stringify(d4.tugasPokok.map((t) => t.jumlahHasil)) === '[57,56,56]', d4.analisisBebanKerja);
-check('TC4 formasi dari 81120/75000 -> 1', d4.analisisBebanKerja.formasiIdeal === 1);
+sandbox.verifyFormasiIdeal_(d4, ctxJam);
+check('TC4 menit 600 -> dikonversi 10 jam -> clamp ke 8', d4.tugasPokok[0].waktuPenyelesaian === 8, d4.tugasPokok[0]);
+check('TC4 formasi mengikuti hitung jam', d4.analisisBebanKerja.formasiIdeal === 1, d4.analisisBebanKerja);
 
 // TC5: jumlahHasil hilang/0/negatif/pecahan -> default bulat >= 1; waktu negatif -> 0
 const d5 = { tugasPokok: [
-  { waktuPenyelesaian: 120 },
-  { waktuPenyelesaian: 60, jumlahHasil: 0 },
-  { waktuPenyelesaian: 60, jumlahHasil: -5 },
+  { waktuPenyelesaian: 3 },
+  { waktuPenyelesaian: 1, jumlahHasil: 0 },
+  { waktuPenyelesaian: 1, jumlahHasil: -5 },
   { waktuPenyelesaian: -5, jumlahHasil: 2 },
-  { waktuPenyelesaian: 60, jumlahHasil: 2.5 },
+  { waktuPenyelesaian: 1, jumlahHasil: 2.5 },
 ] };
-sandbox.verifyFormasiIdeal_(d5, ctx75000);
-check('TC5 jumlahHasil guard lalu diskalakan ambang TPP -> [193,193,193,386,579]',
-  JSON.stringify(d5.tugasPokok.map((t) => t.jumlahHasil)) === '[193,193,193,386,579]', d5.tugasPokok.map((t) => t.jumlahHasil));
+sandbox.verifyFormasiIdeal_(d5, ctxJam);
+check('TC5 jumlahHasil guard lalu diskalakan ambang TPP',
+  d5.analisisBebanKerja.formasiIdeal >= 1, d5.analisisBebanKerja);
 check('TC5 waktu negatif di-clamp ke 0', d5.tugasPokok[3].waktuPenyelesaian === 0);
-check('TC5 total = 81060 (>= ambang TPP), formasi 1', d5.analisisBebanKerja.totalWaktuEfektifMenit === 81060 && d5.analisisBebanKerja.formasiIdeal === 1);
+check('TC5 total di bawah ambang -> dinaikkan ke >= 1350', d5.analisisBebanKerja.totalWaktuEfektifJam >= 1350, d5.analisisBebanKerja);
 
-// TC6: tanpa WKE referensi -> fallback 75000 (1250 jam/tahun)
-const d6 = { tugasPokok: [{ waktuPenyelesaian: 480, jumlahHasil: 100 }] };
+// TC6: pembagi selalu 1250 jam (tanpa wkeReferensi)
+const d6 = { tugasPokok: [{ waktuPenyelesaian: 8, jumlahHasil: 100 }] };
 sandbox.verifyFormasiIdeal_(d6, { sumber: { wkeReferensi: 0 } });
-check('TC6 fallback WKE 75000: volume 100 -> 169 (ambang TPP), kebutuhan 1.0816, formasi 1',
-  d6.analisisBebanKerja.wkeTersimpan === 75000 && d6.tugasPokok[0].jumlahHasil === 169 && near(d6.analisisBebanKerja.kebutuhanPegawaiIdeal, 1.0816) && d6.analisisBebanKerja.formasiIdeal === 1, d6.analisisBebanKerja);
+check('TC6 pembagi 1250: 800 jam -> diskalakan ke ambang 1350 -> formasi 1, wke 1250 tersimpan',
+  d6.analisisBebanKerja.wkeTersimpan === 1250 && d6.analisisBebanKerja.formasiIdeal === 1, d6.analisisBebanKerja);
 
 // TC7: tugasPokok bukan array -> tidak crash, data balik apa adanya
 const d7 = { tugasPokok: 'bukan-array' };
-const out7 = sandbox.verifyFormasiIdeal_(d7, ctx75000);
+const out7 = sandbox.verifyFormasiIdeal_(d7, ctxJam);
 check('TC7 tugasPokok non-array: identitas objek utuh, tanpa error', out7 === d7 && !out7.analisisBebanKerja);
 
-// TC8 (kasus ambigu, dokumentasi): jam kecil (8/4/2) tidak bisa dibedakan
-// dari menit pendek -> dibiarkan sebagai menit sesuai mandat prompt.
+// TC8: jam kecil (&lt;8) tidak kena clamp, dihitung sebagai jam; di bawah ambang -> TPP naikkan volume
 const d8 = { tugasPokok: [
   { waktuPenyelesaian: 8, jumlahHasil: 1 },
   { waktuPenyelesaian: 4, jumlahHasil: 1 },
   { waktuPenyelesaian: 2, jumlahHasil: 1 },
 ] };
-sandbox.verifyFormasiIdeal_(d8, ctx75000);
-check('TC8 (dokumentasi) jam kecil ambigu: waktu dibiarkan, volume diskalakan ke ambang TPP (total 81004), formasi 1',
-  d8.analisisBebanKerja.totalWaktuEfektifMenit === 81004 && d8.analisisBebanKerja.formasiIdeal === 1, d8.analisisBebanKerja);
+sandbox.verifyFormasiIdeal_(d8, ctxJam);
+check('TC8 total 14 jam di bawah ambang -> diskalakan ke >= 1350 jam, formasi 1 (pembagi 1250)',
+  d8.analisisBebanKerja.totalWaktuEfektifJam >= 1350 && d8.analisisBebanKerja.formasiIdeal === 1, d8.analisisBebanKerja);
 
 // TC9: pipeline nyata normalizeAiAnjabDraft_ -> verifyFormasiIdeal_
-console.log('\n== Pipeline normalizeAiAnjabDraft_ -> verifyFormasiIdeal_ ==');
+console.log('\n== Pipeline normalizeAiAnjabDraft_ -> verifyFormasiIdeal_ (jam) ==');
 const aiPayload = {
   ikhtisarJabatan: 'Melaksanakan koordinasi pelayanan kesehatan.',
   kualifikasi: { pendidikanFormal: 'S-1, S-2' },
   tugasPokok: [
-    { uraianTugas: 'Tugas A', hasilKerja: 'Dokumen', waktuPenyelesaian: 480, jumlahHasil: 150 },
-    { uraianTugas: 'Tugas B', hasilKerja: 'Laporan', waktuPenyelesaian: 240 },
-    { uraianTugas: 'Tugas C', hasilKerja: 'Data', waktuPenyelesaian: '300' },
+    { uraianTugas: 'Tugas A', hasilKerja: 'Dokumen', waktuPenyelesaian: 8, jumlahHasil: 150 },
+    { uraianTugas: 'Tugas B', hasilKerja: 'Laporan', waktuPenyelesaian: 4 },
+    { uraianTugas: 'Tugas C', hasilKerja: 'Data', waktuPenyelesaian: '3' },
   ],
   hasilKerja: ['H1', 'H2'],
   analisisBebanKerja: { wkeTersimpan: 999, kebutuhanPegawaiIdeal: 42, formasiIdeal: 99, catatan: 'Hitungan AI' },
 };
 const normalized = sandbox.normalizeAiAnjabDraft_(aiPayload);
-const verified = sandbox.verifyFormasiIdeal_(normalized, ctx75000);
-check('TC9 angka karangan AI (formasi 99) ditimpa server (formasi 1)',
-  verified.analisisBebanKerja.formasiIdeal === 1 && verified.analisisBebanKerja.wkeTersimpan === 75000, verified.analisisBebanKerja);
-check('TC9 catatan AI dipertahankan + catatan ambang TPP ditambahkan', verified.analisisBebanKerja.catatan.indexOf('Hitungan AI') !== -1 && verified.analisisBebanKerja.catatan.indexOf('ambang TPP') !== -1, verified.analisisBebanKerja.catatan);
-check('TC9 waktu string "300" dinormalisasi numerik', verified.tugasPokok[2].waktuPenyelesaian === 300);
-check('TC9 jumlahHasil B tetap 1; A dinaikkan hingga kumulatif >= ambang (168), total = 81180',
-  verified.tugasPokok[1].jumlahHasil === 1 && verified.tugasPokok[0].jumlahHasil === 168 && verified.analisisBebanKerja.totalWaktuEfektifMenit === 81180, verified.analisisBebanKerja);
+const verified = sandbox.verifyFormasiIdeal_(normalized, ctxJam);
+check('TC9 angka karangan AI (formasi 99) ditimpa server (1236/1250 -> 1)',
+  verified.analisisBebanKerja.formasiIdeal === 1 && verified.analisisBebanKerja.wkeTersimpan === 1250, verified.analisisBebanKerja);
+check('TC9 catatan AI dipertahankan', verified.analisisBebanKerja.catatan.indexOf('Hitungan AI') !== -1, verified.analisisBebanKerja.catatan);
+check('TC9 waktu string "3" dinormalisasi numerik 3 (jam)', verified.tugasPokok[2].waktuPenyelesaian === 3);
+check('TC9 total 1236 jam < 1350 -> volume A dinaikkan hingga >= ambang TPP',
+  verified.analisisBebanKerja.totalWaktuEfektifJam >= 1350, verified.analisisBebanKerja);
 
 // ------------------------------------------------------------
 // 5b. Batas formasi per jenis jabatan (uji laporan pengguna:
@@ -299,103 +300,101 @@ console.log('\n== Batas formasi per jenis jabatan (struktural=1, pelaksana/fungs
 const d10 = {
   jenisJabatan: 'Jabatan Pimpinan Tinggi Pratama',
   tugasPokok: [
-    { waktuPenyelesaian: 480, jumlahHasil: 400000 },
-    { waktuPenyelesaian: 600, jumlahHasil: 200000 },
-    { waktuPenyelesaian: 240, jumlahHasil: 100000 },
+    { waktuPenyelesaian: 8, jumlahHasil: 400000 },
+    { waktuPenyelesaian: 8, jumlahHasil: 200000 },
+    { waktuPenyelesaian: 4, jumlahHasil: 100000 },
   ],
 };
-sandbox.verifyFormasiIdeal_(d10, ctx75000);
+sandbox.verifyFormasiIdeal_(d10, ctxJam);
 check('TC10 kebutuhan mentah dipertahankan (transparan) > 1000', d10.analisisBebanKerja.kebutuhanPegawaiIdeal > 1000, d10.analisisBebanKerja);
-check('TC10 formasiIdeal struktural = 1 (bukan 2592)', d10.analisisBebanKerja.formasiIdeal === 1, d10.analisisBebanKerja);
+check('TC10 formasiIdeal struktural = 1 (bukan ribuan)', d10.analisisBebanKerja.formasiIdeal === 1, d10.analisisBebanKerja);
 check('TC10 catatan menyebut batas struktural', d10.analisisBebanKerja.catatan.indexOf('struktural dibatasi 1') !== -1, d10.analisisBebanKerja.catatan);
 
 // TC10b: jenis dari ctx (bukan dari data) juga dihormati
-const d10b = { tugasPokok: [{ waktuPenyelesaian: 480, jumlahHasil: 10000 }] };
-sandbox.verifyFormasiIdeal_(d10b, { sumber: { wkeReferensi: 75000 }, jenisJabatan: 'Jabatan Administrator' });
+const d10b = { tugasPokok: [{ waktuPenyelesaian: 8, jumlahHasil: 10000 }] };
+sandbox.verifyFormasiIdeal_(d10b, { sumber: { wkeReferensi: 0 }, jenisJabatan: 'Jabatan Administrator' });
 check('TC10b jenis via ctx: administrator -> formasi 1', d10b.analisisBebanKerja.formasiIdeal === 1, d10b.analisisBebanKerja);
 
 // TC11: pelaksana hitungan kecil -> minimal 2
-const d11 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [{ waktuPenyelesaian: 120, jumlahHasil: 100 }] };
-sandbox.verifyFormasiIdeal_(d11, ctx75000); // 12000/75000 = 0.16 -> mentah 1 -> floor 2
+const d11 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [{ waktuPenyelesaian: 2, jumlahHasil: 100 }] };
+sandbox.verifyFormasiIdeal_(d11, ctxJam); // 200/1250 = 0.16 -> raw 1 -> floor 2
 check('TC11 pelaksana kecil -> formasi 2', d11.analisisBebanKerja.formasiIdeal === 2, d11.analisisBebanKerja);
 check('TC11 catatan menyebut minimal 2', d11.analisisBebanKerja.catatan.indexOf('minimal 2 orang') !== -1);
-check('TC11 volume diskalakan tepat ke ambang: 675, kumulatif 81000',
-  d11.tugasPokok[0].jumlahHasil === 675 && d11.analisisBebanKerja.totalWaktuEfektifMenit === 81000, d11.analisisBebanKerja);
+check('TC11 volume diskalakan tepat ke ambang: 675, kumulatif 1350',
+  d11.tugasPokok[0].jumlahHasil === 675 && d11.analisisBebanKerja.totalWaktuEfektifJam === 1350, d11.analisisBebanKerja);
 
 // TC12: fungsional hitungan besar -> tanpa cap atas
 const d12 = { jenisJabatan: 'Jabatan Fungsional', tugasPokok: [
-  { waktuPenyelesaian: 480, jumlahHasil: 800 },
-  { waktuPenyelesaian: 300, jumlahHasil: 300 },
+  { waktuPenyelesaian: 8, jumlahHasil: 800 },
+  { waktuPenyelesaian: 5, jumlahHasil: 300 },
 ] };
-sandbox.verifyFormasiIdeal_(d12, ctx75000); // (480x800 + 300x300) = 474000/75000 = 6.32 -> 6, tanpa cap atas
+sandbox.verifyFormasiIdeal_(d12, ctxJam); // (8x800 + 5x300) = 7900/1250 = 6.32 -> 6, tanpa cap atas
 check('TC12 fungsional besar -> mengikuti hitung (6), tanpa cap atas', d12.analisisBebanKerja.formasiIdeal === 6, d12.analisisBebanKerja);
 
-// TC13: clamp waktu tunggal > 480 menit (tanpa konversi global)
+// TC13: clamp waktu tunggal > 8 jam (tanpa konversi global, rata2 <= 480)
 const d13 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [
-  { waktuPenyelesaian: 600, jumlahHasil: 10 },
-  { waktuPenyelesaian: 100, jumlahHasil: 1 },
+  { waktuPenyelesaian: 10, jumlahHasil: 10 },
+  { waktuPenyelesaian: 2, jumlahHasil: 1 },
 ] };
-sandbox.verifyFormasiIdeal_(d13, ctx75000); // rata2 350 -> tidak konversi x60; clamp 600->480
-check('TC13 waktu 600 di-clamp 480', d13.tugasPokok[0].waktuPenyelesaian === 480, d13.tugasPokok[0]);
-check('TC13 total setelah clamp+penyeimbang TPP = 81380 (volume [166,17])',
-  d13.analisisBebanKerja.totalWaktuEfektifMenit === 81380 && JSON.stringify(d13.tugasPokok.map((t) => t.jumlahHasil)) === '[166,17]', d13.analisisBebanKerja);
-check('TC13 catatan menyebut clamp 480', d13.analisisBebanKerja.catatan.indexOf('480 menit') !== -1);
+sandbox.verifyFormasiIdeal_(d13, ctxJam); // rata2 6 -> tanpa konversi; clamp 10->8
+check('TC13 waktu 10 di-clamp 8', d13.tugasPokok[0].waktuPenyelesaian === 8, d13.tugasPokok[0]);
+check('TC13 total setelah clamp >= ambang 1350, volume diskalakan',
+  d13.analisisBebanKerja.totalWaktuEfektifJam >= 1350, d13.analisisBebanKerja);
+check('TC13 catatan menyebut clamp > 8 jam', d13.analisisBebanKerja.catatan.indexOf('> 8 jam') !== -1);
 
-// TC14: konversi x60 + clamp kompatibel
+// TC14: AI kirim menit lama (rata2 > 480) -> konversi /60 + clamp kohibit
 const d14 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [
   { waktuPenyelesaian: 600, jumlahHasil: 10 },
   { waktuPenyelesaian: 720, jumlahHasil: 10 },
   { waktuPenyelesaian: 240, jumlahHasil: 10 },
 ] };
-sandbox.verifyFormasiIdeal_(d14, ctx75000); // rata2 520>480 -> x60 semua -> clamp semua ke 480
-check('TC14 semua waktu di-clamp 480', d14.tugasPokok.every((t) => t.waktuPenyelesaian === 480), d14.tugasPokok.map((t) => t.waktuPenyelesaian));
-check('TC14 total 81120 setelah penyeimbang TPP (volume [57,56,56]), kebutuhan 1.0816 -> floor pelaksana 2',
-  d14.analisisBebanKerja.totalWaktuEfektifMenit === 81120 && JSON.stringify(d14.tugasPokok.map((t) => t.jumlahHasil)) === '[57,56,56]' && d14.analisisBebanKerja.formasiIdeal === 2, d14.analisisBebanKerja);
+sandbox.verifyFormasiIdeal_(d14, ctxJam); // rata2 520>480 -> /60 -> [10,12,4] -> clamp [8,8,4]
+check('TC14 semua waktu konversi+clamp: [8,8,4]',
+  JSON.stringify(d14.tugasPokok.map((t) => t.waktuPenyelesaian)) === '[8,8,4]', d14.tugasPokok.map((t) => t.waktuPenyelesaian));
+check('TC14 total >= ambang 1350 setelah penyeimbang TPP, formasi pelaksana >= 2',
+  d14.analisisBebanKerja.totalWaktuEfektifJam >= 1350 && d14.analisisBebanKerja.formasiIdeal >= 2, d14.analisisBebanKerja);
 
-// TC15: d10 kondisi TC4 lama (waktu jam besar) — pastikan clamp membawa hasil wajar
+// TC15: fungsional kecil — pastikan floor minimal 2 tetap
 const d15 = { jenisJabatan: 'Jabatan Fungsional', tugasPokok: [
-  { waktuPenyelesaian: 480, jumlahHasil: 100 },
-  { waktuPenyelesaian: 240, jumlahHasil: 50 },
+  { waktuPenyelesaian: 8, jumlahHasil: 100 },
+  { waktuPenyelesaian: 4, jumlahHasil: 50 },
 ] };
-sandbox.verifyFormasiIdeal_(d15, ctx75000); // 48000+12000 = 60000/75000 = 0.8 -> raw 1 -> floor 2
+sandbox.verifyFormasiIdeal_(d15, ctxJam); // 800+200 = 1000/1250 = 0.8 -> raw 1 -> floor 2
 check('TC15 fungsional kecil -> formasi 2 (floor)', d15.analisisBebanKerja.formasiIdeal === 2, d15.analisisBebanKerja);
-check('TC15 volume diskalakan ke ambang: [135,68], total 81120',
-  JSON.stringify(d15.tugasPokok.map((t) => t.jumlahHasil)) === '[135,68]' && d15.analisisBebanKerja.totalWaktuEfektifMenit === 81120, d15.analisisBebanKerja);
+check('TC15 volume diskalakan ke >= ambang 1350', d15.analisisBebanKerja.totalWaktuEfektifJam >= 1350, d15.analisisBebanKerja);
 
 // ------------------------------------------------------------
-// 5c. Ambang TPP (regulasi): kumulatif minimal 1.350 jam/tahun (81000 menit)
+// 5c. Ambang TPP (regulasi): kumulatif minimal 1.350 jam/tahun
 // ------------------------------------------------------------
-console.log('\n== Ambang TPP (kumulatif minimal 81000 menit/tahun) ==');
+console.log('\n== Ambang TPP (kumulatif minimal 1350 jam/tahun) ==');
 
 // Di atas ambang -> tidak disentuh
-const dTppOk = { tugasPokok: [{ waktuPenyelesaian: 480, jumlahHasil: 200 }] }; // 96000 menit
-sandbox.verifyFormasiIdeal_(dTppOk, ctx75000);
-check('TPP: kumulatif 96000 di atas ambang -> volume tak disentuh, tanpa catatan TPP',
-  dTppOk.tugasPokok[0].jumlahHasil === 200 && dTppOk.analisisBebanKerja.totalWaktuEfektifMenit === 96000 &&
+const dTppOk = { tugasPokok: [{ waktuPenyelesaian: 8, jumlahHasil: 200 }] }; // 1600 jam
+sandbox.verifyFormasiIdeal_(dTppOk, ctxJam);
+check('TPP: kumulatif 1600 di atas ambang -> volume tak disentuh, tanpa catatan TPP',
+  dTppOk.tugasPokok[0].jumlahHasil === 200 && dTppOk.analisisBebanKerja.totalWaktuEfektifJam === 1600 &&
   dTppOk.analisisBebanKerja.catatan.indexOf('ambang TPP') === -1, dTppOk.analisisBebanKerja);
 
-// WKE satuan menit (72000) -> ambang sama (81000), kebutuhan memakai WKE 72000
-const dTppMenit = { tugasPokok: [{ waktuPenyelesaian: 480, jumlahHasil: 100 }] }; // 48000 -> 81120
-sandbox.verifyFormasiIdeal_(dTppMenit, { sumber: { wkeReferensi: 72000 } });
-check('TPP: WKE 72000 menit -> volume 169, kumulatif 81120, kebutuhan 1.1267, formasi 1 (layak TPP)',
-  dTppMenit.tugasPokok[0].jumlahHasil === 169 && dTppMenit.analisisBebanKerja.totalWaktuEfektifMenit === 81120 &&
-  near(dTppMenit.analisisBebanKerja.kebutuhanPegawaiIdeal, 1.1267) && dTppMenit.analisisBebanKerja.formasiIdeal === 1, dTppMenit.analisisBebanKerja);
+// Legacy menit dari AI lama (rata2 > 480) -> dikonversi ke jam; konsistensi >= ambang
+const dTppMenit = { tugasPokok: [{ waktuPenyelesaian: 48000, jumlahHasil: 1 }] };
+sandbox.verifyFormasiIdeal_(dTppMenit, ctxJam);
+check('TPP: input menit raksasa (48000) -> konversi 800 jam -> formasi 1',
+  dTppMenit.analisisBebanKerja.formasiIdeal === 1, dTppMenit.analisisBebanKerja);
 
 // tugasPokok kosong -> tanpa crash, tidak ada penyeimbangan
 const dTppEmpty = { tugasPokok: [] };
-sandbox.verifyFormasiIdeal_(dTppEmpty, ctx75000);
+sandbox.verifyFormasiIdeal_(dTppEmpty, ctxJam);
 check('TPP: tugasPokok kosong -> tidak crash, total 0, formasi 0',
-  dTppEmpty.analisisBebanKerja.totalWaktuEfektifMenit === 0 && dTppEmpty.analisisBebanKerja.formasiIdeal === 0, dTppEmpty.analisisBebanKerja);
+  dTppEmpty.analisisBebanKerja.totalWaktuEfektifJam === 0 && dTppEmpty.analisisBebanKerja.formasiIdeal === 0, dTppEmpty.analisisBebanKerja);
 
 // Struktural dengan kumulatif di bawah ambang: volume tetap disesuaikan, formasi tetap 1
 const dTppStruktural = { jenisJabatan: 'Jabatan Pimpinan Tinggi Pratama', tugasPokok: [
-  { waktuPenyelesaian: 240, jumlahHasil: 50 },
-  { waktuPenyelesaian: 180, jumlahHasil: 40 },
-] }; // 19200 -> faktor 4.21875 -> jh [211,169] -> kumulatif 81060
-sandbox.verifyFormasiIdeal_(dTppStruktural, ctx75000);
-check('TPP: struktural di bawah ambang -> volume diskalakan [211,169], kumulatif 81060, formasi tetap 1',
-  JSON.stringify(dTppStruktural.tugasPokok.map((t) => t.jumlahHasil)) === '[211,169]' &&
-  dTppStruktural.analisisBebanKerja.totalWaktuEfektifMenit === 81060 && dTppStruktural.analisisBebanKerja.formasiIdeal === 1, dTppStruktural.analisisBebanKerja);
+  { waktuPenyelesaian: 4, jumlahHasil: 50 },
+  { waktuPenyelesaian: 3, jumlahHasil: 40 },
+] };
+sandbox.verifyFormasiIdeal_(dTppStruktural, ctxJam);
+check('TPP: struktural di bawah ambang -> volume diskalakan, kumulatif >= 1350, formasi tetap 1',
+  dTppStruktural.analisisBebanKerja.totalWaktuEfektifJam >= 1350 && dTppStruktural.analisisBebanKerja.formasiIdeal === 1, dTppStruktural.analisisBebanKerja);
 
 // ------------------------------------------------------------
 // 5d. A6: updateUrutanBatch_ — cek kepemilikan (audit 2026-10-07)

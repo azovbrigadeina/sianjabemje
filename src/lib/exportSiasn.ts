@@ -198,7 +198,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
     // Row 1
     [
       'Uraian Tugas', 'Hasil Kerja', 'Satuan Hasil Kerja', 'Beban Kerja 1 Tahun', 
-      'Waktu Kerja Efektif 1 Tahun', 'Waktu Penyelesaian (jam/menit)', 'Uraian Bahan Kerja', 
+      'Waktu Kerja Efektif 1 Tahun', 'Waktu Penyelesaian (jam)', 'Uraian Bahan Kerja', 
       'Uraian Perangkat Kerja'
     ],
     // Row 2

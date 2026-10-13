@@ -796,12 +796,12 @@ function ensureAiAnjabDraft(data: any): any {
     analisisBebanKerja: data.analisisBebanKerja && typeof data.analisisBebanKerja === 'object'
       ? {
           wkeTersimpan: Number(data.analisisBebanKerja.wkeTersimpan) || 0,
-          totalWaktuEfektifMenit: Number(data.analisisBebanKerja.totalWaktuEfektifMenit) || 0,
+          totalWaktuEfektifJam: Number(data.analisisBebanKerja.totalWaktuEfektifJam ?? data.analisisBebanKerja.totalWaktuEfektifMenit) || 0, // fallback: draf lama hanya punya field legacy (nilainya jam)
           kebutuhanPegawaiIdeal: Number(data.analisisBebanKerja.kebutuhanPegawaiIdeal) || 0,
           formasiIdeal: Number(data.analisisBebanKerja.formasiIdeal) || 0,
           catatan: data.analisisBebanKerja.catatan || "",
         }
-      : { wkeTersimpan: 0, totalWaktuEfektifMenit: 0, kebutuhanPegawaiIdeal: 0, formasiIdeal: 0, catatan: "" },
+      : { wkeTersimpan: 0, totalWaktuEfektifJam: 0, kebutuhanPegawaiIdeal: 0, formasiIdeal: 0, catatan: "" },
   };
 }
 

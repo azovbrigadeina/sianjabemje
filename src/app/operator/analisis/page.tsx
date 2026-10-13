@@ -549,10 +549,10 @@ export default function OperatorAnalisisPage() {
         throw new Error("Respons dari model AI kosong atau tidak valid.");
       }
 
-      if (aiDraft.analisisBebanKerja && (aiDraft.analisisBebanKerja.formasiIdeal > 0 || aiDraft.analisisBebanKerja.totalWaktuEfektifMenit > 0)) {
+      if (aiDraft.analisisBebanKerja && (aiDraft.analisisBebanKerja.formasiIdeal > 0 || aiDraft.analisisBebanKerja.totalWaktuEfektifJam > 0)) {
         updateStep(1, 'success', [
           `${getTimestamp()} SUCCESS: Analisis AI berhasil diterima.`,
-          `${getTimestamp()} INFO: Formasi ideal (server): ${aiDraft.analisisBebanKerja.formasiIdeal} org | Kebutuhan: ${aiDraft.analisisBebanKerja.kebutuhanPegawaiIdeal} | Waktu efektif: ${aiDraft.analisisBebanKerja.totalWaktuEfektifMenit} menit/tahun`
+          `${getTimestamp()} INFO: Formasi ideal (server): ${aiDraft.analisisBebanKerja.formasiIdeal} org | Kebutuhan: ${aiDraft.analisisBebanKerja.kebutuhanPegawaiIdeal} | Waktu efektif: ${aiDraft.analisisBebanKerja.totalWaktuEfektifJam} jam/tahun`
         ]);
       } else {
         updateStep(1, 'success', [
