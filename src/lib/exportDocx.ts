@@ -5,7 +5,7 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { api } from './api';
 import { JabatanFull } from './types';
 import { generateVerificationCode, resolveOpdInduk, getCurrentSessionUser } from './verification';
-import { generateKodeJabatan, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, WKE_DEFAULT_JAM, WKE_DEFAULT_MENIT } from './utils';
+import { generateKodeJabatan, calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, wkeLegacyDariSatuan, WKE_DEFAULT_JAM } from './utils';
 import { INSTANSI_NAME } from './constants';
 
 // Helper to convert base64 string to ArrayBuffer
@@ -267,12 +267,12 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   const abkRows = Array.isArray(abkData?.rows) ? abkData.rows : [];
   let wke = Number(abkData?.wke) || 0;
   const isMenit = abkData?.waktuSatuan === 'menit';
-  // SSOT WKE: fix 1250 jam/tahun. Baris legacy berlabel satuan menit
-  // memakai padanan menitnya — hanya untuk membaca data lama saat ekspor.
+  // SSOT WKE: fix 1250 jam/tahun. Baris legacy berlabel satuan menit memakai
+  // padanan menitnya via wkeLegacyDariSatuan — hanya untuk membaca data lama saat ekspor.
   if (wke <= 0) {
-    wke = isMenit ? WKE_DEFAULT_MENIT : WKE_DEFAULT_JAM;
+    wke = wkeLegacyDariSatuan(isMenit ? 'menit' : 'jam');
   } else if (isMenit && wke === WKE_DEFAULT_JAM) {
-    wke = WKE_DEFAULT_MENIT;
+    wke = WKE_DEFAULT_JAM * 60;
   }
 
   const tpMapping = mappings.tugasPokok || {};

@@ -144,7 +144,15 @@ export function filterTreeNodes<T extends { label: string; children?: T[] }>(nod
  *   Pembulatan Formasi                = pembulatan dari total di atas.
  */
 export const WKE_DEFAULT_JAM = 1250;
-export const WKE_DEFAULT_MENIT = WKE_DEFAULT_JAM * 60;
+
+/**
+ * Legacy-only: WKE untuk membaca data lama berlabel satuan menit
+ * (75000 = 1250 jam × 60). Konsep aktif aplikasi adalah jam; helper ini
+ * hanya dipakai saat ekspor/memuat data ekspor legacy (waktuSatuan 'menit').
+ */
+export function wkeLegacyDariSatuan(satuan?: string): number {
+  return satuan === 'menit' ? WKE_DEFAULT_JAM * 60 : WKE_DEFAULT_JAM;
+}
 
 /**
  * Normalisasi waktu Anjab ke jam (SSOT satuan tunggal: JAM).
