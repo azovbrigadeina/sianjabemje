@@ -31,7 +31,7 @@ export function getLocalHomeserverConfig(): HomeserverConfig {
   const url = (localStorage.getItem(HS_URL_KEY) || DEFAULT_HOMESERVER_URL).replace(/\/+$/, '');
   const rawMode = localStorage.getItem(HS_MODE_KEY);
   const mode: 'HOMESERVER' | 'RTDB' = rawMode === 'HOMESERVER' ? 'HOMESERVER' : 'RTDB';
-  const secret = localStorage.getItem(HS_SECRET_KEY) || 'sianjab-homeserver-2026';
+  const secret = localStorage.getItem(HS_SECRET_KEY) || '';
   return { url, mode, secret };
 }
 
@@ -916,7 +916,7 @@ export const api = {
     pullFromRtdb: async (customUrl?: string, customSecret?: string) => {
       const cfg = getLocalHomeserverConfig();
       const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
-      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const secret = customSecret || cfg.secret || '';
       const token = getAuthToken();
       const res = await fetch(`${baseUrl}/_homeserver/pull-from-rtdb`, {
         method: 'POST',
@@ -935,7 +935,7 @@ export const api = {
     flushToRtdb: async (customUrl?: string, customSecret?: string) => {
       const cfg = getLocalHomeserverConfig();
       const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
-      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const secret = customSecret || cfg.secret || '';
       const token = getAuthToken();
       const res = await fetch(`${baseUrl}/_homeserver/flush-to-rtdb`, {
         method: 'POST',
@@ -953,7 +953,7 @@ export const api = {
     switchMode: async (nextMode: 'HOMESERVER' | 'RTDB', customUrl?: string, customSecret?: string) => {
       const cfg = getLocalHomeserverConfig();
       const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
-      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const secret = customSecret || cfg.secret || '';
       const token = getAuthToken();
 
       // Beritahu container Homeserver untuk berganti mode (dan otomatis flush Outbox jika kembali ke RTDB)

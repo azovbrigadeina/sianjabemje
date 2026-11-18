@@ -1,0 +1,13 @@
+{
+  "name": "sianjab-db-server",
+  "version": "1.0.0",
+  "description": "Dedicated Homeserver Docker Database & Write-Behind RTDB Sync Server for Sianjab",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

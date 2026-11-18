@@ -42,7 +42,6 @@ next-env.d.ts
 
 # local files containing sensitive credentials
 gas/Code.gs.local
-backup.sh
 backups/
 
 # spreadsheet exports
@@ -60,6 +59,11 @@ fix_*.js
 fix_db.js
 parse_*.js
 patch*.js
+
+# SEC-K3: secrets & data runtime homeserver
+sianjab-db-server/.env
+sianjab-db-server/data/
+!sianjab-db-server/.env.example
 
 
 

@@ -47,7 +47,7 @@ export default function BackupDatabasePage() {
 
   // Homeserver Docker Database & Funnel Control State
   const [hsUrl, setHsUrl] = useState('');
-  const [hsSecret, setHsSecret] = useState('sianjab-homeserver-2026');
+  const [hsSecret, setHsSecret] = useState('');
   const [hsActiveMode, setHsActiveMode] = useState<'HOMESERVER' | 'RTDB'>('RTDB');
   const [hsStatus, setHsStatus] = useState<any>(null);
   const [hsLoading, setHsLoading] = useState(false);
@@ -509,7 +509,7 @@ export default function BackupDatabasePage() {
                 type="password"
                 value={hsSecret}
                 onChange={(e) => setHsSecret(e.target.value)}
-                placeholder="sianjab-homeserver-2026"
+                placeholder="Homeserver Admin Secret"
                 style={{
                   width: '100%',
                   padding: '0.6rem 0.85rem',

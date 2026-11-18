@@ -1,0 +1,26 @@
+services:
+  sianjab-db:
+    build: .
+    container_name: sianjab-db-server
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=3098
+      - DATA_DIR=/data
+      # SEC-K3: secret WAJIB diisi dari file .env (lihat .env.example). Server menolak start tanpa env.
+      # Gunakan `env_file: .env` atau isi manual di sini — TANPA nilai default.
+      env_file:
+        - .env
+      # Secret untuk operasi admin Homeserver (pull/flush/mode switch)
+      # Firebase RTDB Utama Sianjab (sebagai Backup / Standby Database)
+      - FIREBASE_DB_URL=https://anjabmj-44141-default-rtdb.asia-southeast1.firebasedatabase.app
+      # Firebase RTDB SiTPP (untuk integrasi exportForSitpp & checkSptOpd)
+      - SITPP_FIREBASE_URL=https://sitpp-1305b-default-rtdb.asia-southeast1.firebasedatabase.app
+      # URL GAS Sianjab (untuk meneruskan fitur AI Gemini atau invalidasi cache GAS saat switch mode)
+      - GAS_DEPLOYMENT_URL=https://script.google.com/macros/s/AKfycbxbuHWzaPOMyEemDcUsYCboqWkE5g1Lq-FFKwA5eNyBbamd41686X1a2m7OIFI-h-yLWw/exec
+      # Interval sinkronisasi Write-Behind Outbox ke Firebase RTDB (default: 180000 ms = 3 menit, 0 = manual saja)
+      - WRITE_BEHIND_INTERVAL_MS=180000
+      # Batas ukuran body JSON
+      - MAX_BODY_BYTES=104857600
