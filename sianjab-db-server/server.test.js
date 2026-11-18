@@ -378,6 +378,13 @@ test('SEC-T10: create unitKerja dengan kode duplikat ditolak', async () => {
   assert.equal(getDbNode('2027/unitKerja/unit_dinkes').nama, 'Dinas Kesehatan', 'record lama tidak tertimpa');
 });
 
+test('SEC-S2: verifyAdminSecret menolak secret dari query string', () => {
+  const req = { headers: {}, url: '/_homeserver/status?secret=test-hs-secret' };
+  assert.equal(verifyAdminSecret(req, {}), false);
+  const reqHeader = { headers: { 'x-homeserver-secret': 'test-hs-secret' }, url: '/_homeserver/status' };
+  assert.equal(verifyAdminSecret(reqHeader, {}), true);
+});
+
 test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
   setDbNode('users/u_op2', {
     id: 'u_op2', username: 'operator2', nama: 'Operator Dua', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true

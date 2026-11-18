@@ -216,6 +216,18 @@ var ADMIN_ONLY_ACTIONS_ = [
   'exportForSitpp', 'testAiConnection'
 ];
 
+// SEC-R1: perbandingan constant-time untuk signature HMAC (hindari timing leak).
+function constantTimeEqual_(a, b) {
+  var sa = String(a || '');
+  var sb = String(b || '');
+  if (sa.length !== sb.length) return false;
+  var diff = 0;
+  for (var i = 0; i < sa.length; i++) {
+    diff |= sa.charCodeAt(i) ^ sb.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 function computeHmacHex_(dataStr, secretKey) {
   var bytes = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, dataStr, secretKey);
   var hexString = '';
@@ -261,7 +273,7 @@ function validateToken_(token) {
     // HMAC Signature Check (fail-closed) — nonce ikut ditandatangani
     var secret = getApiSecret_();
     var expectedSig = computeHmacHex_(username + ':' + timestamp + ':' + nonce, secret);
-    if (signature !== expectedSig) return false;
+    if (!constantTimeEqual_(signature, expectedSig)) return false;
 
     // A8: cek daftar pencabutan (logout) — fail-closed
     if (isTokenRevoked_(nonce)) return false;

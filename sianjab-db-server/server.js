@@ -2338,12 +2338,10 @@ function readRequestBody(req) {
 }
 
 function verifyAdminSecret(req, body) {
-  const sec =
-    req.headers['x-homeserver-secret'] ||
-    (body && body.secret) ||
-    new URL(req.url, 'http://localhost').searchParams.get('secret');
+  // SEC-S2: secret hanya dari header/body — TIDAK dari query string (bocor ke log/proxy).
+  const sec = req.headers['x-homeserver-secret'] || (body && body.secret);
   if (sec === HOMESERVER_SECRET) return true;
-  const token = (body && body.token) || new URL(req.url, 'http://localhost').searchParams.get('token');
+  const token = (body && body.token) || req.headers['authorization']?.replace(/^Bearer\s+/i, '');
   if (token) {
     try {
       const u = getAuthenticatedUser(token);

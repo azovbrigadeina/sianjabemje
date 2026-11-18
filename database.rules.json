@@ -1,0 +1,12 @@
+{
+  "rules": {
+    ".read": "auth != null && root.child('users').hasChild(auth.uid)",
+    ".write": "auth != null && root.child('users').hasChild(auth.uid)",
+    "users": {
+      ".indexOn": ["username", "unitKerjaId"]
+    },
+    "security_logs": {
+      ".indexOn": ["timestamp"]
+    }
+  }
+}
