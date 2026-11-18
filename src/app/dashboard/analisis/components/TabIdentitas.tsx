@@ -42,10 +42,13 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
       if (savedDraft && draftIsNewer) {
         try {
           const parsed = JSON.parse(savedDraft);
-          setForm(parsed);
+          Promise.resolve().then(() => setForm(parsed));
           isInitialMount.current = false;
           return;
-        } catch {}
+        } catch {
+          // Draft korup — buang dan lanjut ke data server
+          localStorage.removeItem(draftKey);
+        }
       }
 
       if (savedDraft && !draftIsNewer) {
@@ -67,13 +70,13 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
         return jenis || "";
       };
 
-      setForm({
+      Promise.resolve().then(() => setForm({
         namaJabatan: jabatan.namaJabatan || "",
         kodeJabatan: jabatan.kodeJabatan || "",
         jenisJabatan: normalizeJenisJabatan(jabatan.jenisJabatan || ""),
         ikhtisarJabatan: jabatan.ikhtisarJabatan || "",
         kelasJabatan: jabatan.kelasJabatan || 0,
-      });
+      }));
     }
   }, [jabatan]);
 
@@ -104,7 +107,7 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
           jenisJabatan: form.jenisJabatan || jabatan.jenisJabatan
         });
         if (form.kodeJabatan !== generatedKode) {
-          setForm(prev => ({ ...prev, kodeJabatan: generatedKode }));
+          Promise.resolve().then(() => setForm(prev => ({ ...prev, kodeJabatan: generatedKode })));
         }
       }
     }
@@ -267,13 +270,13 @@ export default function TabIdentitas({ jabatan, treeData, onSave, loading, readO
           let val = "-";
           if (jabatan) {
              val = treeAncestors[field.key]
-                || (jabatan as any)[field.key] 
+                || (jabatan as unknown as Record<string, string>)[field.key] 
                 || hierarchy?.[field.key] 
                 || "-";
              
              // Fallback khusus untuk JPT Pratama yang di database mungkin bernama jabatanPimpinanTinggi
              if (field.key === "jptPratama" && val === "-") {
-                val = (jabatan as any).jabatanPimpinanTinggi || hierarchy?.["jabatanPimpinanTinggi"] || "-";
+                val = (jabatan as unknown as Record<string, string>).jabatanPimpinanTinggi || hierarchy?.["jabatanPimpinanTinggi"] || "-";
              }
           }
 

@@ -32,7 +32,7 @@ export default function Home() {
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
-    setCurrentTimeStr(`Hari ini, ${hours}:${minutes} WIB`);
+    Promise.resolve().then(() => setCurrentTimeStr(`Hari ini, ${hours}:${minutes} WIB`));
 
     const controller = new AbortController();
 

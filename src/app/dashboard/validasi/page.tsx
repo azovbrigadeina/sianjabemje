@@ -30,7 +30,7 @@ export default function AdminValidasiPage() {
   };
 
   useEffect(() => {
-    fetchOpds();
+    Promise.resolve().then(() => fetchOpds());
   }, []);
 
   const showToast = (msg: string) => {
@@ -81,8 +81,8 @@ export default function AdminValidasiPage() {
       
       showToast(`✅ Status OPD berhasil diubah menjadi ${status}`);
       setSelectedOpd(null);
-    } catch (err: any) {
-      showToast("❌ Gagal mengubah status: " + err.message);
+    } catch (err) {
+      showToast("❌ Gagal mengubah status: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSubmitting(false);
     }

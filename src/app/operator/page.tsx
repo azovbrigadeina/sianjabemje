@@ -21,7 +21,7 @@ export default function OperatorHome() {
 
   useEffect(() => {
     if (!user?.unitKerjaId) {
-      setLoading(false);
+      Promise.resolve().then(() => setLoading(false));
       return;
     }
 

@@ -11,7 +11,7 @@ export default function Footer() {
     // Read from localStorage on mount (client-side only) to prevent mismatch
     const local = localStorage.getItem('sianjab_show_slava_ukraini');
     if (local !== null) {
-      setShowSupport(local === 'true');
+      Promise.resolve().then(() => setShowSupport(local === 'true'));
     }
 
     const fetchSetting = async () => {

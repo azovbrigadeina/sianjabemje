@@ -79,7 +79,7 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    loadData();
+    Promise.resolve().then(() => loadData());
   }, [loadData]);
 
   const openCreate = () => {
@@ -176,7 +176,7 @@ export default function UsersPage() {
       await loadData();
       setTimeout(() => setSuccessMsg(""), 3000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Terjadi kesalahan");
+      setError(err instanceof Error ? (err instanceof Error ? err.message : String(err)) : "Terjadi kesalahan");
     }
     setSaving(false);
   };
@@ -223,8 +223,8 @@ export default function UsersPage() {
       await api.saveFooterSetting({ showSlavaUkraini });
       setSuccessMsg("Pengaturan tampilan berhasil diperbarui.");
       setTimeout(() => setSuccessMsg(""), 3000);
-    } catch (err: any) {
-      alert("Gagal menyimpan pengaturan tampilan: " + err.message);
+    } catch (err) {
+      alert("Gagal menyimpan pengaturan tampilan: " + (err instanceof Error ? err.message : String(err)));
     }
     setSavingFooter(false);
   };

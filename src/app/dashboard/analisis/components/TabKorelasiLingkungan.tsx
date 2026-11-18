@@ -49,6 +49,7 @@ export default function TabKorelasiLingkungan({ jabatan, onSave, loading, readOn
   const [risikoRows, setRisikoRows] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
+    Promise.resolve().then(() => {
     if (jabatan) {
       setKorelasiRows((jabatan.korelasiJabatan || []) as unknown as Record<string, unknown>[]);
       // Pre-fill kondisi with standard aspects if empty
@@ -66,6 +67,7 @@ export default function TabKorelasiLingkungan({ jabatan, onSave, loading, readOn
       }
       setRisikoRows((jabatan.risikoBahaya || []) as unknown as Record<string, unknown>[]);
     }
+    });
   }, [jabatan]);
 
   const makeHandlers = (

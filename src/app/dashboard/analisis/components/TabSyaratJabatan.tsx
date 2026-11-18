@@ -123,6 +123,7 @@ export default function TabSyaratJabatan({
   const [prestasiKerja, setPrestasiKerja] = useState("");
 
   useEffect(() => {
+    Promise.resolve().then(() => {
     if (jabatan) {
       const defaultKeterampilan = "Mengoperasikan komputer, Berkomunikasi efektif, Menyusun laporan";
       const defaultBakat = ["G", "N", "V", "Q", "F"];
@@ -132,7 +133,7 @@ export default function TabSyaratJabatan({
       const defaultFungsi = "D2, O6, B7";
       const defaultPrestasi = "Dapat memberikan kinerja yang baik untuk mendukung kelancaran pelaksanaan tugas pokok dan fungsi jabatan.";
 
-      const parseStringOrArray = (val: any, defaultVal: string[]): string[] => {
+      const parseStringOrArray = (val: unknown, defaultVal: string[]): string[] => {
         if (!val) return defaultVal;
         if (Array.isArray(val)) return val;
         if (typeof val === 'string') {
@@ -160,6 +161,7 @@ export default function TabSyaratJabatan({
       }
       setPrestasiKerja(jabatan.prestasiKerja?.uraian || defaultPrestasi);
     }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jabatan]);
 

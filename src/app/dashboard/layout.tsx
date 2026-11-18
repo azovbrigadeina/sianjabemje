@@ -29,13 +29,13 @@ export default function DashboardLayout({
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const initialTheme = savedTheme || "light";
-    setTheme(initialTheme);
+    Promise.resolve().then(() => setTheme(initialTheme));
     document.documentElement.setAttribute("data-theme", initialTheme);
     
     // Load saved color theme
     const savedColorTheme = localStorage.getItem("color-theme") as "theme1" | "theme2" | null;
     const initialColorTheme = savedColorTheme || "theme1";
-    setColorTheme(initialColorTheme);
+    Promise.resolve().then(() => setColorTheme(initialColorTheme));
     document.documentElement.setAttribute("data-color-theme", initialColorTheme);
 
     // Sync settings (color theme & active year) from database if user is logged in
@@ -68,7 +68,7 @@ export default function DashboardLayout({
 
     // Load saved year fallback from local storage
     const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
-    setSelectedYear(savedYear);
+    Promise.resolve().then(() => setSelectedYear(savedYear));
   }, [user]);
 
   const handleYearChange = async (newYear: string) => {

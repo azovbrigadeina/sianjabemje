@@ -66,11 +66,13 @@ export default function TabTugasPokok({
         new Date(draftMeta._draftSavedAt).getTime() > new Date(serverMeta.updatedAt).getTime());
 
       if (savedDraft && draftIsNewer && draftMeta) {
+        Promise.resolve().then(() => {
         setTugasRows((draftMeta.tugasRows as Record<string, unknown>[]) || []);
         setKualifikasi((draftMeta.kualifikasi as { pendidikanFormal: string; pendidikanPelatihan: string; pengalamanKerja: string }) || {
           pendidikanFormal: "", pendidikanPelatihan: "", pengalamanKerja: "",
         });
         setHasilKerjaRows((draftMeta.hasilKerjaRows as Record<string, unknown>[]) || []);
+        });
         isInitialMount.current = false;
         return;
       }
@@ -95,21 +97,16 @@ export default function TabTugasPokok({
         ...t,
         waktuEfektif: t.waktuEfektif || 1250,
       })) as unknown as Record<string, unknown>[];
-      setTugasRows(rows);
+      Promise.resolve().then(() => setTugasRows(rows));
 
-      if (jabatan.kualifikasi) {
-        setKualifikasi({
-          pendidikanFormal: parseStringOrArray(jabatan.kualifikasi.pendidikanFormal).join(", "),
-          pendidikanPelatihan: parseStringOrArray(jabatan.kualifikasi.pendidikanPelatihan).join(", "),
-          pengalamanKerja: parseStringOrArray(jabatan.kualifikasi.pengalamanKerja).join(", "),
-        });
-      } else {
-        setKualifikasi({
-          pendidikanFormal: "",
-          pendidikanPelatihan: "",
-          pengalamanKerja: "",
-        });
-      }
+      const nextKualifikasi = jabatan.kualifikasi
+        ? {
+            pendidikanFormal: parseStringOrArray(jabatan.kualifikasi.pendidikanFormal).join(", "),
+            pendidikanPelatihan: parseStringOrArray(jabatan.kualifikasi.pendidikanPelatihan).join(", "),
+            pengalamanKerja: parseStringOrArray(jabatan.kualifikasi.pengalamanKerja).join(", "),
+          }
+        : { pendidikanFormal: "", pendidikanPelatihan: "", pengalamanKerja: "" };
+      Promise.resolve().then(() => setKualifikasi(nextKualifikasi));
 
       let parsedHasilKerja: Record<string, unknown>[] = [];
       if (jabatan.hasilKerja?.uraian) {
@@ -124,7 +121,7 @@ export default function TabTugasPokok({
           parsedHasilKerja = jabatan.hasilKerja.uraian.split('\n').filter(Boolean).map(s => ({ uraian: s }));
         }
       }
-      setHasilKerjaRows(parsedHasilKerja);
+      Promise.resolve().then(() => setHasilKerjaRows(parsedHasilKerja));
     }
   }, [jabatan]);
 

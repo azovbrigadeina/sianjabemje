@@ -172,7 +172,7 @@ export default function OperatorPetaJabatanPage() {
         const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'abk']);
         const opdList = (bulkData.unitKerja || []) as UnitKerja[];
         const allJabatans = (bulkData.jabatan || []) as Jabatan[];
-        const abkData = (bulkData.abk || []) as any[];
+        const abkData = (bulkData.abk || []) as { id?: string; totalKebutuhan?: number; formasiPembulatan?: number }[];
 
         // Map ABK stats
         const tempAbkMap: Record<string, { totalKebutuhan: number; formasiPembulatan: number }> = {};

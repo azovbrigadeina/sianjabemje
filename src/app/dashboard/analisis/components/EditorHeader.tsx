@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import type { JabatanFull } from '@/lib/types';
 
 interface EditorHeaderProps {
-  jabatanData: any;
-  abkMap: Record<string, any>;
+  jabatanData: JabatanFull | null;
+  abkMap: Record<string, { formasiPembulatan?: number; [key: string]: unknown }>;
   isReadOnly?: boolean;
   aiLoading?: boolean;
   formasiBadge?: { formasiIdeal: number; jumlahPegawaiEksisting: number | null; kebutuhanPegawaiIdeal: number } | null;

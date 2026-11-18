@@ -22,7 +22,7 @@ export default function Login() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("expired") === "1") {
-        setExpiredNotice(true);
+        Promise.resolve().then(() => setExpiredNotice(true));
       }
     }
 

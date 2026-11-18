@@ -58,13 +58,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       api.homeserver.syncGlobalConfig().catch(() => {});
 
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setUserState(JSON.parse(stored));
-      }
+      const parsed = stored ? JSON.parse(stored) : null;
+      Promise.resolve().then(() => {
+        if (parsed) setUserState(parsed);
+        setIsLoading(false);
+      });
     } catch {
+      Promise.resolve().then(() => setIsLoading(false));
       // ignore parse errors
     }
-    setIsLoading(false);
   }, []);
 
   const setUser = useCallback((u: SessionUser | null) => {

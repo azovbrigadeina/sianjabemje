@@ -372,10 +372,10 @@ export default function PengaturanAIPage() {
           message: res?.error || "Gagal melakukan tes koneksi."
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       setTestStatus({
         type: "error",
-        message: err.message || "Terjadi kesalahan saat menghubungi API."
+        message: (err instanceof Error ? err.message : String(err)) || "Terjadi kesalahan saat menghubungi API."
       });
     } finally {
       setTesting(false);
@@ -406,8 +406,8 @@ export default function PengaturanAIPage() {
         savedKeys: savedKeys,
       });
       showToast("✅ Pengaturan AI berhasil disimpan!");
-    } catch (err: any) {
-      alert("Gagal menyimpan pengaturan: " + err.message);
+    } catch (err) {
+      alert("Gagal menyimpan pengaturan: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSaving(false);
     }

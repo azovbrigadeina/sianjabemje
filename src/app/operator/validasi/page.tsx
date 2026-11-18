@@ -73,8 +73,8 @@ export default function OperatorValidasiPage() {
       setShowNipModal(false);
       setNipKepala("");
       showToast("✅ Data berhasil dikirim ke Admin Kabupaten untuk divalidasi!");
-    } catch (err: any) {
-      showToast("❌ Gagal mengirim validasi: " + err.message);
+    } catch (err) {
+      showToast("❌ Gagal mengirim validasi: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSubmitting(false);
     }

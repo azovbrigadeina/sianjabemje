@@ -33,7 +33,7 @@ export default function SecurityLogsPage() {
   };
 
   useEffect(() => {
-    loadLogs();
+    Promise.resolve().then(() => loadLogs());
   }, []);
 
   // Filter logs based on search and status filter
@@ -160,7 +160,7 @@ export default function SecurityLogsPage() {
         <div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
             style={{
               padding: "10px 14px",
               borderRadius: "8px",

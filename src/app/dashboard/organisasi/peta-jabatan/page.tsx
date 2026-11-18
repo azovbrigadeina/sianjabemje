@@ -53,7 +53,7 @@ export default function PetaJabatanPage() {
       try {
         const bulkData = await api.getBulkData(['unitKerja', 'abk', 'jabatan']);
         const opdData = (bulkData.unitKerja || []) as UnitKerja[];
-        const abkData = (bulkData.abk || []) as any[];
+        const abkData = (bulkData.abk || []) as { id?: string; totalKebutuhan?: number; formasiPembulatan?: number }[];
         const jabatanData = (bulkData.jabatan || []) as Jabatan[];
 
         const sortedOpds = [...(opdData || [])].sort((a, b) => 
@@ -218,9 +218,12 @@ export default function PetaJabatanPage() {
     );
 
     if (filteredJabatans.length === 0) {
-      setHierarchy([]);
-      setExpandedNodes({});
+      Promise.resolve().then(() => {
+        setHierarchy([]);
+        setExpandedNodes({});
+      });
     } else {
+      Promise.resolve().then(() => {
       const tree = buildHierarchyTree(filteredJabatans);
       setHierarchy(tree);
       // Initialize expandedNodes: only roots are expanded by default
@@ -229,6 +232,7 @@ export default function PetaJabatanPage() {
         initialExpanded[root.id] = true;
       });
       setExpandedNodes(initialExpanded);
+      });
     }
   }, [selectedOpdId, opds, allJabatans, getDescendantUnitIds, buildHierarchyTree]);
 

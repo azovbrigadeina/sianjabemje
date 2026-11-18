@@ -22,8 +22,10 @@ function VerificationContent() {
   useEffect(() => {
     let isMounted = true;
     if (urlCode) {
-      setInputCode(urlCode);
-      setLoading(true);
+      Promise.resolve().then(() => {
+        setInputCode(urlCode);
+        setLoading(true);
+      });
       fetchVerificationRecordFromServer(urlCode, token || undefined).then((rec) => {
         if (isMounted) {
           setRecord(rec);
@@ -32,9 +34,11 @@ function VerificationContent() {
         }
       });
     } else {
-      setRecord(null);
-      setSearched(false);
-      setLoading(false);
+      Promise.resolve().then(() => {
+        setRecord(null);
+        setSearched(false);
+        setLoading(false);
+      });
     }
     return () => {
       isMounted = false;

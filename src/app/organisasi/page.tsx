@@ -56,7 +56,7 @@ export default function PublicOrganisasiPage() {
       try {
         const bulk = await api.getBulkData(['unitKerja', 'abk']);
         const opdData = (bulk.unitKerja || []) as UnitKerja[];
-        const abkData = (bulk.abk || []) as any[];
+        const abkData = (bulk.abk || []) as { id?: string; totalKebutuhan?: number; formasiPembulatan?: number }[];
 
         const sortedOpds = [...(opdData || [])].sort((a, b) => 
           (a.nama || '').localeCompare(b.nama || '')

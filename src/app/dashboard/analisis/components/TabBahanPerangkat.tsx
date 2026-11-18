@@ -37,12 +37,14 @@ export default function TabBahanPerangkat({ jabatan, onSave, loading, readOnly }
   const [wwRows, setWwRows] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
+    Promise.resolve().then(() => {
     if (jabatan) {
       setBahanRows((jabatan.bahanKerja || []) as unknown as Record<string, unknown>[]);
       setPerangkatRows((jabatan.perangkatKerja || []) as unknown as Record<string, unknown>[]);
       setTjRows((jabatan.tanggungJawab || []) as unknown as Record<string, unknown>[]);
       setWwRows((jabatan.wewenang || []) as unknown as Record<string, unknown>[]);
     }
+    });
   }, [jabatan]);
 
   const makeHandlers = (
