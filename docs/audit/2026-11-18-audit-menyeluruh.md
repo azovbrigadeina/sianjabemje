@@ -3,6 +3,8 @@
 **Versi:** Next.js 16.2.9 / React 19.2.4 / GAS / Homeserver DB (`sianjab-db-server`)
 **Metode:** 4 audit paralel independent (keamanan, frontend, backend GAS + logika data, arsitektur & kualitas kode) — semuanya read-only. Klaim-klaim kritis diverifikasi ulang langsung di kode sebelum dimasukkan ke laporan ini.
 
+> **Status perbaikan (update 18 Nov 2026):** SEC-K1, SEC-K2, SEC-K3, SEC-K4, SEC-T5, SEC-T7 sudah diperbaiki di branch `security-phase1` (commits `671ec79`..`7e5f4d0`). Belum diperbaiki: SEC-T6, SEC-T8, SEC-T9, SEC-T10, SEC-S1..S3, SEC-R1/R3 (R3 sebagian teratasi lewat pesan generik SEC-T7), plus temuan BE/FE/ARC. Secrets lebih lanjut: rotasi `FIREBASE_SECRET` / `API_SECRET` perlu dilakukan user di Firebase Console & GAS Script Properties setelah merge.
+
 Dokumen pendukung:
 - Audit performa: `docs/audit/2026-11-18-audit-performa-dan-alur-perbaikan.md`
 - Plan implementasi dari audit performa: `docs/superpowers/plans/2026-11-18-audit-performa-fixes.md`
