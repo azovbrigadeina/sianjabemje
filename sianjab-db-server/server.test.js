@@ -378,6 +378,19 @@ test('SEC-T10: create unitKerja dengan kode duplikat ditolak', async () => {
   assert.equal(getDbNode('2027/unitKerja/unit_dinkes').nama, 'Dinas Kesehatan', 'record lama tidak tertimpa');
 });
 
+test('BE-T1: saveABK menolak waktu > 8 jam tanpa konversi menit', async () => {
+  const adminTok = generateAuthToken('admin');
+  let err = null;
+  try {
+    await handleSianjabAction('saveABK', { token: adminTok, parentId: 'jab_1', tahun: '2027' }, { data: { rows: [{ waktu: 30, volume: 10 }], waktuSatuan: 'jam' } }, '127.0.0.1');
+  } catch (e) { err = e; }
+  assert.ok(err, 'waktu 30 jam harus ditolak keras');
+  assert.ok(err.message.includes('maksimal 8 jam'), 'pesan error menyebut batas 8 jam');
+  // nilai <= 8 tetap diterima
+  const ok = await handleSianjabAction('saveABK', { token: adminTok, parentId: 'jab_1', tahun: '2027' }, { data: { rows: [{ waktu: 8, volume: 10 }], waktuSatuan: 'jam' } }, '127.0.0.1');
+  assert.ok(ok);
+});
+
 test('SEC-S2: verifyAdminSecret menolak secret dari query string', () => {
   const req = { headers: {}, url: '/_homeserver/status?secret=test-hs-secret' };
   assert.equal(verifyAdminSecret(req, {}), false);

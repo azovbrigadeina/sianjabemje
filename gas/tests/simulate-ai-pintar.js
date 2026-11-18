@@ -342,14 +342,14 @@ check('TC13 total setelah clamp >= ambang 1350, volume diskalakan',
   d13.analisisBebanKerja.totalWaktuEfektifJam >= 1350, d13.analisisBebanKerja);
 check('TC13 catatan menyebut clamp > 8 jam', d13.analisisBebanKerja.catatan.indexOf('> 8 jam') !== -1);
 
-// TC14: AI kirim menit lama (rata2 > 480) -> konversi /60 + clamp kohibit
+// TC14: AI kirim nilai > 8 jam -> clamp per baris (BE-T1: tanpa konversi menit)
 const d14 = { jenisJabatan: 'Jabatan Pelaksana', tugasPokok: [
-  { waktuPenyelesaian: 600, jumlahHasil: 10 },
-  { waktuPenyelesaian: 720, jumlahHasil: 10 },
-  { waktuPenyelesaian: 240, jumlahHasil: 10 },
+  { waktuPenyelesaian: 12, jumlahHasil: 200 },
+  { waktuPenyelesaian: 10, jumlahHasil: 200 },
+  { waktuPenyelesaian: 4, jumlahHasil: 100 },
 ] };
-sandbox.verifyFormasiIdeal_(d14, ctxJam); // rata2 520>480 -> /60 -> [10,12,4] -> clamp [8,8,4]
-check('TC14 semua waktu konversi+clamp: [8,8,4]',
+sandbox.verifyFormasiIdeal_(d14, ctxJam); // clamp -> [8,8,4]
+check('TC14 semua waktu clamp: [8,8,4]',
   JSON.stringify(d14.tugasPokok.map((t) => t.waktuPenyelesaian)) === '[8,8,4]', d14.tugasPokok.map((t) => t.waktuPenyelesaian));
 check('TC14 total >= ambang 1350 setelah penyeimbang TPP, formasi pelaksana >= 2',
   d14.analisisBebanKerja.totalWaktuEfektifJam >= 1350 && d14.analisisBebanKerja.formasiIdeal >= 2, d14.analisisBebanKerja);
@@ -644,30 +644,35 @@ const origFbPut = sandbox.fbPut_;
 sandbox.fbPut_ = (path, data) => { DB[path] = JSON.parse(JSON.stringify(data)); return { saved: true }; };
 
 // Struktural (j_target) + angka kirim-an klien yang berbohong -> server yang menang
-// Konsep tunggal: satuan legacy 'menit' dinormalisasi server ke jam (480 menit = 8 jam)
+// BE-T1: tanpa konversi menit — waktu > 8 jam ditolak keras.
 sandbox.saveABK_('j_target', {
-  rows: [{ waktu: 480, volume: 200 }],
-  wke: 75000, waktuSatuan: 'menit',
+  rows: [{ waktu: 8, volume: 200 }],
+  wke: 1250, waktuSatuan: 'jam',
   totalWaktuEfektif: 1, totalKebutuhan: 99, formasiPembulatan: 99,
 });
 let savedAbk = DB['2026/abk/j_target'];
-check('B3 struktural: legacy menit dinormalisasi (1600 jam, 1.28) & satuan tunggal jam',
+check('B3 struktural: server hitung ulang (1600 jam, 1.28) & satuan tunggal jam',
   savedAbk.totalWaktuEfektif === 1600 && near(savedAbk.totalKebutuhan, 1.28) && savedAbk.waktuSatuan === 'jam', savedAbk);
 check('B3 struktural: formasiPembulatan klien (99) ditimpa server = 1',
   savedAbk.formasiPembulatan === 1, savedAbk);
 
+// BE-T1: nilai > 8 jam ditolak keras (tanpa konversi menit otomatis)
+expectThrow('BE-T1 waktu 16 jam ditolak keras',
+  () => sandbox.saveABK_('j_target', { rows: [{ waktu: 16, volume: 10 }], waktuSatuan: 'jam' }),
+  'maksimal 8 jam');
+
 // Fungsional kecil -> batas minimal 2 (server), bukan 1
-sandbox.saveABK_('j_c', { rows: [{ waktu: 480, volume: 50 }], wke: 75000, waktuSatuan: 'menit', formasiPembulatan: 1 });
+sandbox.saveABK_('j_c', { rows: [{ waktu: 4, volume: 50 }], wke: 1250, waktuSatuan: 'jam', formasiPembulatan: 1 });
 savedAbk = DB['2026/abk/j_c'];
 check('B3 fungsional kecil: server menerapkan batas minimal 2',
   savedAbk.formasiPembulatan === 2, savedAbk);
 
 // Tanpa jenisJabatan -> kategori 'lainnya': mengikuti hitung, tanpa paksaan batas
 DB['2026/jabatan'].j_plain = { id: 'j_plain', unitKerjaId: 'u_buk', namaJabatan: 'Staf Umum' };
-sandbox.saveABK_('j_plain', { rows: [{ waktu: 480, volume: 188 }], wke: 75000, waktuSatuan: 'menit', formasiPembulatan: 42 });
+sandbox.saveABK_('j_plain', { rows: [{ waktu: 4, volume: 188 }], wke: 1250, waktuSatuan: 'jam', formasiPembulatan: 42 });
 savedAbk = DB['2026/abk/j_plain'];
-check('B3 jabatan tanpa jenis: legacy menit -> 1504 jam, 1.2032 -> pembulatan 1 (tanpa batas)',
-  savedAbk.totalWaktuEfektif === 1504 && near(savedAbk.totalKebutuhan, 1.2032) && savedAbk.formasiPembulatan === 1, savedAbk);
+check('B3 jabatan tanpa jenis: 752 jam, 0.6016 -> pembulatan 1 (tanpa batas)',
+  savedAbk.totalWaktuEfektif === 752 && near(savedAbk.totalKebutuhan, 0.6016) && savedAbk.formasiPembulatan === 1, savedAbk);
 delete DB['2026/jabatan'].j_plain;
 
 // Satuan jam + WKE fix 1250: rasio tetap benar (waktu & wke sama-sama dalam jam)

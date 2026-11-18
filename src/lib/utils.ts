@@ -156,14 +156,25 @@ export function wkeLegacyDariSatuan(satuan?: string): number {
 
 /**
  * Normalisasi waktu Anjab ke jam (SSOT satuan tunggal: JAM).
- * Sejak mesin draf AI berpindah ke jam, Anjab memuat jam. Baris legasi
- * berformat menit dideteksi per-baris: nilai > 8 (di atas clamp 8 jam/hari)
- * dianggap menit dan dikonversi ÷60.
+ * BE-T1: TIDAK ada konversi menit otomatis. Nilai diteruskan apa adanya;
+ * validasi batas 8 jam dilakukan saat simpan (server menolak keras > 8).
  */
 export function normalisasiWaktuJam(nilai: number): number {
   const n = Number(nilai) || 0;
-  if (n <= 0) return 0;
-  return n > 8 ? Math.round((n / 60) * 10000) / 10000 : n;
+  return n <= 0 ? 0 : n;
+}
+
+/** Batas waktu per satu hasil kerja (1 hari kerja). */
+export const BATAS_WAKTU_JAM = 8;
+
+/** Validasi input pengguna: waktu per hasil kerja wajib 0..8 jam. */
+export function validasiWaktuJam(nilai: number): { valid: boolean; error?: string } {
+  const n = Number(nilai) || 0;
+  if (n < 0) return { valid: false, error: "Waktu tidak boleh negatif." };
+  if (n > BATAS_WAKTU_JAM) {
+    return { valid: false, error: `Waktu per hasil kerja maksimal ${BATAS_WAKTU_JAM} jam (1 hari kerja).` };
+  }
+  return { valid: true };
 }
 
 /**

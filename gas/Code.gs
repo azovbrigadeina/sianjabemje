@@ -2697,17 +2697,15 @@ function saveABK_(jabatanId, data) {
   // Konsep TUNGGAL (keputusan pengguna): satuan waktu ABK selalu JAM dan
   // WKE fix 1250 jam/tahun. Rumus: kebutuhan per baris = waktu × volume ÷ 1250;
   // total = penjumlahan seluruh baris; formasi = pembulatan total.
-  // Data legacy satuan menit dinormalisasi ke jam (÷ 60) di server.
+  // BE-T1: TIDAK ada konversi menit otomatis — nilai > 8 jam ditolak.
   var WKE_FIX_JAM_ = 1250;
   var rows = Array.isArray(data.rows) ? data.rows : [];
   var totalWaktuEfektif = 0;
-  var isLegacyMenit = String(data.waktuSatuan) === 'menit';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i] || {};
     var waktuR = Number(r.waktu) || 0;
-    if (isLegacyMenit && waktuR > 0) {
-      waktuR = Math.round(waktuR / 60 * 10000) / 10000;
-      rows[i].waktu = waktuR; // normalisasi tersimpan: jam
+    if (waktuR > 8) {
+      throw new Error('Waktu per hasil kerja maksimal 8 jam (1 hari kerja). Baris ke-' + (i + 1) + ' bernilai ' + waktuR + ' jam.');
     }
     totalWaktuEfektif += waktuR * (Number(r.volume) || 0);
   }
@@ -3911,20 +3909,8 @@ function verifyFormasiIdeal_(data, ctx) {
       var w2 = Number(data.tugasPokok[i2].waktuPenyelesaian) || 0;
       if (w2 > 0) { total += w2; n++; }
     }
-    // Konsep tunggal: satuan riil adalah JAM (8 jam/hari). Bila AI masih mengisi menit
-    // (rata-rata nilai sehari lebih kecil karena input menit), rata-rata waktu riil > 8 dianggap anomali:
-    // guard menit: rata-rata <= 8 bila nilai terkecil menit kecil alam; deteksi menit di 480
-    if (n > 0 && (total / n) <= 8) {
-      // kemungkinan AI mengisi menit (bukan diri 1-3 jam per hasil); nilai <= 8 dengan rata 
-      // menit masuk akal untuk hasil kerja mikro namun volume besar justru lewat jumlahHasil,
-      // biarkan apa adanya — aturan prompt kini WJIB mengisi jam.
-    }
-    // Guard menit (nilai besar, biasanya asal menit dikirim AI lama)
-    if (n > 0 && (total / n) > 480) {
-      for (var k = 0; k < data.tugasPokok.length; k++) {
-        data.tugasPokok[k].waktuPenyelesaian = data.tugasPokok[k].waktuPenyelesaian / 60;
-      }
-    }
+    // BE-T1: satuan tunggal JAM — tidak ada konversi menit otomatis.
+    // Nilai > 8 jam di-clamp (output AI, bukan input pengguna).
 
     // Clamp waktu per hasil kerja: satu tugas tidak mungkin > 1 hari kerja (8 jam)
     // -> mencegah volume/waktu karangan AI yang membuat formasi meledak (kasus 2592 orang)

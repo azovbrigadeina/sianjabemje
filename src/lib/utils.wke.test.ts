@@ -4,6 +4,7 @@ import {
   hitungWaktuEfektif,
   hitungKebutuhanPegawai,
   normalisasiWaktuJam,
+  validasiWaktuJam,
   WKE_DEFAULT_JAM,
 } from "./utils.ts";
 
@@ -124,31 +125,27 @@ test("waktu desimal pecahan siklis 1/3 jam tetap presisi wajar", () => {
 });
 
 // ============================================================
-// normalisasiWaktuJam: satuan tunggal JAM, baris legasi menit (>8) ÷60
+// normalisasiWaktuJam: passthrough (BE-T1 — tanpa konversi menit)
 // ============================================================
 
-test("normalisasi: waktu ≤ 8 jam diteruskan apa adanya", () => {
+test("normalisasi: nilai diteruskan apa adanya", () => {
   assert.equal(normalisasiWaktuJam(2), 2);
   assert.equal(normalisasiWaktuJam(8), 8);
   assert.equal(normalisasiWaktuJam(0.5), 0.5);
+  assert.equal(normalisasiWaktuJam(16), 16);
 });
 
-test("normalisasi: nilai > 8 dianggap legasi menit, dikonversi ÷60", () => {
-  // 30 menit = 0,5 jam; 45 menit = 0,75 jam
-  assert.equal(normalisasiWaktuJam(30), Math.round((30 / 60) * 10000) / 10000);
-  assert.equal(normalisasiWaktuJam(480), 8);
+test("normalisasi: nilai > 8 tetap diteruskan (validasi batas terpisah)", () => {
+  assert.equal(normalisasiWaktuJam(30), 30);
+  assert.equal(validasiWaktuJam(30).valid, false);
+  assert.equal(validasiWaktuJam(8).valid, true);
+  assert.equal(validasiWaktuJam(0).valid, true);
 });
 
 test("normalisasi: nol / negatif / NaN -> 0", () => {
   assert.equal(normalisasiWaktuJam(0), 0);
   assert.equal(normalisasiWaktuJam(-3), 0);
   assert.equal(normalisasiWaktuJam(Number.NaN), 0);
-});
-
-test("normalisasi: baris legasi menit memberi kebutuhan yang benar", () => {
-  // 30 menit (legasi) -> 0,5 jam; 0,5 jam × 100 ÷ 1250 = 0,04 orang
-  const jam = normalisasiWaktuJam(30);
-  assert.equal(hitungKebutuhanPegawai(jam, 100, WKE_DEFAULT_JAM), 0.04);
 });
 
 // ============================================================

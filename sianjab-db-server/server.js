@@ -1605,13 +1605,12 @@ async function handleSianjabAction(action, params, body, clientIp) {
       const WKE_FIX_JAM = 1250;
       const rows = Array.isArray(abkPayload.rows) ? abkPayload.rows : [];
       let totalWaktuEfektif = 0;
-      const isLegacyMenit = String(abkPayload.waktuSatuan) === 'menit';
+      // BE-T1: satuan tunggal JAM — tanpa konversi menit otomatis; > 8 jam ditolak.
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i] || {};
-        let waktuR = Number(r.waktu) || 0;
-        if (isLegacyMenit && waktuR > 0) {
-          waktuR = Math.round((waktuR / 60) * 10000) / 10000;
-          rows[i].waktu = waktuR;
+        const waktuR = Number(r.waktu) || 0;
+        if (waktuR > 8) {
+          throw new Error(`Waktu per hasil kerja maksimal 8 jam (1 hari kerja). Baris ke-${i + 1} bernilai ${waktuR} jam.`);
         }
         totalWaktuEfektif += waktuR * (Number(r.volume) || 0);
       }
