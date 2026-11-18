@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Node CJS: server homeserver + test GAS (bukan bagian bundel Next.js).
+    "sianjab-db-server/**",
+    "gas/**",
   ]),
   // Penjaga pola draft localStorage (bug 2026-10: draft menimpa data server).
   // Lihat scripts/eslint-plugin-sianjab-local.js untuk detail rule.
