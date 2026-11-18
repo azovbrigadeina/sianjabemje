@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '@/lib/UserContext';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
 import styles from './page.module.css';
 
 interface BackupMetadata {
@@ -27,6 +28,20 @@ interface SecurityLogItem {
   ip?: string;
 }
 
+/** Ringkasan status Homeserver dari endpoint /_homeserver/status. */
+interface HomeserverStatus {
+  mode?: 'HOMESERVER' | 'RTDB' | 'OFF';
+  error?: string;
+  latencyMs?: number;
+  baseUrl?: string;
+  activeYearPreview?: string;
+  counts?: { jabatan?: number; unitKerja?: number; tugasPokok?: number; abk?: number; users?: number };
+  outbox?: { dirtyCount?: number; isFlushing?: boolean };
+  traffic?: { rtdbBytesSavedEstimate?: number };
+  alerts?: { storageError?: string | null; lastBackupAt?: string | null; lastBackupError?: string | null };
+  [key: string]: unknown;
+}
+
 export default function BackupDatabasePage() {
   const { user, isLoading: isUserLoading } = useUser();
   const [isExporting, setIsExporting] = useState(false);
@@ -37,7 +52,7 @@ export default function BackupDatabasePage() {
   // File upload & preview state
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [parsedBackupData, setParsedBackupData] = useState<any>(null);
+  const [parsedBackupData, setParsedBackupData] = useState<Record<string, unknown> | null>(null);
   const [backupMeta, setBackupMeta] = useState<BackupMetadata | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
@@ -49,7 +64,7 @@ export default function BackupDatabasePage() {
   const [hsUrl, setHsUrl] = useState('');
   const [hsSecret, setHsSecret] = useState('');
   const [hsActiveMode, setHsActiveMode] = useState<'HOMESERVER' | 'RTDB'>('RTDB');
-  const [hsStatus, setHsStatus] = useState<any>(null);
+  const [hsStatus, setHsStatus] = useState<HomeserverStatus | null>(null);
   const [hsLoading, setHsLoading] = useState(false);
   const [hsActionBusy, setHsActionBusy] = useState<string | null>(null);
 
@@ -66,19 +81,22 @@ export default function BackupDatabasePage() {
       }
       // Otomatis simpan ke local config dan sinkronkan saat koneksi terverifikasi
       api.homeserver.saveConfig({ url: urlToTest, secret: hsSecret, mode: st?.mode || hsActiveMode }).catch(() => {});
-    } catch (e: any) {
-      setHsStatus({ error: e?.message || 'Tidak terjangkau' });
+    } catch (e) {
+      setHsStatus({ error: getErrorMessage(e) || 'Tidak terjangkau' });
     } finally {
       setHsLoading(false);
     }
   };
 
   useEffect(() => {
-    const localCfg = api.homeserver.getLocalConfig();
-    if (localCfg.url) setHsUrl(localCfg.url);
-    if (localCfg.secret) setHsSecret(localCfg.secret);
-    if (localCfg.mode) setHsActiveMode(localCfg.mode);
-    refreshHomeserverStatus(localCfg.url);
+    // Baca konfigurasi lokal setelah mount (hindari setState sinkron di body effect).
+    Promise.resolve().then(() => {
+      const localCfg = api.homeserver.getLocalConfig();
+      if (localCfg.url) setHsUrl(localCfg.url);
+      if (localCfg.secret) setHsSecret(localCfg.secret);
+      if (localCfg.mode) setHsActiveMode(localCfg.mode);
+      void refreshHomeserverStatus(localCfg.url);
+    });
   }, []);
 
   const handleSaveHomeserverConfig = async () => {
@@ -96,8 +114,8 @@ export default function BackupDatabasePage() {
       setHsUrl(updated.url);
       setSuccessMsg(`✅ URL Homeserver (${cleanUrl}) berhasil disimpan dan disinkronkan ke seluruh sistem!`);
       await refreshHomeserverStatus(cleanUrl);
-    } catch (err: any) {
-      setErrorMsg(`Gagal menyimpan konfigurasi Homeserver: ${err.message}`);
+    } catch (err) {
+      setErrorMsg(`Gagal menyimpan konfigurasi Homeserver: ${getErrorMessage(err)}`);
     } finally {
       setHsActionBusy(null);
     }
@@ -112,8 +130,8 @@ export default function BackupDatabasePage() {
       const res = await api.homeserver.pullFromRtdb(hsUrl, hsSecret);
       setSuccessMsg(`✅ Berhasil menarik seluruh data Firebase RTDB ke Homeserver Docker (${res.topLevelKeys?.length || 0} node utama).`);
       await refreshHomeserverStatus(hsUrl);
-    } catch (err: any) {
-      setErrorMsg(`Gagal menarik data dari RTDB ke Homeserver: ${err.message}`);
+    } catch (err) {
+      setErrorMsg(`Gagal menarik data dari RTDB ke Homeserver: ${getErrorMessage(err)}`);
     } finally {
       setHsActionBusy(null);
     }
@@ -127,8 +145,8 @@ export default function BackupDatabasePage() {
       const res = await api.homeserver.flushToRtdb(hsUrl, hsSecret);
       setSuccessMsg(`✅ Berhasil menyinkronkan Outbox Homeserver ke Firebase RTDB (${res.flushedCount || 0} path tersinkron).`);
       await refreshHomeserverStatus(hsUrl);
-    } catch (err: any) {
-      setErrorMsg(`Gagal melakukan Flush Outbox ke RTDB: ${err.message}`);
+    } catch (err) {
+      setErrorMsg(`Gagal melakukan Flush Outbox ke RTDB: ${getErrorMessage(err)}`);
     } finally {
       setHsActionBusy(null);
     }
@@ -147,8 +165,8 @@ export default function BackupDatabasePage() {
           : `☁️ Berhasil kembali ke Mode FIREBASE RTDB (Safe Switch: ${res.flushInfo?.flushedCount || 0} path Outbox telah di-flush ke RTDB).`
       );
       await refreshHomeserverStatus(hsUrl);
-    } catch (err: any) {
-      setErrorMsg(`Gagal mengubah mode database: ${err.message}`);
+    } catch (err) {
+      setErrorMsg(`Gagal mengubah mode database: ${getErrorMessage(err)}`);
     } finally {
       setHsActionBusy(null);
     }
@@ -182,7 +200,7 @@ export default function BackupDatabasePage() {
   };
 
   // Helper browser blob download
-  const triggerJsonDownload = (dataObj: any, filename: string) => {
+  const triggerJsonDownload = (dataObj: unknown, filename: string) => {
     const jsonStr = JSON.stringify(dataObj, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -197,7 +215,6 @@ export default function BackupDatabasePage() {
 
   // Load Security Logs
   const fetchSecurityLogs = async () => {
-    setIsLogsLoading(true);
     try {
       const logs = await api.getSecurityLogs();
       if (Array.isArray(logs)) {
@@ -205,7 +222,7 @@ export default function BackupDatabasePage() {
       } else {
         setSecurityLogs([]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Gagal memuat security logs:', err);
     } finally {
       setIsLogsLoading(false);
@@ -214,7 +231,8 @@ export default function BackupDatabasePage() {
 
   useEffect(() => {
     if (user && user.role === 'admin') {
-      fetchSecurityLogs();
+      // setState terjadi di callback promise, bukan sinkron di body effect.
+      Promise.resolve().then(() => fetchSecurityLogs());
     }
   }, [user]);
 
@@ -226,7 +244,7 @@ export default function BackupDatabasePage() {
 
     try {
       const res = await api.exportFullDatabase();
-      const exportData = (res as any)?.data || res;
+      const exportData = (res as { data?: unknown })?.data || res;
       if (!exportData || (typeof exportData === 'object' && Object.keys(exportData).length === 0)) {
         throw new Error('Data backup yang dikembalikan dari server kosong.');
       }
@@ -237,17 +255,18 @@ export default function BackupDatabasePage() {
       
       // Reload security logs to reflect BACKUP_EXPORT event if recorded
       fetchSecurityLogs();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Export Database Error:', err);
-      setErrorMsg(err.message || 'Gagal mengeksport database. Silakan coba lagi.');
+      setErrorMsg(getErrorMessage(err) || 'Gagal mengeksport database. Silakan coba lagi.');
     } finally {
       setIsExporting(false);
     }
   };
 
   // Analyze parsed JSON for safety preview
-  const analyzeBackupFile = (jsonContent: any, fileObj: File) => {
-    const rawData = jsonContent.data ? jsonContent.data : jsonContent;
+  const analyzeBackupFile = (jsonContent: unknown, fileObj: File) => {
+    const obj = (jsonContent && typeof jsonContent === 'object' ? jsonContent : {}) as Record<string, unknown>;
+    const rawData = (obj.data ? obj.data : jsonContent) as Record<string, unknown>;
 
     if (typeof rawData !== 'object' || rawData === null) {
       throw new Error('File JSON tidak valid atau struktur tidak dikenali.');
@@ -275,16 +294,16 @@ export default function BackupDatabasePage() {
     });
 
     const meta: BackupMetadata = {
-      timestamp: jsonContent._exportMeta?.timestamp || jsonContent.timestamp || new Date(fileObj.lastModified).toLocaleString('id-ID'),
-      exportedBy: jsonContent._exportMeta?.exportedBy || jsonContent.exportedBy || 'Unknown / Manual Export',
-      version: jsonContent._exportMeta?.version || jsonContent.version || '1.0',
+      timestamp: (obj._exportMeta as Record<string, string> | undefined)?.timestamp || (obj.timestamp as string) || new Date(fileObj.lastModified).toLocaleString('id-ID'),
+      exportedBy: (obj._exportMeta as Record<string, string> | undefined)?.exportedBy || (obj.exportedBy as string) || 'Unknown / Manual Export',
+      version: (obj._exportMeta as Record<string, string> | undefined)?.version || (obj.version as string) || '1.0',
       yearNodesCount,
       entityStats,
       totalKeys: keys.length,
     };
 
     setBackupMeta(meta);
-    setParsedBackupData(jsonContent);
+    setParsedBackupData(obj);
     setShowPreviewModal(true);
   };
 
@@ -305,9 +324,9 @@ export default function BackupDatabasePage() {
         const text = e.target?.result as string;
         const parsed = JSON.parse(text);
         analyzeBackupFile(parsed, file);
-      } catch (err: any) {
+      } catch (err) {
         console.error('File Parse Error:', err);
-        setErrorMsg(`Gagal membaca file JSON: ${err.message}`);
+        setErrorMsg(`Gagal membaca file JSON: ${getErrorMessage(err)}`);
         setSelectedFile(null);
       }
     };
@@ -359,7 +378,7 @@ export default function BackupDatabasePage() {
       // Step 1: Emergency Auto-Backup before overwrite
       try {
         const currentDataRes = await api.exportFullDatabase();
-        const currentData = (currentDataRes as any)?.data || currentDataRes;
+        const currentData = (currentDataRes as { data?: unknown })?.data || currentDataRes;
         if (currentData) {
           const autoBackupName = `auto_backup_sebelum_restore_${getFormattedTimestamp()}.json`;
           triggerJsonDownload(currentData, autoBackupName);
@@ -379,9 +398,9 @@ export default function BackupDatabasePage() {
 
       // Reload security logs
       fetchSecurityLogs();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Restore Error:', err);
-      setErrorMsg(`Gagal memulihkan database: ${err.message || 'Terjadi kesalahan sistem.'}`);
+      setErrorMsg(`Gagal memulihkan database: ${getErrorMessage(err) || 'Terjadi kesalahan sistem.'}`);
     } finally {
       setIsRestoring(false);
     }
