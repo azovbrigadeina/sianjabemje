@@ -5,9 +5,10 @@
 
 import { DuplicateUnitKerjaParams } from './types';
 import { getActiveYear } from '@/lib/constants';
+import { isHomeserverNetworkFailure } from './homeserver-failure';
 
 const API_BASE = process.env.NEXT_PUBLIC_GAS_DEPLOYMENT_URL || '';
-const DEFAULT_HOMESERVER_URL = process.env.NEXT_PUBLIC_HOMESERVER_URL || 'https://bebaa-server-1.tail56d53d.ts.net:10000';
+const DEFAULT_HOMESERVER_URL = process.env.NEXT_PUBLIC_HOMESERVER_URL || 'https://bebaa-server-1.tail56d53d.ts.net:8443';
 
 export interface HomeserverConfig {
   url: string;
@@ -384,7 +385,19 @@ async function executeActualRequest<T = unknown>(
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(url, fetchOpts);
-        const json: ApiResponse<T> = await res.json();
+        const rawBody = await res.text();
+        let json: ApiResponse<T>;
+        try {
+          json = JSON.parse(rawBody) as ApiResponse<T>;
+        } catch {
+          // Respons non-JSON (biasanya HTML 502/503 dari Funnel/proxy) —
+          // perlakukan sebagai kegagalan jaringan agar jalur fallback bekerja.
+          throw Object.assign(new Error(rawBody.slice(0, 200) || `HTTP ${res.status} (respons bukan JSON)`), { httpStatus: res.status });
+        }
+
+        if (!json || (json.success !== true && json.success !== false)) {
+          throw Object.assign(new Error(`HTTP ${res.status} (respons tidak valid)`), { httpStatus: res.status });
+        }
 
         if (!json.success) {
           const errMsg = json.error || 'API request failed';
@@ -514,13 +527,8 @@ async function apiCall<T = unknown>(
       } catch (hsErr) {
         const msg = String(hsErr instanceof Error ? hsErr.message : hsErr || '');
         // Jika error bisnis/validasi/auth dari server Homeserver (bukan error jaringan), lempar langsung
-        const isNetworkFailure =
-          msg.includes('Failed to fetch') ||
-          msg.includes('NetworkError') ||
-          msg.includes('Load failed') ||
-          msg.includes('Request Timeout') ||
-          msg.includes('Homeserver sedang OFF');
-        if (!isNetworkFailure) {
+        const httpStatus = (hsErr as { httpStatus?: number })?.httpStatus ?? 0;
+        if (!isHomeserverNetworkFailure(httpStatus, msg)) {
           throw hsErr;
         }
         console.warn('[SmartRouter] Homeserver tidak terjangkau, fallback otomatis ke GAS + RTDB:', msg);
