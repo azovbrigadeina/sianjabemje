@@ -661,15 +661,15 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
 
       // Parse Syarat Jabatan
       if (rows1[3]) {
-        let keterampilanList: string[] = [];
-        let bakatList: string[] = [];
-        let minatList: string[] = [];
-        let temperamenList: string[] = [];
-        let upayaList: string[] = [];
+        const keterampilanList: string[] = [];
+        const bakatList: string[] = [];
+        const minatList: string[] = [];
+        const temperamenList: string[] = [];
+        const upayaList: string[] = [];
         
-        let dataFungsiList: string[] = [];
-        let orangFungsiList: string[] = [];
-        let bendaFungsiList: string[] = [];
+        const dataFungsiList: string[] = [];
+        const orangFungsiList: string[] = [];
+        const bendaFungsiList: string[] = [];
 
         for (let i = 3; i < rows1.length; i++) {
           const rowData = rows1[i];
@@ -722,7 +722,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     if (ws2) {
       logs.push("INFO: Memproses sheet 'INFOJAB II'...");
       const rows2: any[][] = XLSX.utils.sheet_to_json(ws2, { header: 1, defval: '' });
-      let hasilKerjaUraianList: string[] = [];
+      const hasilKerjaUraianList: string[] = [];
       
       for (let i = 3; i < rows2.length; i++) {
         const ut = rows2[i][0]?.toString().trim(); // A4

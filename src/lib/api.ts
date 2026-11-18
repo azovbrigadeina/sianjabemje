@@ -22,7 +22,6 @@ const HS_SECRET_KEY = 'sianjab_homeserver_secret';
 
 // Circuit breaker: jika Homeserver gagal dihubungi, fallback ke GAS + RTDB selama 20 detik
 let homeserverCircuitOpenUntil = 0;
-let homeserverConfigHydrated = false;
 
 export function getLocalHomeserverConfig(): HomeserverConfig {
   if (typeof window === 'undefined') {
@@ -350,7 +349,7 @@ async function executeActualRequest<T = unknown>(
   context?: {
     action: string;
     entity: string;
-    opts: any;
+    opts: Record<string, unknown>;
   }
 ): Promise<T> {
   const timeoutMs = (context?.action && EXTENDED_TIMEOUT_ACTIONS[context.action])
@@ -512,8 +511,8 @@ async function apiCall<T = unknown>(
     if (useHs) {
       try {
         return await executeActualRequest<T>(hsUrl, isWriteOperation, opts, { action, entity, opts });
-      } catch (hsErr: any) {
-        const msg = String(hsErr?.message || '');
+      } catch (hsErr) {
+        const msg = String(hsErr instanceof Error ? hsErr.message : hsErr || '');
         // Jika error bisnis/validasi/auth dari server Homeserver (bukan error jaringan), lempar langsung
         const isNetworkFailure =
           msg.includes('Failed to fetch') ||
@@ -823,7 +822,7 @@ export const api = {
   },
 
   saveBulkAnjabData: (jabatanId: string, data: unknown) =>
-    apiCall<any>('saveBulkAnjabData', '', { data, params: { parentId: jabatanId } }),
+    apiCall<unknown>('saveBulkAnjabData', '', { data, params: { parentId: jabatanId } }),
 
   // -- Security Logs --
   getSecurityLogs: () =>
@@ -998,7 +997,7 @@ export const api = {
 // HELPER NORMALISASI DRAF AI
 // ============================================================================
 
-function ensureAiAnjabDraft(data: any): any {
+function ensureAiAnjabDraft(data: Record<string, any> | null | undefined): Record<string, any> | null {
   if (!data) return null;
   return {
     ...data,
