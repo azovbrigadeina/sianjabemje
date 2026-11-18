@@ -2069,8 +2069,8 @@ function loginUser_(data) {
   }
 
   if (!foundUserId) {
-    recordFail_('Akun tidak ditemukan');
-    throw new Error("Akun tidak ditemukan");
+    recordFail_('Username atau password salah');
+    throw new Error("Username atau password salah");
   }
 
   var user = users[foundUserId];
@@ -2088,8 +2088,8 @@ function loginUser_(data) {
   }
 
   if (!isPasswordValid) {
-    recordFail_('Password salah');
-    throw new Error("Password salah");
+    recordFail_('Username atau password salah');
+    throw new Error("Username atau password salah");
   }
 
   if (user.isActive === false) {
