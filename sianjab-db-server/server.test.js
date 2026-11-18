@@ -391,6 +391,16 @@ test('BE-T1: saveABK menolak waktu > 8 jam tanpa konversi menit', async () => {
   assert.ok(ok);
 });
 
+test('BE-T2: pull ditolak saat masih ada perubahan lokal belum flush', async () => {
+  const { dirtyPaths, pullAllFromRtdb } = require('./server.js');
+  dirtyPaths.add('2027/tugasPokok/tp_belum_flush');
+  let err = null;
+  try { await pullAllFromRtdb(); } catch (e) { err = e; }
+  assert.ok(err, 'pull harus ditolak saat dirtyPaths tidak kosong');
+  assert.ok(err.message.includes('belum dikirim ke RTDB'));
+  dirtyPaths.delete('2027/tugasPokok/tp_belum_flush');
+});
+
 test('SEC-S2: verifyAdminSecret menolak secret dari query string', () => {
   const req = { headers: {}, url: '/_homeserver/status?secret=test-hs-secret' };
   assert.equal(verifyAdminSecret(req, {}), false);

@@ -1451,11 +1451,9 @@ function saveSingleEntity_(entity, jabatanId, data) {
 
   try {
     var path = getFirebasePath_(entity);
-    var cacheKey = 'fb_' + path.replace(/\//g, '_');
-    var allData = getLargeCache_(cacheKey);
-    if (allData === null || allData === undefined) {
-      allData = fbGet_(path);
-    }
+    // BE-T3: read-modify-write WAJIB baca RTDB segar di dalam lock — cache 300s
+    // bisa tidak memuat baris yang baru ditambahkan pengguna lain (duplikat permanen).
+    var allData = fbGet_(path);
     var existingId = null;
 
     if (allData) {
@@ -1477,24 +1475,14 @@ function saveSingleEntity_(entity, jabatanId, data) {
       fbPatch_(getFirebasePath_(entity, existingId), data);
       data.id = existingId;
       result = data;
-      if (allData && typeof allData === 'object') {
-        allData[existingId] = Object.assign({}, allData[existingId] || {}, data);
-        putLargeCache_(cacheKey, allData, 300);
-      } else {
-        invalidateCache_(entity);
-      }
     } else {
       data.createdAt = new Date().toISOString();
       data.updatedAt = new Date().toISOString();
       var postRes = fbPost_(path, data);
       result = { id: postRes.name, data: data };
-      if (allData && typeof allData === 'object' && postRes && postRes.name) {
-        allData[postRes.name] = Object.assign({}, data, { id: postRes.name });
-        putLargeCache_(cacheKey, allData, 300);
-      } else {
-        invalidateCache_(entity);
-      }
     }
+    // BE-T3: jangan menulis cache dari snapshot; cukup invalidasi.
+    invalidateCache_(entity);
     return result;
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}
@@ -1512,12 +1500,12 @@ function saveMultiEntity_(entity, parentId, rows) {
 
   try {
     var path = getFirebasePath_(entity);
-    var cacheKey = 'fb_' + path.replace(/\//g, '_');
-    var allData = getLargeCache_(cacheKey);
-    if (allData === null || allData === undefined) {
-      allData = fbGet_(path);
-    }
+    // BE-T3: read-modify-write WAJIB baca RTDB segar di dalam lock (bukan cache):
+    // baris dari pengguna lain dalam 5 menit terakhir tidak boleh tidak terlihat,
+    // kalau tidak akan jadi duplikat permanen.
+    var allData = fbGet_(path);
     var patchPayload = {};
+    var preservedIds = [];
 
     // 1. Mark existing records with matching jabatanId for deletion
     if (allData) {
@@ -1525,33 +1513,56 @@ function saveMultiEntity_(entity, parentId, rows) {
       for (var i = 0; i < keys.length; i++) {
         if (allData[keys[i]] && allData[keys[i]].jabatanId === parentId) {
           patchPayload[keys[i]] = null;
-          delete allData[keys[i]];
         }
       }
     }
 
-    // 2. Add new records with unique keys
+    // 2. Rebuild rows: pertahankan id lama bila klien mengirim id yang cocok,
+    //    agar id & createdAt tidak berubah tiap simpan (BE-T3).
     if (rows && Array.isArray(rows)) {
-      rows.forEach(function (row) {
-        delete row.id; 
-        var newId = 'row_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
-        row.jabatanId = parentId;
-        row.createdAt = new Date().toISOString();
-        row.updatedAt = new Date().toISOString();
-        patchPayload[newId] = row;
-        if (allData && typeof allData === 'object') {
-          allData[newId] = Object.assign({}, row, { id: newId });
+      var leftoverKeys = {};
+      if (allData) {
+        var lKeys = Object.keys(allData);
+        for (var j = 0; j < lKeys.length; j++) {
+          var lRow = allData[lKeys[j]];
+          if (lRow && lRow.jabatanId === parentId) {
+            leftoverKeys[lKeys[j]] = lRow;
+          }
         }
+      }
+      rows.forEach(function (row) {
+        var newId = null;
+        var oldRow = null;
+        if (row && row.id && leftoverKeys[row.id]) {
+          newId = row.id;
+          oldRow = leftoverKeys[newId];
+          delete leftoverKeys[newId];
+        } else {
+          var remaining = Object.keys(leftoverKeys);
+          if (remaining.length > 0) {
+            newId = remaining[0];
+            oldRow = leftoverKeys[newId];
+            delete leftoverKeys[newId];
+          }
+        }
+        var cleanRow = Object.assign({}, row);
+        delete cleanRow.id;
+        cleanRow.jabatanId = parentId;
+        if (oldRow && oldRow.createdAt) {
+          cleanRow.createdAt = oldRow.createdAt; // pertahankan createdAt lama
+        } else {
+          cleanRow.createdAt = new Date().toISOString();
+        }
+        if (!newId) newId = 'row_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
+        cleanRow.updatedAt = new Date().toISOString();
+        patchPayload[newId] = cleanRow;
+        preservedIds.push(newId);
       });
     }
 
-    // 3. Perform atomic patch update + Write-Through Cache
+    // 3. Perform atomic patch update + invalidasi cache (BE-T3: jangan tulis snapshot basi).
     fbPatch_(path, patchPayload);
-    if (allData && typeof allData === 'object') {
-      putLargeCache_(cacheKey, allData, 300);
-    } else {
-      invalidateCache_(entity);
-    }
+    invalidateCache_(entity);
     invalidateJabatanCache_(parentId);
     return { success: true, count: rows ? rows.length : 0 };
   } finally {

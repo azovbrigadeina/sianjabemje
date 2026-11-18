@@ -553,7 +553,14 @@ function buildRtdbUrl(baseUrl, secret, fbPath, extraQuery = '') {
   return `${baseUrl}${pathPart}${query ? '?' + query : ''}`;
 }
 
-async function pullAllFromRtdb() {
+async function pullAllFromRtdb({ force = false } = {}) {
+  // BE-T2: jangan pernah membuang tulisan lokal yang belum ter-flush.
+  if (dirtyPaths.size > 0 && !force) {
+    throw new Error(
+      `Pull dibatalkan: masih ada ${dirtyPaths.size} perubahan lokal yang belum dikirim ke RTDB. ` +
+      'Jalankan flush-to-rtdb dulu, atau kirim force=true bila memang ingin menimpanya.'
+    );
+  }
   const url = buildRtdbUrl(FIREBASE_DB_URL, FIREBASE_SECRET, '');
   const remoteData = await httpRequestJson(url, 'GET', undefined, 90000);
   if (!remoteData || typeof remoteData !== 'object') {
@@ -595,7 +602,8 @@ async function flushOutboxToRtdb() {
   try {
     if (dirtyPaths.has('__ROOT__')) {
       const url = buildRtdbUrl(FIREBASE_DB_URL, FIREBASE_SECRET, '', 'print=silent');
-      await httpRequestJson(url, 'PUT', db, 120000);
+      // BE-T2: PATCH (merge) — jangan menimpa key yang ditulis pihak lain sejak snapshot.
+      await httpRequestJson(url, 'PATCH', db, 120000);
       dirtyPaths.clear();
       flushedCount = 1;
     } else {
@@ -605,7 +613,8 @@ async function flushOutboxToRtdb() {
         if (val === null || val === undefined) {
           await httpRequestJson(url, 'DELETE', undefined, 45000);
         } else {
-          await httpRequestJson(url, 'PUT', val, 60000);
+          // BE-T2: PATCH per-path agar key lain di node yang sama tidak terhapus.
+          await httpRequestJson(url, 'PATCH', val, 60000);
         }
         dirtyPaths.delete(p);
         flushedCount++;
@@ -2414,7 +2423,7 @@ function createAppServer() {
         if (!verifyAdminSecret(req, body)) {
           return sendJson(req, res, 403, { success: false, error: 'Forbidden: Secret Homeserver/Admin tidak valid' });
         }
-        const pullRes = await pullAllFromRtdb();
+        const pullRes = await pullAllFromRtdb({ force: body && body.force === true });
         return sendJson(req, res, 200, { success: true, ok: true, ...pullRes, summary: getMonitorSummary() });
       }
 
@@ -2630,5 +2639,7 @@ module.exports = {
   shouldPullOnStart,
   SELF_UPDATE_ALLOWED_FIELDS,
   loginFailures,
-  hashPasswordHmac
+  hashPasswordHmac,
+  pullAllFromRtdb,
+  flushOutboxToRtdb
 };

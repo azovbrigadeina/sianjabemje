@@ -684,6 +684,35 @@ check('B3 satuan jam: kebutuhan 800/1250=0.64 -> raw 1 -> batas fungsional 2',
 sandbox.fbPut_ = origFbPut;
 
 // ------------------------------------------------------------
+// 5h2. BE-T3: saveMultiEntity_ baca segar, pertahankan id/createdAt
+// ------------------------------------------------------------
+console.log('\n== BE-T3: saveMultiEntity_ fresh-read & id stabil ==');
+const origFbGet3 = sandbox.fbGet_;
+const multiDbPath = '2026/tugasPokok';
+const multiDbSnapshot = JSON.parse(JSON.stringify(DB[multiDbPath] || {}));
+sandbox.fbGet_ = (p) => (p === multiDbPath ? DB[multiDbPath] : origFbGet3(p));
+DB[multiDbPath] = {
+  row_a1: { id: 'row_a1', jabatanId: 'j_mt', uraian: 'Tugas satu', createdAt: '2026-01-01T00:00:00.000Z' },
+  row_b2: { id: 'row_b2', jabatanId: 'j_lain', uraian: 'Milik jabatan lain' },
+};
+sandbox.fbPatch_ = (p, payload) => {
+  DB[multiDbPath] = DB[multiDbPath] || {};
+  for (const k of Object.keys(payload)) {
+    if (payload[k] === null) delete DB[multiDbPath][k];
+    else DB[multiDbPath][k] = Object.assign({}, DB[multiDbPath][k] || {}, payload[k], { id: undefined });
+    if (payload[k] !== null) DB[multiDbPath][k].id = k;
+  }
+};
+sandbox.saveMultiEntity_('tugasPokok', 'j_mt', [{ uraian: 'Tugas satu revisi' }, { uraian: 'Tugas dua baru' }]);
+const keysAfter = Object.keys(DB[multiDbPath]).sort();
+check('BE-T3: baris jabatan lain (row_b2) tetap utuh', DB[multiDbPath].row_b2 !== undefined, DB[multiDbPath]);
+check('BE-T3: baris lama jabatan sama id-nya dipertahankan (row_a1)',
+  DB[multiDbPath].row_a1 !== undefined && DB[multiDbPath].row_a1.createdAt === '2026-01-01T00:00:00.000Z', DB[multiDbPath].row_a1);
+check('BE-T3: total baris 3 (2 milik j_mt + 1 milik j_lain)', keysAfter.length === 3, keysAfter);
+DB[multiDbPath] = multiDbSnapshot;
+sandbox.fbGet_ = origFbGet3;
+
+// ------------------------------------------------------------
 // 5i. C1 & C2: guard self-delete + tolak aju berdasarkan status basi
 // ------------------------------------------------------------
 console.log('\n== C1/C2: self-delete guard & status basi ==');
