@@ -6,13 +6,26 @@ import { api } from "@/lib/api";
 import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, WKE_DEFAULT_JAM } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
 import type { UnitKerja, Jabatan, JabatanFull } from "@/lib/types";
+import type { ExportAbkRow } from "@/lib/exportDocx";
+
+/** Item bulk generik dari API (entitas anak/single). */
+type BulkItem = Record<string, unknown> & { id?: string; jabatanId?: string; nomorUrut?: number };
+/** Record ABK tersimpan. */
+type AbkRecord = {
+  id?: string;
+  jabatanId?: string;
+  rows?: ExportAbkRow[];
+  totalWaktuEfektif?: number;
+  totalKebutuhan?: number;
+  formasiPembulatan?: number;
+};
 
 export default function OperatorLaporanPage() {
   const { user } = useUser();
   const [opdName, setOpdName] = useState<string>("OPD Anda");
   const [statusValidasi, setStatusValidasi] = useState<string>("Draft");
   const [jabatans, setJabatans] = useState<Jabatan[]>([]);
-  const [abks, setAbks] = useState<any[]>([]);
+  const [abks, setAbks] = useState<AbkRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [downloadingAnjab, setDownloadingAnjab] = useState<boolean>(false);
@@ -26,7 +39,7 @@ export default function OperatorLaporanPage() {
   useEffect(() => {
     const unitKerjaId = user?.unitKerjaId;
     if (!unitKerjaId) {
-      setLoading(false);
+      Promise.resolve().then(() => setLoading(false));
       return;
     }
 
@@ -45,7 +58,7 @@ export default function OperatorLaporanPage() {
         }
 
         setJabatans(jabs);
-        setAbks((bulkData.abk || []) as any[]);
+        setAbks((bulkData.abk || []) as AbkRecord[]);
       } catch (err) {
         console.error("Gagal memuat data laporan operator:", err);
       } finally {
@@ -57,7 +70,7 @@ export default function OperatorLaporanPage() {
   }, [user]);
 
   const abkMap = useMemo(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, AbkRecord>();
     abks.forEach(a => {
       if (a.id) map.set(a.id, a);
     });
@@ -73,7 +86,7 @@ export default function OperatorLaporanPage() {
 
   const isApproved = statusValidasi === "Disetujui";
 
-  const handleDownloadSingle = async (jabatan: Jabatan, abkData: any) => {
+  const handleDownloadSingle = async (jabatan: Jabatan, abkData: AbkRecord | null | undefined) => {
     if (!isApproved) {
       alert("Maaf, pencetakan dokumen resmi hanya diizinkan setelah usulan OPD divalidasi dan disetujui oleh Admin Kabupaten.");
       return;
@@ -87,14 +100,14 @@ export default function OperatorLaporanPage() {
       const fullJabatan = await api.getJabatanFull(jabatan.id) as JabatanFull;
       const { exportJabatanToDocx } = await import("@/lib/exportDocx");
       await exportJabatanToDocx(fullJabatan, abkData, opdName);
-    } catch (err: any) {
-      alert("Gagal mengunduh laporan Anjab: " + err.message);
+    } catch (err) {
+      alert("Gagal mengunduh laporan Anjab: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDownloadingAnjab(false);
     }
   };
 
-  const handleDownloadSiasn = async (jabatan: Jabatan, abkData: any) => {
+  const handleDownloadSiasn = async (jabatan: Jabatan, abkData: AbkRecord | null | undefined) => {
     if (!isApproved) {
       alert("Maaf, pengeksporan dokumen resmi hanya diizinkan setelah usulan OPD divalidasi dan disetujui oleh Admin Kabupaten.");
       return;
@@ -108,8 +121,8 @@ export default function OperatorLaporanPage() {
       const fullJabatan = await api.getJabatanFull(jabatan.id) as JabatanFull;
       const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
       exportJabatanToSiasn(fullJabatan, abkData);
-    } catch (err: any) {
-      alert("Gagal mengekspor SIASN: " + err.message);
+    } catch (err) {
+      alert("Gagal mengekspor SIASN: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDownloadingAnjab(false);
     }
@@ -165,44 +178,45 @@ export default function OperatorLaporanPage() {
       const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
       const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
 
-      const multiIndexed: Record<string, Map<string, any[]>> = {};
+      const bulk = bulkData as Record<string, BulkItem[]>;
+      const multiIndexed: Record<string, Map<string, BulkItem[]>> = {};
       multiEntities.forEach(ent => {
-        const map = new Map<string, any[]>();
-        (bulkData[ent] || []).forEach((item: any) => {
+        const map = new Map<string, BulkItem[]>();
+        (bulk[ent] || []).forEach((item) => {
           if (!item.jabatanId) return;
           const arr = map.get(item.jabatanId) || [];
           arr.push(item);
           map.set(item.jabatanId, arr);
         });
-        map.forEach(arr => arr.sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
+        map.forEach(arr => arr.sort((a, b) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
         multiIndexed[ent] = map;
       });
-      const singleIndexed: Record<string, Map<string, any>> = {};
+      const singleIndexed: Record<string, Map<string, BulkItem>> = {};
       singleEntities.forEach(ent => {
-        const map = new Map<string, any>();
-        (bulkData[ent] || []).forEach((item: any) => {
+        const map = new Map<string, BulkItem>();
+        (bulk[ent] || []).forEach((item) => {
           if (item.jabatanId) map.set(item.jabatanId, item);
         });
         singleIndexed[ent] = map;
       });
 
       const fullJabatans: JabatanFull[] = jobsToDownload.map(j => {
-        const full: any = { ...j };
+        const full: Record<string, unknown> = { ...j };
         multiEntities.forEach(ent => {
           full[ent] = multiIndexed[ent].get(j.id) || [];
         });
         singleEntities.forEach(ent => {
           full[ent] = singleIndexed[ent].get(j.id) || null;
         });
-        return full as JabatanFull;
+        return full as unknown as JabatanFull;
       });
 
-      const abkList = jobsToDownload.map(j => abkMap.get(j.id));
+      const abkList = jobsToDownload.map(j => abkMap.get(j.id)).filter((a): a is AbkRecord => !!a);
       
       const { exportJabatansToDocx } = await import("@/lib/exportDocx");
       await exportJabatansToDocx(`Anjab_Lengkap_${opdName.replace(/[^a-zA-Z0-9]/g, '_')}`, fullJabatans, abkList);
-    } catch (err: any) {
-      alert("Gagal mengunduh bulk Anjab: " + err.message);
+    } catch (err) {
+      alert("Gagal mengunduh bulk Anjab: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDownloadingAnjab(false);
     }
@@ -235,44 +249,45 @@ export default function OperatorLaporanPage() {
       const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
       const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
 
-      const abkMapByJbt = new Map<string, any>();
+      const bulk = bulkData as Record<string, BulkItem[]>;
+      const abkMapByJbt = new Map<string, AbkRecord>();
       if (bulkData.abk && Array.isArray(bulkData.abk)) {
-        bulkData.abk.forEach((a: any) => {
+        (bulkData.abk as AbkRecord[]).forEach((a) => {
           if (a.id) abkMapByJbt.set(a.id, a);
           if (a.jabatanId) abkMapByJbt.set(a.jabatanId, a);
         });
       }
 
-      const multiIndexedAbk: Record<string, Map<string, any[]>> = {};
+      const multiIndexedAbk: Record<string, Map<string, BulkItem[]>> = {};
       multiEntities.forEach(ent => {
-        const map = new Map<string, any[]>();
-        (bulkData[ent] || []).forEach((item: any) => {
+        const map = new Map<string, BulkItem[]>();
+        (bulk[ent] || []).forEach((item) => {
           if (!item.jabatanId) return;
           const arr = map.get(item.jabatanId) || [];
           arr.push(item);
           map.set(item.jabatanId, arr);
         });
-        map.forEach(arr => arr.sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
+        map.forEach(arr => arr.sort((a, b) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
         multiIndexedAbk[ent] = map;
       });
-      const singleIndexedAbk: Record<string, Map<string, any>> = {};
+      const singleIndexedAbk: Record<string, Map<string, BulkItem>> = {};
       singleEntities.forEach(ent => {
-        const map = new Map<string, any>();
-        (bulkData[ent] || []).forEach((item: any) => {
+        const map = new Map<string, BulkItem>();
+        (bulk[ent] || []).forEach((item) => {
           if (item.jabatanId) map.set(item.jabatanId, item);
         });
         singleIndexedAbk[ent] = map;
       });
 
       const fullJabatans: JabatanFull[] = targetJabatans.map(j => {
-        const full: any = { ...j };
+        const full: Record<string, unknown> = { ...j };
         multiEntities.forEach(ent => {
           full[ent] = multiIndexedAbk[ent].get(j.id) || [];
         });
         singleEntities.forEach(ent => {
           full[ent] = singleIndexedAbk[ent].get(j.id) || null;
         });
-        return full as JabatanFull;
+        return full as unknown as JabatanFull;
       });
 
       const abkList = targetJabatans.map(j => abkMapByJbt.get(j.id) || null);
@@ -309,8 +324,8 @@ export default function OperatorLaporanPage() {
 
       const { exportRekapAbkToXlsx } = await import("@/lib/importXlsx");
       exportRekapAbkToXlsx(opdName, rows);
-    } catch (err: any) {
-      alert("Gagal mengunduh rekap ABK: " + err.message);
+    } catch (err) {
+      alert("Gagal mengunduh rekap ABK: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setDownloadingAbk(false);
     }
