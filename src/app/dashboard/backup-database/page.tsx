@@ -508,7 +508,7 @@ export default function BackupDatabasePage() {
                 type="text"
                 value={hsUrl}
                 onChange={(e) => setHsUrl(e.target.value)}
-                placeholder="https://bebaa-server-1.tail56d53d.ts.net:10000"
+                placeholder="https://bebaa-server-1.tail56d53d.ts.net:8443"
                 style={{
                   width: '100%',
                   padding: '0.6rem 0.85rem',
