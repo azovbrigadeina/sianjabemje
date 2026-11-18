@@ -424,6 +424,26 @@ test('FE-T15: getJabatanByUnit menyertakan jabatan sub-unit', async () => {
   assert.ok(ids.includes('jab_anak'), 'jabatan sub-unit ikut');
 });
 
+test('ARC-F14: backup otomatis menulis file & retensi bekerja', async () => {
+  const { runBackupNow, pruneBackupFiles } = require('./server.js');
+  const fsmod = require('fs');
+  const osmod = require('os');
+  // 1. Retensi
+  const tmpDir = fsmod.mkdtempSync(path.join(osmod.tmpdir(), 'sianjab-backup-'));
+  assert.equal(pruneBackupFiles(tmpDir, 2), 0);
+  for (const f of ['db-backup-1.json', 'db-backup-2.json', 'db-backup-3.json', 'db-backup-4.json']) {
+    fsmod.writeFileSync(path.join(tmpDir, f), '{}');
+  }
+  assert.equal(pruneBackupFiles(tmpDir, 2), 2);
+  assert.deepEqual(fsmod.readdirSync(tmpDir).sort(), ['db-backup-3.json', 'db-backup-4.json']);
+  fsmod.rmSync(tmpDir, { recursive: true, force: true });
+  // 2. runBackupNow menulis file nyata di DATA_DIR test
+  const res = runBackupNow('test');
+  assert.ok(res.ok, 'backup harus sukses: ' + (res.error || ''));
+  assert.ok(fsmod.existsSync(res.file), 'file backup ada');
+  assert.ok(path.basename(res.file).startsWith('db-backup-'));
+});
+
 test('SEC-S2: verifyAdminSecret menolak secret dari query string', () => {
   const req = { headers: {}, url: '/_homeserver/status?secret=test-hs-secret' };
   assert.equal(verifyAdminSecret(req, {}), false);

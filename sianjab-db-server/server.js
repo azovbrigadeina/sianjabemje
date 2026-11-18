@@ -94,6 +94,8 @@ let serverState = {
   lastFlushToRtdbAt: null,
   lastFlushResult: null,
   storageError: null,
+  lastBackupAt: null,
+  lastBackupError: null,
   totalFlushedPaths: 0
 };
 
@@ -121,6 +123,11 @@ const sseClients = new Set();
 
 let saveTimer = null;
 let savePending = false;
+
+// ARC-F14: backup otomatis harian (dump JSON ke data/backups/, retensi dibatasi).
+const BACKUP_INTERVAL_MS = parseInt(process.env.BACKUP_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10);
+const BACKUP_RETENTION = parseInt(process.env.BACKUP_RETENTION || '14', 10);
+let lastBackupAt = null;
 
 // ============================================================================
 // UTILITAS PERSISTENSI DISK & OUTBOX
@@ -172,6 +179,45 @@ function saveDbNow() {
   } catch (err) {
     const msg = 'Disk write failed: ' + (err && err.message ? err.message : String(err));
     serverState.storageError = msg;
+    console.error('[SIANJAB-DB] CRITICAL:', msg);
+    return { ok: false, error: msg };
+  }
+}
+
+// ============================================================================
+// ARC-F14: BACKUP OTOMATIS TERJADWAL
+// ============================================================================
+function pruneBackupFiles(backupDir, keep) {
+  const files = fs.readdirSync(backupDir)
+    .filter((f) => f.startsWith('db-backup-') && f.endsWith('.json'))
+    .sort();
+  let removed = 0;
+  while (files.length > keep) {
+    const oldest = files.shift();
+    try { fs.unlinkSync(path.join(backupDir, oldest)); removed++; } catch {}
+  }
+  return removed;
+}
+
+function runBackupNow(trigger = 'scheduled') {
+  ensureDataDir();
+  const backupDir = path.join(DATA_DIR, 'backups');
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = path.join(backupDir, `db-backup-${stamp}.json`);
+  try {
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(db), 'utf8');
+    fs.renameSync(tmp, file);
+    lastBackupAt = new Date().toISOString();
+    serverState.lastBackupAt = lastBackupAt;
+    serverState.lastBackupError = null;
+    pruneBackupFiles(backupDir, BACKUP_RETENTION);
+    console.log(`[SIANJAB-DB] Backup (${trigger}) tersimpan: ${file}`);
+    return { ok: true, file, lastBackupAt };
+  } catch (err) {
+    const msg = 'Backup failed: ' + (err && err.message ? err.message : String(err));
+    serverState.lastBackupError = msg;
     console.error('[SIANJAB-DB] CRITICAL:', msg);
     return { ok: false, error: msg };
   }
@@ -650,6 +696,13 @@ if (WRITE_BEHIND_INTERVAL_MS > 0) {
       });
     }
   }, WRITE_BEHIND_INTERVAL_MS).unref();
+}
+
+// ARC-F14: backup otomatis terjadwal (default harian, retensi 14 file).
+if (BACKUP_INTERVAL_MS > 0) {
+  setInterval(() => {
+    runBackupNow('scheduled');
+  }, BACKUP_INTERVAL_MS).unref();
 }
 
 // ============================================================================
@@ -2031,6 +2084,12 @@ function getMonitorSummary() {
   return {
     status: serverState.storageError ? 'degraded' : 'ok',
     mode: serverState.mode,
+    // ARC-F14: alerting — storageError / backup gagal ditampilkan untuk monitoring.
+    alerts: {
+      storageError: serverState.storageError || null,
+      lastBackupAt: serverState.lastBackupAt || lastBackupAt || null,
+      lastBackupError: serverState.lastBackupError || null
+    },
     activeYearPreview: latestYear,
     yearsAvailable: years,
     counts: {
@@ -2456,6 +2515,17 @@ function createAppServer() {
         return sendJson(req, res, 200, { success: true, ok: true, ...flushRes, summary: getMonitorSummary() });
       }
 
+      // ARC-F14: backup manual on-demand (admin).
+      if (pathname === '/_homeserver/backup' && req.method === 'POST') {
+        const body = await readRequestBody(req);
+        if (!verifyAdminSecret(req, body)) {
+          return sendJson(req, res, 403, { success: false, error: 'Forbidden: Secret Homeserver/Admin tidak valid' });
+        }
+        const backupRes = runBackupNow('manual');
+        const status = backupRes.ok ? 200 : 500;
+        return sendJson(req, res, status, { success: backupRes.ok, ...backupRes, summary: getMonitorSummary() });
+      }
+
       if (pathname === '/_homeserver/mode' && req.method === 'POST') {
         const body = await readRequestBody(req);
         if (!verifyAdminSecret(req, body)) {
@@ -2628,6 +2698,8 @@ if (require.main === module) {
     }, 10000);
     try {
       saveDbNow();
+      // ARC-F14: snapshot terakhir sebelum keluar.
+      runBackupNow('shutdown');
       if (dirtyPaths.size > 0) {
         await flushOutboxToRtdb();
       }
@@ -2663,5 +2735,7 @@ module.exports = {
   hashPasswordHmac,
   pullAllFromRtdb,
   flushOutboxToRtdb,
-  httpStatusForError
+  httpStatusForError,
+  runBackupNow,
+  pruneBackupFiles
 };
