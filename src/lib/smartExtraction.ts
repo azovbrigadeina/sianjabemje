@@ -7,6 +7,24 @@ import {
   mapFungsiPekerjaan
 } from './importXlsx';
 
+/** Nilai sel Excel yang mungkin muncul dari sheet_to_json (header: 1). */
+export type CellValue = string | number | boolean | null | undefined;
+export type SheetRows = CellValue[][];
+
+/** Ringkasan hasil skoring satu sheet (dipakai analyzeSheets/formatSheetLabel). */
+export interface SheetInfo {
+  nama_jabatan: string | null;
+  iktisar: string | null;
+  keywords: number;
+  is_template: boolean;
+}
+
+export interface SheetAnalysis {
+  name: string;
+  score: number;
+  info: SheetInfo;
+}
+
 const SECTION_KEYWORDS = [
   "nama jabatan", "iktisar jabatan", "ikhtisar jabatan",
   "tugas pokok", "tanggung jawab", "wewenang",
@@ -14,7 +32,7 @@ const SECTION_KEYWORDS = [
   "kondisi lingkungan", "resiko bahaya"
 ];
 
-function findNamaJabatan(rows: any[][]): string | null {
+function findNamaJabatan(rows: SheetRows): string | null {
   const numRows = rows.length;
   for (let r = 0; r < Math.min(numRows, 30); r++) {
     const row = rows[r] || [];
@@ -38,7 +56,7 @@ function findNamaJabatan(rows: any[][]): string | null {
   return null;
 }
 
-function findIktisar(rows: any[][]): string | null {
+function findIktisar(rows: SheetRows): string | null {
   const numRows = rows.length;
   for (let r = 0; r < Math.min(numRows, 30); r++) {
     const row = rows[r] || [];
@@ -63,9 +81,9 @@ function findIktisar(rows: any[][]): string | null {
   return null;
 }
 
-export function scoreSheet(rows: any[][], sheetName: string) {
+export function scoreSheet(rows: SheetRows, sheetName: string) {
   let score = 0;
-  const info: any = { nama_jabatan: null, iktisar: null, keywords: 0, is_template: false };
+  const info: SheetInfo = { nama_jabatan: null, iktisar: null, keywords: 0, is_template: false };
 
   const foundKw = new Set<string>();
   let nonEmpty = 0;
@@ -119,10 +137,10 @@ export function scoreSheet(rows: any[][], sheetName: string) {
 }
 
 export function analyzeSheets(wb: XLSX.WorkBook) {
-  const results: any[] = [];
+  const results: SheetAnalysis[] = [];
   for (const name of wb.SheetNames) {
     const ws = wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' });
+    const rows = XLSX.utils.sheet_to_json<CellValue[]>(ws, { header: 1, defval: '' });
     const { score, info } = scoreSheet(rows, name);
     results.push({ name, score, info });
   }
@@ -130,7 +148,7 @@ export function analyzeSheets(wb: XLSX.WorkBook) {
   return results;
 }
 
-export function formatSheetLabel(name: string, score: number, info: any) {
+export function formatSheetLabel(name: string, score: number, info: SheetInfo) {
   const maxScore = 50;
   const pct = Math.max(0, Math.min(100, Math.floor((score / maxScore) * 100)));
   const nama = info.nama_jabatan || "—";
@@ -145,7 +163,7 @@ export function formatSheetLabel(name: string, score: number, info: any) {
   }
 }
 
-export function findSectionByText(rows: any[][], labelText: string): [number, number] | [null, null] {
+export function findSectionByText(rows: SheetRows, labelText: string): [number, number] | [null, null] {
   const numRows = rows.length;
   const labelLower = labelText.toLowerCase().trim();
   
@@ -206,7 +224,7 @@ export function findSectionByText(rows: any[][], labelText: string): [number, nu
   return [null, null];
 }
 
-export function extractSingleValue(rows: any[][], labels: string | string[], logMsgs?: string[]): string | null {
+export function extractSingleValue(rows: SheetRows, labels: string | string[], logMsgs?: string[]): string | null {
   const numRows = rows.length;
   const labelList = Array.isArray(labels) ? labels : [labels];
   const labelsLower = labelList.map(l => l.toLowerCase().trim());
@@ -242,7 +260,7 @@ export function extractSingleValue(rows: any[][], labels: string | string[], log
   return null;
 }
 
-export function extractMultiValueExact(rows: any[][], label: string, rightOffset: number, downOffset: number, logMsgs?: string[]): string[] {
+export function extractMultiValueExact(rows: SheetRows, label: string, rightOffset: number, downOffset: number, logMsgs?: string[]): string[] {
   const numRows = rows.length;
   const labelLower = label.toLowerCase().trim();
   const found: [number, number][] = [];
@@ -292,7 +310,7 @@ export function extractMultiValueExact(rows: any[][], label: string, rightOffset
   return results;
 }
 
-export function extractTugasPokokSmart(rows: any[][], logMsgs?: string[]) {
+export function extractTugasPokokSmart(rows: SheetRows, logMsgs?: string[]) {
   const numRows = rows.length;
   let tpRow: number | null = null;
   let tpCol: number | null = null;
@@ -353,8 +371,9 @@ export function extractTugasPokokSmart(rows: any[][], logMsgs?: string[]) {
   
   for (let scanR = dataStart; scanR < Math.min(dataStart + 5, numRows); scanR++) {
     const row = rows[scanR] || [];
-    if (colUraian < row.length && row[colUraian] !== undefined && row[colUraian] !== null) {
-      const val = row[colUraian].toString().trim().toLowerCase();
+    const rawUraian = row[colUraian];
+    if (colUraian < row.length && rawUraian !== undefined && rawUraian !== null) {
+      const val = rawUraian.toString().trim().toLowerCase();
       if (headerKeywords.some(kw => val.includes(kw))) {
         continue;
       }
@@ -402,7 +421,7 @@ export interface BahanPerangkatExtracted {
   use: string;
 }
 
-export function extractBahanKerja(rows: any[][], logMsgs?: string[]): BahanPerangkatExtracted[] {
+export function extractBahanKerja(rows: SheetRows, logMsgs?: string[]): BahanPerangkatExtracted[] {
   const numRows = rows.length;
   const [labelRow, labelCol] = findSectionByText(rows, "bahan kerja");
   
@@ -461,7 +480,7 @@ export function extractBahanKerja(rows: any[][], logMsgs?: string[]): BahanPeran
   return results;
 }
 
-export function extractPerangkatKerja(rows: any[][], logMsgs?: string[]): BahanPerangkatExtracted[] {
+export function extractPerangkatKerja(rows: SheetRows, logMsgs?: string[]): BahanPerangkatExtracted[] {
   const numRows = rows.length;
   const [labelRow, labelCol] = findSectionByText(rows, "perangkat kerja");
   
@@ -526,7 +545,7 @@ export interface KorelasiExtracted {
   dalamHal: string;
 }
 
-export function extractKorelasiJabatan(rows: any[][], logMsgs?: string[]): KorelasiExtracted[] {
+export function extractKorelasiJabatan(rows: SheetRows, logMsgs?: string[]): KorelasiExtracted[] {
   const numRows = rows.length;
   const [labelRow, labelCol] = findSectionByText(rows, "korelasi jabatan");
   
@@ -606,7 +625,7 @@ export interface LingkunganExtracted {
   faktor: string;
 }
 
-export function extractKondisiLingkungan(rows: any[][], logMsgs?: string[]): LingkunganExtracted[] {
+export function extractKondisiLingkungan(rows: SheetRows, logMsgs?: string[]): LingkunganExtracted[] {
   const numRows = rows.length;
   let labelRow: number | null = null;
   let labelCol: number | null = null;
@@ -679,7 +698,7 @@ export interface RisikoExtracted {
   penyebab: string;
 }
 
-export function extractRisikoBahaya(rows: any[][], logMsgs?: string[]): RisikoExtracted[] {
+export function extractRisikoBahaya(rows: SheetRows, logMsgs?: string[]): RisikoExtracted[] {
   const numRows = rows.length;
   let labelRow: number | null = null;
   let labelCol: number | null = null;
@@ -764,7 +783,7 @@ export interface SyaratJabatanExtracted {
   fungsiPekerjaan: string[];
 }
 
-export function extractSyaratJabatan(rows: any[][], logMsgs?: string[]): SyaratJabatanExtracted | null {
+export function extractSyaratJabatan(rows: SheetRows, logMsgs?: string[]): SyaratJabatanExtracted | null {
   const numRows = rows.length;
   let labelRow: number | null = null;
   let labelCol: number | null = null;

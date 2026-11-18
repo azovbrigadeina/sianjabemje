@@ -19,8 +19,48 @@ const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
   return bytes.buffer;
 };
 
-// Map Sianjab data to template placeholder keys based on custom user mappings
-const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {}, abkData?: any, verifyCode?: string) => {
+/** Pemetaan kunci placeholder dokkel yang bisa dikustomisasi user. */
+export interface TemplateMappings {
+  hierarchyName?: string;
+  hierarchy?: Record<string, string>;
+  kualifikasi?: Record<string, string>;
+  syaratJabatan?: Record<string, string | Record<string, string>>;
+  tugasPokok?: Record<string, string>;
+  bahanKerja?: Record<string, string>;
+  perangkatKerja?: Record<string, string>;
+  tanggungJawab?: Record<string, string>;
+  wewenang?: Record<string, string>;
+  korelasiJabatan?: Record<string, string>;
+  kondisiLingkungan?: Record<string, string>;
+  risikoBahaya?: Record<string, string>;
+  totalWaktuEfektif?: string;
+  totalKebutuhanPegawai?: string;
+  pembulatanFormasi?: string;
+  jumlahPegawaiOrang?: string;
+  wke?: string;
+}
+
+/** Baris ABK yang dipakai pada injeksi nilai ekspor dokx. */
+export interface ExportAbkRow {
+  tugas?: string;
+  uraianTugas?: string;
+  task?: string;
+  waktu?: number;
+  waktuPenyelesaian?: number;
+  volume?: number;
+  jumlahHasil?: number;
+  satuan?: string;
+}
+
+export interface ExportAbkData {
+  rows?: ExportAbkRow[];
+  wke?: number;
+  waktuSatuan?: string;
+}
+
+const transformData = (jabatan: JabatanFull, mappings: TemplateMappings = {}, abkData?: ExportAbkData, verifyCode?: string) => {
+  // Nilai template docx bisa campuran string/number/objek loop -> any memang diperlukan di sini.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: Record<string, any> = {};
 
   if (verifyCode) {
@@ -29,8 +69,11 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     result['verificationCode'] = verifyCode;
   }
 
-  const getValue = (fieldKey: string, defaultValue: any) => {
-    return mappings[fieldKey] || defaultValue;
+  const asKey = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  const asMap = (v: unknown): Record<string, string> => (v && typeof v === 'object' ? (v as Record<string, string>) : {});
+
+  const getValue = (fieldKey: string, defaultValue: string) => {
+    return asKey(mappings[fieldKey as keyof TemplateMappings]) || defaultValue;
   };
 
   // Base fields
@@ -45,8 +88,8 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   result[getValue('tahun', 'tahun')] = jabatan.tahun || "-";
 
   // Hierarchy fields
-  const hierarchyKeys = mappings.hierarchy || {};
-  const hierarchyResult: Record<string, any> = {};
+  const hierarchyKeys = asMap(mappings.hierarchy);
+  const hierarchyResult: Record<string, string> = {};
   hierarchyResult[hierarchyKeys.jptUtama || 'jptUtama'] = jabatan.hierarchy?.jptUtama || "-";
   hierarchyResult[hierarchyKeys.jptMadya || 'jptMadya'] = jabatan.hierarchy?.jptMadya || "-";
   hierarchyResult[hierarchyKeys.jptPratama || 'jptPratama'] = jabatan.hierarchy?.jptPratama || "-";
@@ -54,7 +97,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   hierarchyResult[hierarchyKeys.pengawas || 'pengawas'] = jabatan.hierarchy?.pengawas || "-";
   hierarchyResult[hierarchyKeys.pelaksana || 'pelaksana'] = jabatan.hierarchy?.pelaksana || "-";
   hierarchyResult[hierarchyKeys.jabatanFungsional || 'jabatanFungsional'] = jabatan.hierarchy?.jabatanFungsional || "-";
-  result[mappings.hierarchyName || 'hierarchy'] = hierarchyResult;
+  result[asKey(mappings.hierarchyName) || 'hierarchy'] = hierarchyResult;
 
   // Format helpers for Kualifikasi & Syarat Jabatan arrays
   const BAKAT_MAP: Record<string, string> = {
@@ -95,7 +138,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     '5b': 'Pilihan melakukan kegiatan yang menghasilkan kepuasan nyata'
   };
 
-  const formatArray = (arr: any, formatter?: (val: any) => string) => {
+  const formatArray = (arr: unknown, formatter?: (val: string) => string) => {
     if (!arr) return "-";
     if (typeof arr === 'string') return arr || "-";
     if (!Array.isArray(arr)) return "-";
@@ -108,14 +151,14 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   };
 
   // Kualifikasi lists
-  const qualKeys = mappings.kualifikasi || {};
+  const qualKeys = asMap(mappings.kualifikasi);
   const formattedPendidikan = formatArray(jabatan.kualifikasi?.pendidikanFormal);
   const formattedDiklat = formatArray(jabatan.kualifikasi?.pendidikanPelatihan);
   const formattedPengalaman = formatArray(jabatan.kualifikasi?.pengalamanKerja);
 
-  result[qualKeys.pendidikanFormal || 'kualifikasi_pendidikanFormal'] = formattedPendidikan;
-  result[qualKeys.pendidikanPelatihan || 'kualifikasi_pendidikanPelatihan'] = formattedDiklat;
-  result[qualKeys.pengalamanKerja || 'kualifikasi_pengalamanKerja'] = formattedPengalaman;
+  result[asKey(qualKeys.pendidikanFormal) || 'kualifikasi_pendidikanFormal'] = formattedPendidikan;
+  result[asKey(qualKeys.pendidikanPelatihan) || 'kualifikasi_pendidikanPelatihan'] = formattedDiklat;
+  result[asKey(qualKeys.pengalamanKerja) || 'kualifikasi_pengalamanKerja'] = formattedPengalaman;
 
   // Nested kualifikasi object to support {kualifikasi.pendidikanFormal} directly
   result['kualifikasi'] = {
@@ -143,16 +186,16 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   const formattedUpaya = formatArray(jabatan.syaratJabatan?.upayaFisik);
   const formattedFungsi = formatArray(jabatan.syaratJabatan?.fungsiPekerjaan);
 
-  result[sjKeys.keterampilanKerja || 'syarat_keterampilanKerja'] = formattedKeterampilan;
-  result[sjKeys.bakatKerja || 'syarat_bakatKerja'] = formattedBakat;
-  result[sjKeys.temperamenKerja || 'syarat_temperamenKerja'] = formattedTemperamen;
-  result[sjKeys.minatKerja || 'syarat_minatKerja'] = formattedMinat;
-  result[sjKeys.upayaFisik || 'syarat_upayaFisik'] = formattedUpaya;
-  result[sjKeys.fungsiPekerjaan || 'syarat_fungsiPekerjaan'] = formattedFungsi;
+  result[asKey(sjKeys.keterampilanKerja) || 'syarat_keterampilanKerja'] = formattedKeterampilan;
+  result[asKey(sjKeys.bakatKerja) || 'syarat_bakatKerja'] = formattedBakat;
+  result[asKey(sjKeys.temperamenKerja) || 'syarat_temperamenKerja'] = formattedTemperamen;
+  result[asKey(sjKeys.minatKerja) || 'syarat_minatKerja'] = formattedMinat;
+  result[asKey(sjKeys.upayaFisik) || 'syarat_upayaFisik'] = formattedUpaya;
+  result[asKey(sjKeys.fungsiPekerjaan) || 'syarat_fungsiPekerjaan'] = formattedFungsi;
 
   // Syarat Jabatan -> Kondisi Fisik
-  const physicalKeys = sjKeys.kondisiFisik || {};
-  const physResult: Record<string, any> = {};
+  const physicalKeys = asMap(sjKeys.kondisiFisik);
+  const physResult: Record<string, string> = {};
   const jk = jabatan.syaratJabatan?.kondisiFisik?.jenisKelamin || "-";
   const um = jabatan.syaratJabatan?.kondisiFisik?.umur || "-";
   const tb = jabatan.syaratJabatan?.kondisiFisik?.tinggiBadan || "-";
@@ -160,13 +203,13 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   const pb = jabatan.syaratJabatan?.kondisiFisik?.posturBadan || "-";
   const pn = jabatan.syaratJabatan?.kondisiFisik?.penampilan || "-";
 
-  physResult[physicalKeys.jenisKelamin || 'jenisKelamin'] = jk;
-  physResult[physicalKeys.umur || 'umur'] = um;
-  physResult[physicalKeys.tinggiBadan || 'tinggiBadan'] = tb;
-  physResult[physicalKeys.beratBadan || 'beratBadan'] = bb;
-  physResult[physicalKeys.posturBadan || 'posturBadan'] = pb;
-  physResult[physicalKeys.penampilan || 'penampilan'] = pn;
-  result[sjKeys.kondisiFisikName || 'syarat_kondisiFisik'] = physResult;
+  physResult[asKey(physicalKeys.jenisKelamin) || 'jenisKelamin'] = jk;
+  physResult[asKey(physicalKeys.umur) || 'umur'] = um;
+  physResult[asKey(physicalKeys.tinggiBadan) || 'tinggiBadan'] = tb;
+  physResult[asKey(physicalKeys.beratBadan) || 'beratBadan'] = bb;
+  physResult[asKey(physicalKeys.posturBadan) || 'posturBadan'] = pb;
+  physResult[asKey(physicalKeys.penampilan) || 'penampilan'] = pn;
+  result[asKey(sjKeys.kondisiFisikName) || 'syarat_kondisiFisik'] = physResult;
 
   // Root level flat backups for any older templates or alternative designs
   result['jenisKelamin'] = jk;
@@ -206,7 +249,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 
   // Hasil Kerja (supported both as single-value string and loop array)
   const hasilKerjaVal = jabatan.hasilKerja?.uraian || "-";
-  let hasilKerjaList: any[] = [];
+  let hasilKerjaList: { no: number; uraian: string }[] = [];
   let isJsonArray = false;
   if (hasilKerjaVal && hasilKerjaVal !== "-") {
     try {
@@ -228,7 +271,7 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   }
 
   // Override toString for backward compatibility
-  const hasilKerjaListObj: any = hasilKerjaList;
+  const hasilKerjaListObj = hasilKerjaList as { no: number; uraian: string }[] & { toString?: () => string };
   hasilKerjaListObj.toString = () => {
     if (isJsonArray) {
       try {
@@ -248,15 +291,16 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   };
 
   // Loop Arrays mapping
-  const mapLoopArray = (arrayData: any[], loopMapping: any, defaultKey: string) => {
+  const mapLoopArray = (arrayData: object[] | undefined, loopMapping: Record<string, string> | undefined, defaultKey: string) => {
     const loopKey = loopMapping?.loop || defaultKey;
-    result[loopKey] = arrayData.map((item, idx) => {
-      const row: Record<string, any> = {};
+    result[loopKey] = (arrayData || []).map((item, idx) => {
+      const row: Record<string, unknown> = {};
       row[loopMapping?.no || 'no'] = idx + 1;
-      Object.keys(item).forEach((key) => {
+      Object.keys(item as Record<string, unknown>).forEach((key) => {
         if (key !== 'id' && key !== 'jabatanId' && key !== 'nomorUrut') {
           const targetKey = loopMapping?.[key] || key;
-          row[targetKey] = item[key] !== undefined && item[key] !== null ? item[key] : "-";
+          const val = (item as Record<string, unknown>)[key];
+          row[targetKey] = val !== undefined && val !== null ? val : "-";
         }
       });
       return row;
@@ -275,20 +319,20 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
     wke = WKE_DEFAULT_JAM * 60;
   }
 
-  const tpMapping = mappings.tugasPokok || {};
+  const tpMapping = asMap(mappings.tugasPokok);
   const tugasPokokLoopKey = tpMapping.loop || 'tugasPokok';
   
   let sumWaktuEfektif = 0;
   let sumKebutuhan = 0;
 
   result[tugasPokokLoopKey] = (jabatan.tugasPokok || []).map((tp, idx) => {
-    const row: Record<string, any> = {};
+    const row: Record<string, unknown> = {};
     row[tpMapping.no || 'no'] = idx + 1;
     row[tpMapping.uraianTugas || 'uraianTugas'] = tp.uraianTugas || "-";
     row[tpMapping.hasilKerja || 'hasilKerja'] = tp.hasilKerja || "-";
 
     // Match ABK row by task description (tugas/uraianTugas/task) first, fallback to index
-    let abkRow = abkRows.find((r: any) => {
+    let abkRow = abkRows.find((r) => {
       const taskName = (r?.tugas || r?.uraianTugas || r?.task || "").toString().trim().toLowerCase();
       const tpName = (tp.uraianTugas || "").toString().trim().toLowerCase();
       return taskName && tpName && taskName === tpName;
@@ -341,13 +385,13 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
   // Batas per jenis jabatan (paritas dengan server): struktural = 1, pelaksana/fungsional min 2
   const pembulatan = applyFormasiBatas(calculateFormasiPembulatan(sumKebutuhan), jabatan.jenisJabatan || "");
 
-  result[mappings.totalWaktuEfektif || 'totalWaktuEfektif'] = formattedTotalWaktuEfektif;
-  result[mappings.totalKebutuhanPegawai || 'totalKebutuhanPegawai'] = formattedTotalKebutuhan;
+  result[asKey(mappings.totalWaktuEfektif) || 'totalWaktuEfektif'] = formattedTotalWaktuEfektif;
+  result[asKey(mappings.totalKebutuhanPegawai) || 'totalKebutuhanPegawai'] = formattedTotalKebutuhan;
   result['totalKebutuhan'] = formattedTotalKebutuhan;
-  result[mappings.pembulatanFormasi || 'pembulatanFormasi'] = pembulatan;
+  result[asKey(mappings.pembulatanFormasi) || 'pembulatanFormasi'] = pembulatan;
   result['formasiPembulatan'] = pembulatan;
-  result[mappings.jumlahPegawaiOrang || 'jumlahPegawaiOrang'] = `${pembulatan.toLocaleString('id-ID')} Orang`;
-  result[mappings.wke || 'wke'] = wke;
+  result[asKey(mappings.jumlahPegawaiOrang) || 'jumlahPegawaiOrang'] = `${pembulatan.toLocaleString('id-ID')} Orang`;
+  result[asKey(mappings.wke) || 'wke'] = wke;
   result['waktuSatuan'] = isMenit ? 'Menit' : 'Jam';
 
   mapLoopArray(jabatan.bahanKerja || [], mappings.bahanKerja, 'bahanKerja');
@@ -362,7 +406,12 @@ const transformData = (jabatan: JabatanFull, mappings: Record<string, any> = {},
 };
 
 // Main Export Logic
-export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, opdNamaParam?: string, opdsList?: any[]) => {
+export const exportJabatanToDocx = async (
+  jabatan: JabatanFull,
+  abkData?: ExportAbkData,
+  opdNamaParam?: string,
+  opdsList?: { id: string; nama: string; parentId?: string }[]
+) => {
   try {
     const rawOpd = opdNamaParam || jabatan.hierarchy?.jptPratama || INSTANSI_NAME;
     const opdNama = resolveOpdInduk(rawOpd, opdsList);
@@ -396,12 +445,14 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
     const zip = new PizZip(arrayBuffer);
     const parser = function(tag: string) {
       return {
-        get: function(scope: any) {
+        get: function(scope: unknown) {
           if (tag === '.') {
             return scope;
           }
-          return tag.split('.').reduce(function(accumulator, currentValue) {
-            return accumulator ? accumulator[currentValue] : undefined;
+          return tag.split('.').reduce<unknown>(function(accumulator, currentValue) {
+            return accumulator && typeof accumulator === 'object'
+              ? (accumulator as Record<string, unknown>)[currentValue]
+              : undefined;
           }, scope);
         }
       };
@@ -456,12 +507,13 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
 
     // 8. Save file to client device
     saveAs(outBlob, `Anjab_${jabatan.namaJabatan || 'Jabatan'}.docx`);
-  } catch (err: any) {
+  } catch (err) {
     console.error("Gagal melakukan export Word:", err);
-    let detailMsg = err.message;
-    if (err.properties && Array.isArray(err.properties.errors)) {
-      const details = err.properties.errors
-        .map((e: any) => e.properties?.explanation || e.message || JSON.stringify(e))
+    const errAny = err as { message?: string; properties?: { errors?: { properties?: { explanation?: string }; message?: string }[] } };
+    let detailMsg = errAny.message || String(err);
+    if (errAny.properties && Array.isArray(errAny.properties.errors)) {
+      const details = errAny.properties.errors
+        .map((e) => e.properties?.explanation || e.message || JSON.stringify(e))
         .join("; ");
       detailMsg += ` (${details})`;
     }
@@ -470,7 +522,7 @@ export const exportJabatanToDocx = async (jabatan: JabatanFull, abkData?: any, o
 };
 
 // Bulk Export (Generates a combined document with multiple sections or individual downloads depending on browser performance)
-export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[], abkList?: any[]) => {
+export const exportJabatansToDocx = async (title: string, jabatans: JabatanFull[], abkList?: (ExportAbkData & { id?: string; jabatanId?: string })[]) => {
   for (let i = 0; i < jabatans.length; i++) {
     const jabatan = jabatans[i];
     const abkData = abkList ? abkList.find(a => a.id === jabatan.id || a.jabatanId === jabatan.id) : undefined;

@@ -11,7 +11,8 @@ import {
   extractRisikoBahaya,
   extractSyaratJabatan
 } from './smartExtraction';
-import type { JabatanFull, TugasPokok, BahanKerja, PerangkatKerja, TanggungJawab, Wewenang, KorelasiJabatan, KondisiLingkungan, RisikoBahaya, SyaratJabatan, Kualifikasi } from './types';
+import type { JabatanFull, TugasPokok, BahanKerja, PerangkatKerja, TanggungJawab, Wewenang, KorelasiJabatan, KondisiLingkungan, RisikoBahaya, SyaratJabatan, Kualifikasi, PrestasiKerja } from './types';
+import type { CellValue, SheetRows } from './smartExtraction';
 
 // ==========================================
 // EXCEL TEMPLATE GENERATOR
@@ -20,7 +21,7 @@ export function downloadTemplateXlsx(jabatan: JabatanFull) {
   const wb = XLSX.utils.book_new();
 
   // Create a single sheet with standardized markers
-  const data: any[][] = [];
+  const data: CellValue[][] = [];
 
   const addEmptyRows = (n: number) => {
     for (let i = 0; i < n; i++) data.push([]);
@@ -135,8 +136,25 @@ export function downloadTemplateXlsx(jabatan: JabatanFull) {
 // ==========================================
 // EXCEL PARSER (READ)
 // ==========================================
+/** Hasil parsing template/SIASN -> struktur anjab (id & jabatanId diisi saat simpan). */
+export interface ParsedAnjabData {
+  identitas: Record<string, string>;
+  kualifikasi: { pendidikanFormal: string[]; pendidikanPelatihan: string[]; pengalamanKerja: string[] };
+  syaratJabatan?: Omit<SyaratJabatan, 'id' | 'jabatanId'> | null;
+  prestasiKerja?: Omit<PrestasiKerja, 'id' | 'jabatanId'> | null;
+  hasilKerja?: { uraian: string } | null;
+  tugasPokok: ({ uraianTugas: string; hasilKerja: string; jumlahHasil: number; waktuPenyelesaian: number } & Record<string, unknown>)[];
+  bahanKerja: Record<string, unknown>[];
+  perangkatKerja: Record<string, unknown>[];
+  tanggungJawab: Record<string, unknown>[];
+  wewenang: Record<string, unknown>[];
+  korelasiJabatan: Record<string, unknown>[];
+  kondisiLingkungan: Record<string, unknown>[];
+  risikoBahaya: Record<string, unknown>[];
+}
+
 export interface ParseResult {
-  data: any;
+  data: ParsedAnjabData;
   logs: string[];
 }
 
@@ -161,10 +179,10 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
         // Sianjab format
         const wsName = wb.SheetNames[0];
         const ws = wb.Sheets[wsName];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const rows: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws, { header: 1, defval: '' });
 
-        const result: any = {
-          identitas: {},
+        const result: ParsedAnjabData = {
+          identitas: {} as Record<string, string>,
           kualifikasi: { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] },
           tugasPokok: [],
           bahanKerja: [],
@@ -198,7 +216,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
           switch (currentSection) {
             case '[IDENTITAS JABATAN]':
               if (col0 === 'Ikhtisar Jabatan') {
-                 result.identitas.ikhtisarJabatan = row[1]?.toString().trim();
+                 result.identitas.ikhtisarJabatan = row[1]?.toString().trim() || '';
                  logs.push("✅ Memuat Ikhtisar Jabatan.");
               }
               break;
@@ -216,8 +234,8 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
                 result.tugasPokok.push({
                   uraianTugas: col0,
                   hasilKerja: row[1]?.toString() || '',
-                  jumlahHasil: parseFloat(row[2]) || 0,
-                  waktuPenyelesaian: parseFloat(row[3]) || 0
+                  jumlahHasil: parseFloat(String(row[2])) || 0,
+                  waktuPenyelesaian: parseFloat(String(row[3])) || 0
                 });
               }
               break;
@@ -280,7 +298,7 @@ export async function parseXlsxForAnjab(file: File): Promise<ParseResult> {
         logs.push("🎯 Parsing selesai.");
 
         resolve({ data: result, logs });
-      } catch (err: any) {
+      } catch (err) {
         reject(err);
       }
     };
@@ -331,15 +349,15 @@ export function parsePermenpanFormat(wb: XLSX.WorkBook): ParseResult {
   
   const bestSheet = sheetAnalysis[0];
   const ws = wb.Sheets[bestSheet.name];
-  const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' });
+  const rows = XLSX.utils.sheet_to_json<CellValue[]>(ws, { header: 1, defval: '' });
   
   logs.push(`✅ Menggunakan sheet: ${bestSheet.name} (confidence: ${Math.round(bestSheet.score / 50 * 100)}%)`);
   if (bestSheet.info.is_template) {
     logs.push(`⚠️ Peringatan: Sheet terdeteksi sebagai template/panduan kosong.`);
   }
   
-  const result: any = {
-    identitas: {},
+  const result: ParsedAnjabData = {
+    identitas: {} as Record<string, string>,
     kualifikasi: { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] },
     syaratJabatan: null,
     prestasiKerja: null,
@@ -583,8 +601,8 @@ function getSheetIgnoreCase(wb: XLSX.WorkBook, name: string): XLSX.WorkSheet | u
 
 function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
   const logs: string[] = ["INFO: Menggunakan format SIASN BKN (Multi-Sheet)."];
-  const result: any = {
-    identitas: {},
+  const result: ParsedAnjabData = {
+    identitas: {} as Record<string, string>,
     kualifikasi: { pendidikanFormal: [], pendidikanPelatihan: [], pengalamanKerja: [] },
     syaratJabatan: null,
     prestasiKerja: null,
@@ -608,17 +626,17 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     const ws1 = getSheet('INFOJAB I');
     if (ws1) {
       logs.push("INFO: Memproses sheet 'INFOJAB I'...");
-      const rows1: any[][] = XLSX.utils.sheet_to_json(ws1, { header: 1, defval: '' });
+      const rows1: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws1, { header: 1, defval: '' });
       
       // Dynamic column mapping for Ikhtisar Jabatan
       let ikhtisarColIdx = 1;
       if (rows1[1]) {
-        const foundIdx = rows1[1].findIndex((v: any) => v && v.toString().toLowerCase().includes('ikhtisar jabatan'));
+        const foundIdx = rows1[1].findIndex((v: CellValue) => v && v.toString().toLowerCase().includes('ikhtisar jabatan'));
         if (foundIdx !== -1) ikhtisarColIdx = foundIdx;
       }
       
       if (rows1[3] && rows1[3][ikhtisarColIdx]) {
-        result.identitas.ikhtisarJabatan = rows1[3][ikhtisarColIdx].toString().trim();
+        result.identitas.ikhtisarJabatan = String(rows1[3][ikhtisarColIdx]).trim();
         logs.push("✅ Berhasil memuat Ikhtisar Jabatan.");
       } else {
         logs.push("⚠️ Ikhtisar Jabatan tidak ditemukan di baris data.");
@@ -626,7 +644,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
 
       let expColIdx = 5;
       if (rows1[1]) {
-        const foundIdx = rows1[1].findIndex((v: any) => v && v.toString().toLowerCase().includes('pengalaman kerja'));
+        const foundIdx = rows1[1].findIndex((v: CellValue) => v && v.toString().toLowerCase().includes('pengalaman kerja'));
         if (foundIdx !== -1) expColIdx = foundIdx;
       }
 
@@ -640,9 +658,9 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
       let tjColIdx = 23;
       let wColIdx = 24;
       if (rows1[1]) {
-        const foundTj = rows1[1].findIndex((v: any) => v && v.toString().toLowerCase().includes('tanggung jawab'));
+        const foundTj = rows1[1].findIndex((v: CellValue) => v && v.toString().toLowerCase().includes('tanggung jawab'));
         if (foundTj !== -1) tjColIdx = foundTj;
-        const foundW = rows1[1].findIndex((v: any) => v && v.toString().toLowerCase().includes('wewenang'));
+        const foundW = rows1[1].findIndex((v: CellValue) => v && v.toString().toLowerCase().includes('wewenang'));
         if (foundW !== -1) wColIdx = foundW;
       }
 
@@ -686,7 +704,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
           if (rowData[20]) bendaFungsiList.push(rowData[20].toString());
         }
 
-        const syarat: any = {
+        const syarat: Omit<SyaratJabatan, 'id' | 'jabatanId'> = {
           keterampilanKerja: keterampilanList.join("\n").split(/[,;\n]/).map((s: string) => s.trim()).filter(Boolean),
           bakatKerja: parseBakatKerja(bakatList.join("\n")),
           minatKerja: parseMinatKerja(minatList.join("\n")),
@@ -721,7 +739,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     const ws2 = getSheet('INFOJAB II');
     if (ws2) {
       logs.push("INFO: Memproses sheet 'INFOJAB II'...");
-      const rows2: any[][] = XLSX.utils.sheet_to_json(ws2, { header: 1, defval: '' });
+      const rows2: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws2, { header: 1, defval: '' });
       const hasilKerjaUraianList: string[] = [];
       
       for (let i = 3; i < rows2.length; i++) {
@@ -730,8 +748,8 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
           result.tugasPokok.push({
             uraianTugas: ut,
             hasilKerja: rows2[i][2]?.toString() || '', // C4: Satuan Hasil Kerja
-            jumlahHasil: parseFloat(rows2[i][3]) || 0, // D4: Beban Kerja 1 Tahun
-            waktuPenyelesaian: parseFloat(rows2[i][5]) || 0 // F4
+            jumlahHasil: parseFloat(String(rows2[i][3])) || 0, // D4: Beban Kerja 1 Tahun
+            waktuPenyelesaian: parseFloat(String(rows2[i][5])) || 0 // F4
           });
         }
         
@@ -765,7 +783,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     const ws3 = getSheet('INFOJAB III');
     if (ws3) {
       logs.push("INFO: Memproses sheet 'INFOJAB III'...");
-      const rows3: any[][] = XLSX.utils.sheet_to_json(ws3, { header: 1, defval: '' });
+      const rows3: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws3, { header: 1, defval: '' });
       for (let i = 2; i < rows3.length; i++) {
         const instansi = rows3[i][0]?.toString().trim();
         const hal = rows3[i][1]?.toString().trim();
@@ -784,7 +802,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     const ws4 = getSheet('INFOJAB IV');
     if (ws4) {
       logs.push("INFO: Memproses sheet 'INFOJAB IV'...");
-      const rows4: any[][] = XLSX.utils.sheet_to_json(ws4, { header: 1, defval: '' });
+      const rows4: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws4, { header: 1, defval: '' });
       for (let i = 2; i < rows4.length; i++) {
         const aspek = rows4[i][0]?.toString().trim();
         const faktor = rows4[i][1]?.toString().trim();
@@ -802,7 +820,7 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     const ws5 = getSheet('INFOJAB V');
     if (ws5) {
       logs.push("INFO: Memproses sheet 'INFOJAB V'...");
-      const rows5: any[][] = XLSX.utils.sheet_to_json(ws5, { header: 1, defval: '' });
+      const rows5: SheetRows = XLSX.utils.sheet_to_json<CellValue[]>(ws5, { header: 1, defval: '' });
       for (let i = 2; i < rows5.length; i++) {
         const risiko = rows5[i][0]?.toString().trim();
         const penyebab = rows5[i][1]?.toString().trim();
@@ -814,16 +832,26 @@ function parseSiasnFormat(wb: XLSX.WorkBook): ParseResult {
     }
 
     logs.push("🎯 Parsing format SIASN berhasil diselesaikan!");
-  } catch (err: any) {
-    logs.push(`❌ ERROR: Gagal memproses format SIASN: ${err.message}`);
+  } catch (err) {
+    logs.push(`❌ ERROR: Gagal memproses format SIASN: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return { data: result, logs };
 }
 
-export function exportRekapAbkToXlsx(opdName: string, rows: any[]) {
+/** Baris rekap ABK untuk exportRekapAbkToXlsx. */
+export interface RekapAbkRow {
+  namaJabatan?: string;
+  jenisJabatan?: string;
+  kelasJabatan?: string | number;
+  totalWaktuEfektif?: number;
+  kebutuhanPegawai?: number;
+  pembulatanFormasi?: number;
+}
+
+export function exportRekapAbkToXlsx(opdName: string, rows: RekapAbkRow[]) {
   const wb = XLSX.utils.book_new();
-  const wsData = [
+  const wsData: (string | number)[][] = [
     [`REKAPITULASI ANALISIS BEBAN KERJA (ABK)`],
     [`OPD/Unit Kerja: ${opdName}`],
     [],

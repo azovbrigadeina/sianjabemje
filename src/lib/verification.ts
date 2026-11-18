@@ -5,7 +5,7 @@ export interface VerificationRecord {
   title: string;
   createdAt: string;
   printedBy?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export function createVerificationToken(record: VerificationRecord): string {
@@ -93,7 +93,7 @@ export function generateVerificationCode(
   opdNameParam: string,
   title: string,
   printedByParam?: string,
-  metadata?: Record<string, any>,
+  metadata?: Record<string, unknown>,
   opdsList?: Array<{ id: string; nama: string; parentId?: string }>
 ) {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');

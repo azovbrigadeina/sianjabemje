@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { JabatanFull } from './types';
+import type { ExportAbkData } from './exportDocx';
 
 const BAKAT_MAP: Record<string, string> = {
   'G': 'Intelegensia',
@@ -76,16 +77,16 @@ const getMinatNames = (codes: string[]): string[] => {
   return Array.from(names);
 };
 
-export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
+export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: ExportAbkData) {
   const wb = XLSX.utils.book_new();
 
   // Helper to extract array safely
-  const getArray = (arr: any) => (Array.isArray(arr) ? arr : []);
+  const getArray = (arr: unknown) => (Array.isArray(arr) ? arr : []);
 
   // -------------------------------------------------------------
   // 1. INFOJAB I
   // -------------------------------------------------------------
-  const sheet1Data: any[][] = [
+  const sheet1Data: (string | number | null)[][] = [
     // Row 0
     [
       'DATA JABATAN', '', 'SYARAT JABATAN', '', '', '', '', '', '', '', '', 
@@ -192,7 +193,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
   // -------------------------------------------------------------
   // 2. INFOJAB II
   // -------------------------------------------------------------
-  const sheet2Data: any[][] = [
+  const sheet2Data: (string | number | null)[][] = [
     // Row 0
     ['TUGAS POKOK', '', '', '', '', '', 'BAHAN KERJA', 'PERANGKAT KERJA'],
     // Row 1
@@ -247,7 +248,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
   // -------------------------------------------------------------
   // 3. INFOJAB III
   // -------------------------------------------------------------
-  const sheet3Data: any[][] = [
+  const sheet3Data: (string | number | null)[][] = [
     ['KORELARSI JABATAN', ''], // Keep "KORELARSI JABATAN" or "KORELASI JABATAN" as parsed by the importer
     ['Unit Kerja / Instansi', 'Dalam Hal']
   ];
@@ -273,7 +274,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
   // -------------------------------------------------------------
   // 4. INFOJAB IV
   // -------------------------------------------------------------
-  const sheet4Data: any[][] = [
+  const sheet4Data: (string | number | null)[][] = [
     ['KONDISI LINGKUNGAN KERJA', ''],
     ['Aspek', 'Faktor'],
     ['(lihat tabel referensi)', '']
@@ -293,7 +294,7 @@ export function exportJabatanToSiasn(jabatan: JabatanFull, abkData?: any) {
   // -------------------------------------------------------------
   // 5. INFOJAB V
   // -------------------------------------------------------------
-  const sheet5Data: any[][] = [
+  const sheet5Data: (string | number | null)[][] = [
     ['RESIKO BAHAYA', ''],
     ['Fisik / Mental', 'Penyebab']
   ];
