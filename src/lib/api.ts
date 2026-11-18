@@ -367,7 +367,11 @@ async function executeActualRequest<T = unknown>(
 
   const fetchOpts: RequestInit = {
     method: isWriteOperation ? 'POST' : 'GET',
-    headers: isWriteOperation ? { 'Content-Type': 'text/plain' } : undefined,
+    headers: {
+      ...(isWriteOperation ? { 'Content-Type': 'text/plain' } : {}),
+      // SEC-T8: token dikirim via header — tidak hanya query string.
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+    },
     redirect: 'follow',
     signal: signalToUse,
   };
@@ -574,6 +578,11 @@ async function apiCall<T = unknown>(
 // =============================================
 // EXPORTED API FUNCTIONS
 // =============================================
+
+// SEC-T8: dipakai logout untuk membuang cache memory + IndexedDB (termasuk AI config).
+export async function clearClientCache(): Promise<void> {
+  await invalidateAllCache();
+}
 
 export const api = {
   // -- Unit Kerja --

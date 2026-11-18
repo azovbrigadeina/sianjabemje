@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { api } from "./api";
+import { api, clearClientCache } from "./api";
 
 export interface SessionUser {
   id: string;
@@ -82,6 +82,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // A8 (audit 2026-10-07): cabut token di server SEBELUM cookie dihapus
     // (fire-and-forget; token dibaca dari cookie di dalam api.logout)
     api.logout();
+    // SEC-T8: buang cache memory + IndexedDB (termasuk konfigurasi AI berisi API key).
+    void clearClientCache();
     setUserState(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem("sianjab_last_activity");

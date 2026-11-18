@@ -4,7 +4,7 @@ import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import styles from "./login.module.css";
-import { api } from "@/lib/api";
+import { api, clearClientCache } from "@/lib/api";
 import { useUser, type SessionUser } from "@/lib/UserContext";
 import Footer from "@/components/Footer";
 import { BRANDING } from "@/config/branding";
@@ -46,6 +46,8 @@ export default function Login() {
       }) as { token: string; user: SessionUser };
       // Store token in cookie (24 hours to match backend token TTL)
       document.cookie = `sianjab_token=${result.token}; Max-Age=${60 * 60 * 24}; path=/`;
+      // SEC-T8: buang cache sesi sebelumnya sebelum masuk.
+      await clearClientCache();
       // Store user in context
       setUser(result.user);
 

@@ -2500,6 +2500,9 @@ function createAppServer() {
       // 4. Endpoint Utama Sianjab Action API (/api, /sianjab-api, /exec, atau /?action=...)
       if (pathname === '/api' || pathname === '/sianjab-api' || pathname === '/exec' || params.action) {
         const body = req.method === 'POST' ? await readRequestBody(req) : {};
+        // SEC-T8: token via header Authorization pun didukung.
+        const authHeader = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+        if (authHeader && !params.token && !(body && body.token)) params.token = authHeader;
         const action = params.action || (body && body.action);
         if (!action) {
           return sendJson(req, res, 400, { success: false, error: 'Parameter action wajib diisi' });
