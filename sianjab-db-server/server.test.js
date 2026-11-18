@@ -564,3 +564,26 @@ test('ARC-F3: login memigrasi hash v1 ke v2 dan menolak password salah', async (
   assert.match(String(bad.message), /Username atau password salah/);
   assert.equal(getDbNode('users/u_old').password, stored.password, 'hash tidak boleh berubah saat gagal');
 });
+
+test('SEC-R3/R2: login homeserver tidak membocorkan keberadaan akun', async () => {
+  // Pesan seragam untuk user tidak ada vs password salah
+  const missing = await handleSianjabAction('login', {}, { username: 'tidakada', password: 'xxx' }, '127.0.0.50').catch((e) => e);
+  assert.match(String(missing.message), /Username atau password salah/);
+
+  // Kegagalan untuk user tidak ada tetap tercatat di rate-limiter
+  const limiterKey = 'tidakada:127.0.0.51';
+  for (let i = 0; i < 6; i++) {
+    await handleSianjabAction('login', {}, { username: 'tidakada', password: 'xxx' }, '127.0.0.51').catch(() => {});
+  }
+  const throttled = await handleSianjabAction('login', {}, { username: 'tidakada', password: 'xxx' }, '127.0.0.51').catch((e) => e);
+  assert.match(String(throttled.message), /Terlalu banyak percobaan|Username atau password salah/);
+
+  // Akun nonaktif: password dulu, baru isActive
+  setDbNode('users', Object.assign({}, getDbNode('users'), {
+    u_inact: { id: 'u_inact', username: 'nonaktif', role: 'operator', isActive: false, password: hashPasswordHmac('passnya', 'nonaktif') }
+  }));
+  const bad = await handleSianjabAction('login', {}, { username: 'nonaktif', password: 'salah' }, '127.0.0.52').catch((e) => e);
+  assert.match(String(bad.message), /Username atau password salah/);
+  const good = await handleSianjabAction('login', {}, { username: 'nonaktif', password: 'passnya' }, '127.0.0.52').catch((e) => e);
+  assert.match(String(good.message), /dinonaktifkan/);
+});

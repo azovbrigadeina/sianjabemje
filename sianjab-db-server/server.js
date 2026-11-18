@@ -79,7 +79,8 @@ const CHILD_ENTITIES = [
 
 const SINGLE_CHILD_ENTITIES = ['kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja'];
 // SEC-T5: field yang boleh diubah user saat self-update (non-admin).
-const SELF_UPDATE_ALLOWED_FIELDS = ['nama', 'email', 'password'];const MULTI_CHILD_ENTITIES = [
+const SELF_UPDATE_ALLOWED_FIELDS = ['nama', 'email', 'password'];
+const MULTI_CHILD_ENTITIES = [
   'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
   'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'
 ];
@@ -1385,16 +1386,19 @@ async function handleSianjabAction(action, params, body, clientIp) {
         break;
       }
     }
-    if (!user) throw new Error('Akun tidak ditemukan');
+    if (!user) {
+      // SEC-R2: jangan bocorkan keberadaan akun — samakan pesan dengan password
+      // salah dan tetap catat kegagalan agar enumerasi username ter-throttle.
+      checkLoginRateLimit(username, clientIp);
+      recordLoginFailure(username, clientIp);
+      throw new Error('Username atau password salah');
+    }
 
     // SEC-T7: rate-limit per username + IP socket
     checkLoginRateLimit(username, clientIp);
 
-    if (user.isActive === false) {
-      throw new Error('Akun ini telah dinonaktifkan. Silakan hubungi Administrator.');
-    }
-
-    // SEC-T7: plaintext/sha polos ditolak di verifyPassword (kecuali jalur migrasi legacy).
+    // SEC-R2: verifikasi password dulu (menyamai GAS), baru status akun —
+    // mencegah enumerasi status akun.
     const storedPass = user.password || user.passwordHash || '';
     const check = verifyPassword(password, user.username, storedPass);
     if (!check.valid) {
@@ -1402,6 +1406,10 @@ async function handleSianjabAction(action, params, body, clientIp) {
       throw new Error('Username atau password salah');
     }
     clearLoginFailures(username, clientIp);
+
+    if (user.isActive === false) {
+      throw new Error('Akun ini telah dinonaktifkan. Silakan hubungi Administrator.');
+    }
 
     if (check.needsRehash) {
       const migrated = hashPasswordHmac(password, user.username);

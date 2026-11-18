@@ -49,3 +49,16 @@ test('.gitignore mengizinkan .env.local.example', () => {
   const gi = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   assert.match(gi, /^!\.env\.local\.example$/m);
 });
+
+test('env wajib di .env.example tidak dikomentari', () => {
+  const text = fs.readFileSync(path.join(root, 'sianjab-db-server/.env.example'), 'utf8');
+  const active = new Set(
+    text.split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /^[A-Z0-9_]+\s*=/.test(l))
+      .map((l) => l.split('=')[0].trim())
+  );
+  const required = ['HOMESERVER_SECRET', 'API_SECRET', 'FIREBASE_SECRET', 'SITPP_SECRET', 'PASSWORD_PEPPER'];
+  const commented = required.filter((k) => !active.has(k));
+  assert.deepEqual(commented, []);
+});
