@@ -80,7 +80,7 @@ export default function BebanKerjaPage() {
   const buildTreeNodes = (
     opds: UnitKerja[],
     jabatans: Jabatan[],
-    abks: any[],
+    abks: { id?: string; jabatanId?: string }[],
     statusSummary?: { anjabFilled?: string[]; abkFilled?: string[] } | null
   ) => {
     const abkMap: Record<string, boolean> = {};
@@ -122,7 +122,7 @@ export default function BebanKerjaPage() {
     const opdToExternalParentJbt: Record<string, string> = {};
     const jbtToReroute: Record<string, boolean> = {};
 
-    const jabatanById = new Map<string, any>();
+    const jabatanById = new Map<string, Jabatan>();
     jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
 
     jabatans.forEach(jbt => {
@@ -197,7 +197,7 @@ export default function BebanKerjaPage() {
         const { roots, expandState } = buildTreeNodes(
           cachedBulk.unitKerja as UnitKerja[],
           cachedBulk.jabatan as Jabatan[],
-          (cachedBulk.abk || []) as any[],
+          (cachedBulk.abk || []) as { id?: string; jabatanId?: string }[],
           cachedSummary
         );
         setTreeData(roots);
@@ -218,22 +218,24 @@ export default function BebanKerjaPage() {
       ]);
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatans = (bulkData.jabatan || []) as Jabatan[];
-      const abks = (bulkData.abk || []) as any[];
+      const abks = (bulkData.abk || []) as { id?: string; jabatanId?: string }[];
 
       const { roots, expandState } = buildTreeNodes(opds, jabatans, abks, summary);
       setTreeData(roots);
       setExpandedNodes(prev => Object.keys(prev).length === 0 ? expandState : prev);
     } catch (err) {
-      console.error(err);
+      console.error("Gagal memuat cache pohon beban kerja:", err);
     } finally {
       setIsLoadingTree(false);
     }
   }, []);
 
   useEffect(() => {
-    // Initial load
-    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
-    setActiveYear(savedYear);
+    // Initial load — setState dijalankan di microtask, bukan sinkron di body effect.
+    Promise.resolve().then(() => {
+      const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+      setActiveYear(savedYear);
+    });
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -250,7 +252,7 @@ export default function BebanKerjaPage() {
 
   // Trigger reload when activeYear changes
   useEffect(() => {
-    loadTree();
+    Promise.resolve().then(() => loadTree());
   }, [activeYear, loadTree]);
 
   const expandAll = () => {
@@ -375,7 +377,7 @@ export default function BebanKerjaPage() {
     setAbkRows(newRows);
   };
 
-  const handleUpdateRow = (index: number, field: keyof ABKRow, value: any) => {
+  const handleUpdateRow = (index: number, field: keyof ABKRow, value: string | number) => {
     const newRows = [...abkRows];
     newRows[index] = { ...newRows[index], [field]: value };
     setAbkRows(newRows);
@@ -527,17 +529,14 @@ export default function BebanKerjaPage() {
   const pageSize = 10;
   const totalPages = Math.ceil(displayTree.length / pageSize);
 
+  // Reset halaman saat query berubah — dijalankan di microtask (bukan setState sinkron di effect).
   useEffect(() => {
-    setCurrentPage(1);
+    Promise.resolve().then(() => setCurrentPage(1));
   }, [searchQuery]);
 
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [displayTree, totalPages, currentPage]);
-
-  const paginatedTree = displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // Clamp halaman secara turunan, tanpa menulis state di effect.
+  const safePage = totalPages > 0 ? Math.min(currentPage, totalPages) : 1;
+  const paginatedTree = displayTree.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div className={styles.container}>
@@ -620,7 +619,7 @@ export default function BebanKerjaPage() {
                 <button className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                   onClick={async () => {
                     if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
-                      const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
+                      const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: { uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[] };
                       const tp = fullData?.tugasPokok || [];
                       if (tp.length === 0) {
                         showToast("⚠️ Anjab masih kosong!");
@@ -710,7 +709,7 @@ export default function BebanKerjaPage() {
                       {abkRows.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', opacity: 0.5 }}>
-                            Belum ada data tugas. Klik "+ Tambah Baris" atau isi Anjab terlebih dahulu.
+                            Belum ada data tugas. Klik &quot;+ Tambah Baris&quot; atau isi Anjab terlebih dahulu.
                           </td>
                         </tr>
                       ) : (
