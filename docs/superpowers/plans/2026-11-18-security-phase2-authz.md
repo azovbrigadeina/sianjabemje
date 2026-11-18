@@ -105,3 +105,11 @@ Head branch: `e659c0c`.
 - **ARC-F8 parsial** (commit f60c250): tipe konkret menggantikan `any` di internal `src/lib/api.ts` (opts, catch, batch, restoreFull, dll). Sisa 26 `any` di permukaan API publik yang dikonsumsi lintas halaman — perlu tipedata domain dulu (ARC-F2 wilayah).
 - Test: server 25/25, resilience 1/1, gas 122/122+6/6, unit 23/23, build OK, `tsc --noEmit` 0 error.
 - Catatan: commit `.github/workflows/ci.yml` masih tertahan (PAT tanpa scope `workflow`) — file untracked di worktree.
+
+## Sesi Lanjutan (ARC-F2 + ARC-F8/F9 selesai)
+
+- **ARC-F2 selesai** (commit 8274906): parity test mandiri `gas/tests/parity-gas-homeserver.js` (114 assertion PASS, masuk `npm run test:gas`); konstanta bersama `WKE_FIX_JAM` diekspor `sianjab-db-server/server.js`; fix kategori `struktural` di `src/lib/utils.ts`. Refactor kontrak API tunggal tetap ditunda (butuh perubahan besar dua sisi).
+- **ARC-F8 selesai** (commit 71e6f11 … 8ea0fc8, ba26354, 593e0c1, 66564ec, d1b97b9): `any` di seluruh halaman/komponen diganti tipe konkret (`TemplateMappings`, `ExportAbkData`, `ExportAbkRow`, `ParsedAnjabData`, `SheetInfo`, `SheetAnalysis`, `RekapAbkRow`, `MapAbkRecord`, `BulkItem`, `AbkRecord`, dll). Sisa 26 `any` hanya di `src/lib/api.ts` (permukaan API publik — menunggu tipedata domain).
+- **ARC-F9 selesai** (commit d1b97b9): `react-hooks/set-state-in-effect` 0 error di seluruh `src` — setState dipindah ke microtask (`Promise.resolve().then(...)`) atau callback promise; pagination di-clamp turunan; state diturunkan saat render.
+- Gate akhir: unit 23/23, gas 122/122 + 6/6 + parity 114/114, server 25/25, resilience 1/1, build OK, `tsc --noEmit` 0 error, eslint 0 error.
+- Head branch: `d1b97b9`.
