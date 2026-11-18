@@ -885,8 +885,9 @@ function assertJabatanReadAccess_(currentUser, jabatanId) {
 }
 
 function assertUnitAccess_(currentUser, targetUnitId) {
-  if (!currentUser || currentUser.role === 'admin') return;
-  if (!currentUser.unitKerjaId || !targetUnitId) {
+  // SEC-S1: fail-closed — user belum dikenal → tolak, bukan lolos.
+  if (currentUser && currentUser.role === 'admin') return;
+  if (!currentUser || !currentUser.unitKerjaId || !targetUnitId) {
     throw new Error('Akses ditolak: Anda tidak memiliki akses ke unit kerja ini.');
   }
   var allowed = getAllowedUnitKerjaIds_(currentUser.unitKerjaId);
@@ -896,10 +897,10 @@ function assertUnitAccess_(currentUser, targetUnitId) {
 }
 
 function assertJabatanAccess_(currentUser, jabatanId) {
-  if (!currentUser || currentUser.role === 'admin') {
+  if (currentUser && currentUser.role === 'admin') {
     return; // Admin memiliki hak akses penuh
   }
-  if (!jabatanId) {
+  if (!currentUser || !jabatanId) {
     throw new Error('Akses ditolak: ID Jabatan wajib disertakan.');
   }
   var userUnitId = currentUser.unitKerjaId;

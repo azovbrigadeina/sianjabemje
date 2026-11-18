@@ -765,8 +765,9 @@ function getAllowedUnitKerjaIds(rootUnitId, year = '2026') {
 }
 
 function assertUnitAccess(user, targetUnitId, year = '2026') {
-  if (!user || user.role === 'admin') return;
-  if (!user.unitKerjaId || !targetUnitId) {
+  // SEC-S1: fail-closed — user belum dikenal → tolak.
+  if (user && user.role === 'admin') return;
+  if (!user || !user.unitKerjaId || !targetUnitId) {
     throw new Error('Forbidden: Anda tidak memiliki akses ke unit kerja ini.');
   }
   const allowed = getAllowedUnitKerjaIds(user.unitKerjaId, year);
@@ -776,8 +777,8 @@ function assertUnitAccess(user, targetUnitId, year = '2026') {
 }
 
 function assertJabatanAccess(user, jabatanId, year = '2026') {
-  if (!user || user.role === 'admin') return;
-  if (!jabatanId) throw new Error('Forbidden: ID Jabatan tidak valid.');
+  if (user && user.role === 'admin') return;
+  if (!user || !jabatanId) throw new Error('Forbidden: ID Jabatan tidak valid.');
   const jab = getDbNode(`${year}/jabatan/${jabatanId}`);
   if (!jab) throw new Error('Jabatan tidak ditemukan.');
   assertUnitAccess(user, jab.unitKerjaId, year);
