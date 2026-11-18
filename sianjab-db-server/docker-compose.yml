@@ -9,6 +9,8 @@ services:
     environment:
       - PORT=3098
       - DATA_DIR=/data
+      # SEC-K2: hanya listen di loopback; akses publik lewat Tailscale Funnel.
+      - BIND_HOST=127.0.0.1
       # SEC-K3: secret WAJIB diisi dari file .env (lihat .env.example). Server menolak start tanpa env.
       # Gunakan `env_file: .env` atau isi manual di sini — TANPA nilai default.
       env_file:

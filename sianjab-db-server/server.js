@@ -28,6 +28,8 @@ const { URL } = require('url');
 // KONFIGURASI LINGKUNGAN
 // ============================================================================
 const PORT = parseInt(process.env.PORT || '3098', 10);
+// SEC-K2: default bind 127.0.0.1 — akses publik hanya via Tailscale Funnel.
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'sianjab-db.json');
 const OUTBOX_FILE = path.join(DATA_DIR, 'outbox.json');
@@ -2187,15 +2189,23 @@ function renderMonitorHtml() {
 // ============================================================================
 // HTTP SERVER & ROUTER UTAMA
 // ============================================================================
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// SEC-K2: CORS allowlist — echo Origin hanya bila terdaftar di CORS_ALLOWED_ORIGINS.
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:3000,https://anjabmj.web.app,https://anjabmj-44141.web.app')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+function setCorsHeaders(res, req) {
+  const origin = req && req.headers ? req.headers.origin : null;
+  if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Homeserver-Secret, If-None-Match');
   res.setHeader('Access-Control-Expose-Headers', 'ETag');
 }
 
 function sendJson(req, res, statusCode, obj, enableEtag = false) {
-  setCorsHeaders(res);
+  setCorsHeaders(res, req);
   const jsonStr = JSON.stringify(obj);
   const rawBuf = Buffer.from(jsonStr, 'utf8');
 
@@ -2272,7 +2282,7 @@ function verifyAdminSecret(req, body) {
 
 function createAppServer() {
   return http.createServer(async (req, res) => {
-    setCorsHeaders(res);
+    setCorsHeaders(res, req);
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
       return res.end();
@@ -2312,12 +2322,17 @@ function createAppServer() {
       }
 
       if (pathname === '/_homeserver/monitor-stream') {
-        res.writeHead(200, {
+        const sseHeaders = {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*'
-        });
+          'Connection': 'keep-alive'
+        };
+        const sseOrigin = req.headers.origin;
+        if (sseOrigin && CORS_ALLOWED_ORIGINS.includes(sseOrigin)) {
+          sseHeaders['Access-Control-Allow-Origin'] = sseOrigin;
+          sseHeaders['Vary'] = 'Origin';
+        }
+        res.writeHead(200, sseHeaders);
         res.write(`data: ${JSON.stringify({ event: 'init', summary: getMonitorSummary() })}\n\n`);
         sseClients.add(res);
         req.on('close', () => sseClients.delete(res));
@@ -2368,8 +2383,30 @@ function createAppServer() {
       }
 
       // 3. Firebase RTDB REST-compatible endpoint (/db/<path>.json)
+      // SEC-K2: wajib autentikasi — admin secret ATAU token user valid. Root write ditolak.
       if (pathname.startsWith('/db/') && pathname.endsWith('.json')) {
         const fbPath = pathname.slice(4, -5).replace(/^\/+|\/+$/g, '');
+        const body = req.method === 'GET' ? {} : await readRequestBody(req);
+        const isRoot = fbPath === '';
+        const isAdminSecret = verifyAdminSecret(req, body);
+
+        let authedUser = null;
+        const bearer = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+        const tokenParam = params.token || bearer || (body && body.token) || '';
+        if (tokenParam) {
+          try { authedUser = getAuthenticatedUser(tokenParam); } catch { authedUser = null; }
+        }
+
+        if (!isAdminSecret && !authedUser) {
+          return sendJson(req, res, 401, { error: 'Unauthorized: secret admin atau token valid diperlukan' });
+        }
+        if (req.method !== 'GET' && !isAdminSecret && (!authedUser || authedUser.role !== 'admin')) {
+          return sendJson(req, res, 403, { error: 'Forbidden: penulisan /db hanya untuk admin' });
+        }
+        if (isRoot && req.method !== 'GET') {
+          return sendJson(req, res, 400, { error: 'Bad Request: penulisan node root tidak diizinkan' });
+        }
+
         if (req.method === 'GET') {
           stats.totalReads++;
           const val = getDbNode(fbPath);
@@ -2380,7 +2417,6 @@ function createAppServer() {
         if (serverState.mode === 'OFF') {
           return sendJson(req, res, 503, { error: 'Homeserver sedang dalam mode OFF' });
         }
-        const body = await readRequestBody(req);
         stats.totalWrites++;
         if (req.method === 'PUT') {
           setDbNode(fbPath, body);
@@ -2448,9 +2484,9 @@ loadFromDisk();
 
 if (require.main === module) {
   const server = createAppServer();
-  server.listen(PORT, '0.0.0.0', async () => {
+  server.listen(PORT, BIND_HOST, async () => {
     console.log('============================================================');
-    console.log(`🚀 SIANJAB HOMESERVER DB BERJALAN DI http://0.0.0.0:${PORT}`);
+    console.log(`🚀 SIANJAB HOMESERVER DB BERJALAN DI http://${BIND_HOST}:${PORT}`);
     console.log(`📂 Data Directory : ${DATA_DIR}`);
     console.log(`🔄 Write-Behind   : setiap ${WRITE_BEHIND_INTERVAL_MS / 1000} detik`);
     console.log('============================================================');
@@ -2479,5 +2515,7 @@ module.exports = {
   verifyAdminSecret,
   generateAuthToken,
   validateAuthToken,
-  getAuthenticatedUser
+  getAuthenticatedUser,
+  CORS_ALLOWED_ORIGINS,
+  BIND_HOST
 };

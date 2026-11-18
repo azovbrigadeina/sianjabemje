@@ -26,7 +26,9 @@ const {
   verifyAdminSecret,
   generateAuthToken,
   validateAuthToken,
-  getAuthenticatedUser
+  getAuthenticatedUser,
+  CORS_ALLOWED_ORIGINS,
+  BIND_HOST
 } = require('./server.js');
 
 test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox', async (t) => {
@@ -262,4 +264,59 @@ test('SEC-K1: validateAuthToken wajib verifikasi HMAC (4 bagian)', () => {
 
 test('SEC-K1: getAuthenticatedUser menolak username tanpa record user (bypass admin dihapus)', () => {
   assert.throws(() => getAuthenticatedUser(generateAuthToken('tidak_ada')), (e) => e.statusCode === 401);
+});
+
+test('SEC-K2: server bind ke 127.0.0.1 secara default (bukan 0.0.0.0)', () => {
+  assert.equal(BIND_HOST, '127.0.0.1');
+});
+
+test('SEC-K2: endpoint /db wajib autentikasi, root write ditolak, CORS tanpa wildcard', async () => {
+  setDbNode('users/u_admin', {
+    id: 'u_admin', username: 'admin', nama: 'Administrator', role: 'admin', isActive: true
+  });
+  setDbNode('users/u_op', {
+    id: 'u_op', username: 'operator1', nama: 'Operator', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true
+  });
+  setDbNode('2027/unitKerja/unit_dinkes', { id: 'unit_dinkes', nama: 'Dinas Kesehatan', parentId: '' });
+  rebuildAllIndexes();
+
+  const adminToken = generateAuthToken('admin');
+  const opToken = generateAuthToken('operator1');
+  const server = createAppServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const noAuth = await fetch(`${base}/db/.json`);
+    assert.equal(noAuth.status, 401);
+
+    const opWrite = await fetch(`${base}/db/users/u_op.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: opToken, role: 'admin' })
+    });
+    assert.equal(opWrite.status, 403);
+
+    const rootWrite = await fetch(`${base}/db/.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Homeserver-Secret': 'test-hs-secret' },
+      body: JSON.stringify({})
+    });
+    assert.equal(rootWrite.status, 400);
+
+    const adminRead = await fetch(`${base}/db/2027/unitKerja.json`, {
+      headers: { 'X-Homeserver-Secret': 'test-hs-secret' }
+    });
+    assert.equal(adminRead.status, 200);
+    const data = await adminRead.json();
+    assert.ok(data.unit_dinkes);
+
+    const userRead = await fetch(`${base}/db/2027/unitKerja.json?token=${encodeURIComponent(adminToken)}`);
+    assert.equal(userRead.status, 200);
+
+    const corsRes = await fetch(`${base}/_homeserver/ping`, { headers: { Origin: 'https://evil.example' } });
+    assert.equal(corsRes.headers.get('access-control-allow-origin'), null);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
 });
