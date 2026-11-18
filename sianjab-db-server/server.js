@@ -1501,7 +1501,10 @@ async function handleSianjabAction(action, params, body, clientIp) {
       } else if (entity === 'jabatan' && currentUser.role !== 'admin') {
         assertJabatanAccess(currentUser, id, year);
       } else if (CHILD_ENTITIES.includes(entity) && currentUser.role !== 'admin') {
-        assertJabatanAccess(currentUser, (payloadData || {}).jabatanId, year);
+        // SEC-T9: pakai jabatanId record lama bila payload tidak menyertakannya.
+        const existingChild = getDbNode(`${getEntityFirebasePath(entity, year)}/${id}`);
+        const targetJabatanId = (payloadData || {}).jabatanId || (existingChild && existingChild.jabatanId);
+        assertJabatanAccess(currentUser, targetJabatanId, year);
       }
       return updateRecord(entity, id, payloadData || {}, year);
     }
@@ -1512,6 +1515,10 @@ async function handleSianjabAction(action, params, body, clientIp) {
       }
       if (entity === 'jabatan' && currentUser.role !== 'admin') {
         assertJabatanAccess(currentUser, id, year);
+      } else if (CHILD_ENTITIES.includes(entity) && currentUser.role !== 'admin') {
+        // SEC-T9: otorisasi baris anak saat delete.
+        const existingChild = getDbNode(`${getEntityFirebasePath(entity, year)}/${id}`);
+        assertJabatanAccess(currentUser, existingChild && existingChild.jabatanId, year);
       }
       return deleteRecord(entity, id, year);
     }

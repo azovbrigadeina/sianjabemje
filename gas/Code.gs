@@ -964,6 +964,17 @@ function assertWritePermission_(currentUser, entity, id, data) {
         throw new Error('Akses ditolak: Jabatan ini milik OPD lain.');
       }
     }
+  } else {
+    // SEC-T9: baris anak (tugasPokok, abk, dst.) — cek jabatanId record lama
+    // bila payload tidak menyertakannya.
+    var childJabatanId = (data && data.jabatanId) || null;
+    if (!childJabatanId && id) {
+      var existingChild = fbGet_(getFirebasePath_(entity, id));
+      childJabatanId = existingChild ? existingChild.jabatanId : null;
+    }
+    if (childJabatanId) {
+      assertJabatanAccess_(currentUser, childJabatanId);
+    }
   }
 }
 

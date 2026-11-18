@@ -351,6 +351,23 @@ test('SEC-T6: operator tidak bisa membaca data OPD lain (IDOR)', async () => {
   assert.ok(all);
 });
 
+test('SEC-T9: operator tidak bisa update/delete baris anak milik OPD lain', async () => {
+  const opDinkes = generateAuthToken('operator3'); // dari test sebelumnya, masih ada di DB
+  // tp_bap: tugasPokok milik jab_3 (Bappeda) — dibuat di test SEC-T6
+  let err = null;
+  try {
+    await handleSianjabAction('update', { token: opDinkes, entity: 'tugasPokok', id: 'tp_bap', tahun: '2027' }, { data: { uraianTugas: 'Dirubah lintas OPD' } }, '127.0.0.1');
+  } catch (e) { err = e; }
+  assert.ok(err, 'update antar-OPD harus ditolak');
+
+  err = null;
+  try {
+    await handleSianjabAction('delete', { token: opDinkes, entity: 'tugasPokok', id: 'tp_bap', tahun: '2027' }, {}, '127.0.0.1');
+  } catch (e) { err = e; }
+  assert.ok(err, 'delete antar-OPD harus ditolak');
+  assert.ok(getDbNode('2027/tugasPokok/tp_bap'), 'record tetap utuh');
+});
+
 test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
   setDbNode('users/u_op2', {
     id: 'u_op2', username: 'operator2', nama: 'Operator Dua', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true
