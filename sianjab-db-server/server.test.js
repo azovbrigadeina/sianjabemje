@@ -368,6 +368,16 @@ test('SEC-T9: operator tidak bisa update/delete baris anak milik OPD lain', asyn
   assert.ok(getDbNode('2027/tugasPokok/tp_bap'), 'record tetap utuh');
 });
 
+test('SEC-T10: create unitKerja dengan kode duplikat ditolak', async () => {
+  const adminTok = generateAuthToken('admin');
+  let err = null;
+  try {
+    await handleSianjabAction('create', { token: adminTok, entity: 'unitKerja', tahun: '2027' }, { entity: 'unitKerja', data: { kode: 'unit_dinkes', nama: 'OPD Palsu' } }, '127.0.0.1');
+  } catch (e) { err = e; }
+  assert.ok(err, 'kode duplikat harus ditolak');
+  assert.equal(getDbNode('2027/unitKerja/unit_dinkes').nama, 'Dinas Kesehatan', 'record lama tidak tertimpa');
+});
+
 test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
   setDbNode('users/u_op2', {
     id: 'u_op2', username: 'operator2', nama: 'Operator Dua', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true

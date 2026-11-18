@@ -984,6 +984,10 @@ function createRecord_(entity, data) {
   
   if (entity === 'unitKerja' && data.kode && data.kode.toString().trim() !== "") {
     var id = data.kode.toString().trim().replace(/[^a-zA-Z0-9_]/g, '_');
+    // SEC-T10: kode unit kerja harus unik — jangan menimpa OPD lain.
+    if (fbGet_(getFirebasePath_(entity, id))) {
+      throw new Error('Kode unit kerja sudah dipakai. Gunakan kode lain.');
+    }
     fbPut_(getFirebasePath_(entity, id), data);
     invalidateCache_(entity);
     return { id: id, data: data };

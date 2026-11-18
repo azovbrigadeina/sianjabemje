@@ -875,6 +875,11 @@ function createRecord(entity, payload, year = '2026') {
   let id = data.id;
   if (entity === 'unitKerja' && data.kode && String(data.kode).trim() !== '') {
     id = String(data.kode).trim().replace(/[^a-zA-Z0-9_]/g, '_');
+    // SEC-T10: kode unit kerja harus unik — jangan menimpa OPD lain.
+    const fbPathCheck = getEntityFirebasePath(entity, year);
+    if (getDbNode(`${fbPathCheck}/${id}`)) {
+      throw new Error('Kode unit kerja sudah dipakai. Gunakan kode lain.');
+    }
   }
   if (!id) id = crypto.randomUUID();
   const record = { ...data, id };
