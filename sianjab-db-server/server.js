@@ -708,17 +708,52 @@ if (BACKUP_INTERVAL_MS > 0) {
 // ============================================================================
 // AUTENTIKASI, TOKEN HMAC, & RBAC OPERATOR
 // ============================================================================
-function hashPasswordOld(password) {
+// ARC-F3: pepper hash password dipisah dari API_SECRET agar rotasi API_SECRET
+// tidak mengunci akun. Wajib terisi (fail-closed, setara SEC-K3).
+const PASSWORD_PEPPER = requireEnv('PASSWORD_PEPPER');
+
+function hashPasswordLegacy(password) {
   return crypto.createHash('sha256').update(String(password || ''), 'utf8').digest('hex');
 }
 
-function hashPasswordHmac(password, username) {
+function hashPasswordV1(password, username) {
   const salt = `${username || ''}:${API_SECRET}`;
   return crypto.createHmac('sha256', salt).update(String(password || ''), 'utf8').digest('hex');
 }
 
-function hashPasswordSha256(password, salt) {
-  return crypto.createHash('sha256').update(String(salt || '') + String(password || ''), 'utf8').digest('hex');
+function hashPasswordWithSalt(password, username, salt) {
+  const key = `${salt}:${username || ''}:${PASSWORD_PEPPER}`;
+  const hex = crypto.createHmac('sha256', key).update(String(password || ''), 'utf8').digest('hex');
+  return `v2$${salt}$${hex}`;
+}
+
+function hashPasswordHmac(password, username) {
+  return hashPasswordWithSalt(password, username, crypto.randomBytes(16).toString('hex'));
+}
+
+function safeEqualHex(a, b) {
+  const ba = Buffer.from(String(a), 'utf8');
+  const bb = Buffer.from(String(b), 'utf8');
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+function verifyPassword(password, username, stored) {
+  const value = String(stored || '');
+  if (!value) return { valid: false, needsRehash: false };
+  if (value.startsWith('v2$')) {
+    const parts = value.split('$');
+    if (parts.length !== 3) return { valid: false, needsRehash: false };
+    const expected = hashPasswordWithSalt(password, username, parts[1]);
+    return { valid: safeEqualHex(expected, value), needsRehash: false };
+  }
+  if (safeEqualHex(hashPasswordV1(password, username), value)) {
+    return { valid: true, needsRehash: true };
+  }
+  if (safeEqualHex(hashPasswordLegacy(password), value)) {
+    return { valid: true, needsRehash: true };
+  }
+  return { valid: false, needsRehash: false };
 }
 
 function generateAuthToken(username) {
@@ -1359,14 +1394,23 @@ async function handleSianjabAction(action, params, body, clientIp) {
       throw new Error('Akun ini telah dinonaktifkan. Silakan hubungi Administrator.');
     }
 
-    // SEC-T7: hanya hash HMAC yang diterima — plaintext/sha lama ditolak keras.
+    // SEC-T7: plaintext/sha polos ditolak di verifyPassword (kecuali jalur migrasi legacy).
     const storedPass = user.password || user.passwordHash || '';
-    const saltedHmac = hashPasswordHmac(password, user.username);
-    if (storedPass !== saltedHmac) {
+    const check = verifyPassword(password, user.username, storedPass);
+    if (!check.valid) {
       recordLoginFailure(username, clientIp);
       throw new Error('Username atau password salah');
     }
     clearLoginFailures(username, clientIp);
+
+    if (check.needsRehash) {
+      const migrated = hashPasswordHmac(password, user.username);
+      const nextUser = { ...user, password: migrated, updatedAt: new Date().toISOString() };
+      delete nextUser.passwordHash;
+      setDbNode(`users/${foundUserId}`, nextUser);
+      markDirtyPath(`users/${foundUserId}`);
+      scheduleSaveDb();
+    }
 
     const token = generateAuthToken(user.username);
     const safeUser = {
@@ -2736,6 +2780,10 @@ module.exports = {
   SELF_UPDATE_ALLOWED_FIELDS,
   loginFailures,
   hashPasswordHmac,
+  hashPasswordWithSalt,
+  hashPasswordV1,
+  hashPasswordLegacy,
+  verifyPassword,
   pullAllFromRtdb,
   flushOutboxToRtdb,
   httpStatusForError,

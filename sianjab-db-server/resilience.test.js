@@ -9,6 +9,7 @@ process.env.HOMESERVER_SECRET = 'test-hs-secret';
 process.env.API_SECRET = 'test-api-secret';
 process.env.FIREBASE_SECRET = 'test-fb-secret';
 process.env.SITPP_SECRET = 'test-sitpp-secret';
+process.env.PASSWORD_PEPPER = 'test-password-pepper';
 
 const { shouldPullOnStart } = require('./server.js');
 

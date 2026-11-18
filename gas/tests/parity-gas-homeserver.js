@@ -76,6 +76,7 @@ process.env.HOMESERVER_SECRET = 'parity-hs-secret';
 process.env.API_SECRET = 'parity-api-secret';
 process.env.FIREBASE_SECRET = 'parity-fb-secret';
 process.env.SITPP_SECRET = 'parity-sitpp-secret';
+process.env.PASSWORD_PEPPER = 'parity-password-pepper';
 
 const server = require('../../sianjab-db-server/server.js');
 

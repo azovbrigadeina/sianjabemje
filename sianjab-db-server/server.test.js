@@ -13,6 +13,7 @@ process.env.HOMESERVER_SECRET = 'test-hs-secret';
 process.env.API_SECRET = 'test-api-secret';
 process.env.FIREBASE_SECRET = 'test-fb-secret';
 process.env.SITPP_SECRET = 'test-sitpp-secret';
+process.env.PASSWORD_PEPPER = 'test-password-pepper';
 
 const {
   createAppServer,
@@ -30,7 +31,11 @@ const {
   CORS_ALLOWED_ORIGINS,
   BIND_HOST,
   SELF_UPDATE_ALLOWED_FIELDS,
-  hashPasswordHmac
+  hashPasswordHmac,
+  hashPasswordWithSalt,
+  hashPasswordV1,
+  hashPasswordLegacy,
+  verifyPassword
 } = require('./server.js');
 
 test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox', async (t) => {
@@ -516,4 +521,46 @@ test('SEC-K2: endpoint /db wajib autentikasi, root write ditolak, CORS tanpa wil
   } finally {
     await new Promise((r) => server.close(r));
   }
+});
+
+test('ARC-F3: hash password v2 bersalt acak dan verifikasi berurutan', () => {
+  const a = hashPasswordHmac('rahasia', 'budi');
+  const b = hashPasswordHmac('rahasia', 'budi');
+  assert.match(a, /^v2\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+  assert.notEqual(a, b, 'salt acak harus membuat hash berbeda');
+
+  assert.deepEqual(verifyPassword('rahasia', 'budi', a), { valid: true, needsRehash: false });
+  assert.deepEqual(verifyPassword('salah', 'budi', a), { valid: false, needsRehash: false });
+
+  const v1 = hashPasswordV1('rahasia', 'budi');
+  assert.deepEqual(verifyPassword('rahasia', 'budi', v1), { valid: true, needsRehash: true });
+
+  const legacy = hashPasswordLegacy('rahasia');
+  assert.deepEqual(verifyPassword('rahasia', 'budi', legacy), { valid: true, needsRehash: true });
+
+  assert.deepEqual(verifyPassword('rahasia', 'budi', 'plaintext'), { valid: false, needsRehash: false });
+  assert.deepEqual(verifyPassword('rahasia', 'budi', ''), { valid: false, needsRehash: false });
+});
+
+test('ARC-F3: login memigrasi hash v1 ke v2 dan menolak password salah', async () => {
+  setDbNode('users', {
+    u_old: {
+      id: 'u_old',
+      username: 'userlama',
+      role: 'admin',
+      isActive: true,
+      passwordHash: hashPasswordV1('passlama', 'userlama')
+    }
+  });
+
+  const ok = await handleSianjabAction('login', {}, { username: 'userlama', password: 'passlama' }, '127.0.0.1');
+  assert.equal(ok.username, 'userlama');
+
+  const stored = getDbNode('users/u_old');
+  assert.match(stored.password, /^v2\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+  assert.equal(stored.passwordHash, undefined, 'passwordHash lama harus dihapus');
+
+  const bad = await handleSianjabAction('login', {}, { username: 'userlama', password: 'salah' }, '127.0.0.2').catch((e) => e);
+  assert.match(String(bad.message), /Username atau password salah/);
+  assert.equal(getDbNode('users/u_old').password, stored.password, 'hash tidak boleh berubah saat gagal');
 });
