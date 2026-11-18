@@ -506,10 +506,17 @@ function handleRequest_(e) {
         assertSensitiveReadPermission_(currentUser, entity);
         result = readRecord_(entity, id, currentUser);
         break;
-      case 'readAll':
+      case 'readAll': {
         assertSensitiveReadPermission_(currentUser, entity);
+        // SEC-T6: scoping baca — operator tidak boleh membaca baris OPD lain.
+        if (currentUser && currentUser.role !== 'admin') {
+          if (parentId) {
+            assertJabatanAccess_(currentUser, parentId);
+          }
+        }
         result = readAllRecords_(entity, parentId, currentUser);
         break;
+      }
       case 'update':
         assertWritePermission_(currentUser, entity, id, data);
         result = updateRecord_(entity, id, data);
@@ -527,6 +534,8 @@ function handleRequest_(e) {
         result = getJabatanFull_(id);
         break;
       case 'getJabatanByUnit':
+        // SEC-T6: operator hanya boleh membaca jabatan pada OPD-nya.
+        if (!currentUser || currentUser.role !== 'admin') assertUnitAccess_(currentUser, unitId);
         result = getJabatanByUnit_(unitId);
         break;
       case 'getDashboardStats':
@@ -678,9 +687,16 @@ function handleRequest_(e) {
         result = getAnjabStatusSummary_();
         break;
 
-      case 'getBulkAnjabByUnit':
-        result = getBulkAnjabByUnit_(params.unitKerjaId || (data ? data.unitKerjaId : ''));
+      case 'getBulkAnjabByUnit': {
+        // SEC-T6: operator wajib menyertakan unitId dan hanya OPD-nya sendiri.
+        var bulkUnitId = params.unitKerjaId || (data ? data.unitKerjaId : '');
+        if (!currentUser || currentUser.role !== 'admin') {
+          if (!bulkUnitId) throw new Error('Akses ditolak: unitKerjaId wajib disertakan.');
+          assertUnitAccess_(currentUser, bulkUnitId);
+        }
+        result = getBulkAnjabByUnit_(bulkUnitId);
         break;
+      }
 
       case 'exportFullDatabase':
         result = exportFullDatabase_();
@@ -866,6 +882,17 @@ function assertSensitiveReadPermission_(currentUser, entity) {
 // versi baca — dipakai untuk getJabatanFull/getHierarchy/getABK.
 function assertJabatanReadAccess_(currentUser, jabatanId) {
   assertJabatanAccess_(currentUser, jabatanId);
+}
+
+function assertUnitAccess_(currentUser, targetUnitId) {
+  if (!currentUser || currentUser.role === 'admin') return;
+  if (!currentUser.unitKerjaId || !targetUnitId) {
+    throw new Error('Akses ditolak: Anda tidak memiliki akses ke unit kerja ini.');
+  }
+  var allowed = getAllowedUnitKerjaIds_(currentUser.unitKerjaId);
+  if (!allowed[targetUnitId]) {
+    throw new Error('Akses ditolak: Anda hanya dapat mengakses data pada OPD Anda sendiri.');
+  }
 }
 
 function assertJabatanAccess_(currentUser, jabatanId) {

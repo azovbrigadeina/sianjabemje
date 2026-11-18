@@ -308,6 +308,49 @@ test('SEC-T7: login menolak plaintext, menerima hanya HMAC, rate-limit aktif', a
   assert.ok(blocked, 'login ke-6 harus diblokir rate-limit');
 });
 
+test('SEC-T6: operator tidak bisa membaca data OPD lain (IDOR)', async () => {
+  setDbNode('users/u_op3', {
+    id: 'u_op3', username: 'operator3', nama: 'Operator Tiga', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true
+  });
+  // jabatan milik OPD lain (Bappeda)
+  setDbNode('users/u_opb', {
+    id: 'u_opb', username: 'operator_bappeda', nama: 'Operator Bappeda', role: 'operator', unitKerjaId: 'unit_bappeda', isActive: true
+  });
+  rebuildAllIndexes();
+  const opDinkes = generateAuthToken('operator3');
+  const opBappeda = generateAuthToken('operator_bappeda');
+
+  // record milik OPD lain: tugasPokok di jab_3 (Bappeda)
+  setDbNode('2027/tugasPokok/tp_bap', { id: 'tp_bap', jabatanId: 'jab_3', uraianTugas: 'Rahasia Bappeda', urutan: 1 });
+  rebuildAllIndexes();
+
+  // (1) readAll dengan parentId jabatan OPD lain →_jwt error
+  let err = null;
+  try { await handleSianjabAction('readAll', { token: opDinkes, entity: 'tugasPokok', parentId: 'jab_3', tahun: '2027' }, {}, '127.0.0.1'); } catch (e) { err = e; }
+  assert.ok(err, 'readAll antar-OPD harus ditolak');
+
+  // (2) getBulkAnjabByUnit tanpa unitKerjaId → ditolak (bukan data kosong diam-diam)
+  err = null;
+  try { await handleSianjabAction('getBulkAnjabByUnit', { token: opDinkes, tahun: '2027' }, {}, '127.0.0.1'); } catch (e) { err = e; }
+  assert.ok(err, 'getBulkAnjabByUnit tanpa unitId harus ditolak untuk operator');
+
+  // (3) getBulkAnjabByUnit milik OPD lain → ditolak
+  err = null;
+  try { await handleSianjabAction('getBulkAnjabByUnit', { token: opDinkes, unitKerjaId: 'unit_bappeda', tahun: '2027' }, {}, '127.0.0.1'); } catch (e) { err = e; }
+  assert.ok(err, 'getBulkAnjabByUnit antar-OPD harus ditolak');
+
+  // (4) data OPD sendiri tetap bisa
+  setDbNode('2027/tugasPokok/tp_dinkes', { id: 'tp_dinkes', jabatanId: 'jab_1', uraianTugas: 'Tugas Dinkes', urutan: 1 });
+  rebuildAllIndexes();
+  const own = await handleSianjabAction('readAll', { token: opDinkes, entity: 'tugasPokok', parentId: 'jab_1', tahun: '2027' }, {}, '127.0.0.1');
+  assert.ok(Array.isArray(own) && own.some((r) => r.id === 'tp_dinkes'));
+
+  // (5) admin tetap bebas
+  const adminTok = generateAuthToken('admin');
+  const all = await handleSianjabAction('getBulkAnjabByUnit', { token: adminTok, unitKerjaId: 'unit_bappeda', tahun: '2027' }, {}, '127.0.0.1');
+  assert.ok(all);
+});
+
 test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
   setDbNode('users/u_op2', {
     id: 'u_op2', username: 'operator2', nama: 'Operator Dua', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true

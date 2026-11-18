@@ -1462,6 +1462,14 @@ async function handleSianjabAction(action, params, body, clientIp) {
       if (['users', 'security_logs', 'verification_logs'].includes(entity) && currentUser.role !== 'admin') {
         throw new Error('Akses ditolak: Data ' + entity + ' hanya dapat dilihat oleh Administrator.');
       }
+      // SEC-T6: scoping baca — operator tidak boleh membaca baris OPD lain.
+      if (currentUser.role !== 'admin') {
+        if (CHILD_ENTITIES.includes(entity) && parentId) {
+          assertJabatanAccess(currentUser, parentId, year);
+        } else if (entity === 'jabatan' && parentId) {
+          assertUnitAccess(currentUser, parentId, year);
+        }
+      }
       const filterId = parentId || params.filterValue || '';
       const list = readAllRecords(entity, filterId, year);
       if (entity === 'users') {
@@ -1513,6 +1521,8 @@ async function handleSianjabAction(action, params, body, clientIp) {
       return getJabatanFull(id, year);
 
     case 'getJabatanByUnit':
+      // SEC-T6: operator hanya boleh membaca jabatan pada OPD-nya.
+      if (currentUser.role !== 'admin') assertUnitAccess(currentUser, unitId, year);
       return readAllRecords('jabatan', unitId, year);
 
     case 'getUnitKerja':
@@ -1528,6 +1538,11 @@ async function handleSianjabAction(action, params, body, clientIp) {
       return getAnjabStatusSummary(year);
 
     case 'getBulkAnjabByUnit':
+      // SEC-T6: operator wajib menyertakan unitId dan hanya OPD-nya sendiri.
+      if (currentUser.role !== 'admin') {
+        if (!unitId) throw new Error('Akses ditolak: unitKerjaId wajib disertakan.');
+        assertUnitAccess(currentUser, unitId, year);
+      }
       return getBulkAnjabByUnit(unitId, year);
 
     case 'saveSingleEntity': {
