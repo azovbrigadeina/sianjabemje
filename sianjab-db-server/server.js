@@ -1209,6 +1209,46 @@ function applyFormasiBatasServer(pembulatan, jenisJabatan) {
 // ============================================================================
 // HANDLER SELURUH ACTION SIANJAB API (100% KOMPATIBEL DENGAN gas/Code.gs)
 // ============================================================================
+// SEC-T7: rate-limit login in-memory — maks 5 gagal / 15 menit per username+IP socket.
+const LOGIN_MAX_FAILS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginFailures = new Map();
+
+function loginRateKey(username, clientIp) {
+  const u = crypto.createHash('sha256').update(String(username || '').toLowerCase(), 'utf8').digest('hex');
+  return `${u}|${clientIp || 'unknown'}`;
+}
+
+function checkLoginRateLimit(username, clientIp) {
+  const key = loginRateKey(username, clientIp);
+  const rec = loginFailures.get(key);
+  if (!rec) return;
+  if (Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
+    loginFailures.delete(key);
+    return;
+  }
+  if (rec.count >= LOGIN_MAX_FAILS) {
+    const err = new Error('Terlalu banyak percobaan login gagal. Coba lagi dalam 15 menit.');
+    err.statusCode = 429;
+    throw err;
+  }
+}
+
+function recordLoginFailure(username, clientIp) {
+  const key = loginRateKey(username, clientIp);
+  const now = Date.now();
+  const rec = loginFailures.get(key);
+  if (!rec || now - rec.firstAt > LOGIN_WINDOW_MS) {
+    loginFailures.set(key, { count: 1, firstAt: now });
+  } else {
+    rec.count++;
+  }
+}
+
+function clearLoginFailures(username, clientIp) {
+  loginFailures.delete(loginRateKey(username, clientIp));
+}
+
 async function handleSianjabAction(action, params, body, clientIp) {
   const year = String(params.tahun || params.year || (body && (body.tahun || body.year)) || '2026').trim();
   const entity = params.entity || (body && body.entity) || '';
@@ -1239,24 +1279,22 @@ async function handleSianjabAction(action, params, body, clientIp) {
       }
     }
     if (!user) throw new Error('Akun tidak ditemukan');
+
+    // SEC-T7: rate-limit per username + IP socket
+    checkLoginRateLimit(username, clientIp);
+
     if (user.isActive === false) {
       throw new Error('Akun ini telah dinonaktifkan. Silakan hubungi Administrator.');
     }
 
+    // SEC-T7: hanya hash HMAC yang diterima — plaintext/sha lama ditolak keras.
     const storedPass = user.password || user.passwordHash || '';
     const saltedHmac = hashPasswordHmac(password, user.username);
-    const legacySha = hashPasswordOld(password);
-    const customSaltSha = hashPasswordSha256(password, user.salt || '');
-
-    const isValid =
-      storedPass === saltedHmac ||
-      storedPass === legacySha ||
-      storedPass === customSaltSha ||
-      storedPass === password;
-
-    if (!isValid) {
-      throw new Error('Password salah');
+    if (storedPass !== saltedHmac) {
+      recordLoginFailure(username, clientIp);
+      throw new Error('Username atau password salah');
     }
+    clearLoginFailures(username, clientIp);
 
     const token = generateAuthToken(user.username);
     const safeUser = {
@@ -2479,7 +2517,7 @@ function createAppServer() {
 
       return sendJson(req, res, 404, { success: false, error: 'Endpoint tidak ditemukan: ' + pathname });
     } catch (err) {
-      return sendJson(req, res, 200, { success: false, error: err.message || String(err) });
+      return sendJson(req, res, err.statusCode || 200, { success: false, error: err.message || String(err) });
     }
   });
 }
@@ -2562,5 +2600,7 @@ module.exports = {
   CORS_ALLOWED_ORIGINS,
   BIND_HOST,
   shouldPullOnStart,
-  SELF_UPDATE_ALLOWED_FIELDS
+  SELF_UPDATE_ALLOWED_FIELDS,
+  loginFailures,
+  hashPasswordHmac
 };

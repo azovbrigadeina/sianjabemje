@@ -14,7 +14,6 @@ export default function Login() {
   const { setUser } = useUser();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [clientIp, setClientIp] = useState("unknown");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [expiredNotice, setExpiredNotice] = useState(false);
@@ -27,22 +26,7 @@ export default function Login() {
       }
     }
 
-    // Pre-fetch client IP in background on mount
-    const fetchIp = async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000); // 1s timeout
-        const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
-        const json = await res.json();
-        clearTimeout(timeoutId);
-        if (json && json.ip) {
-          setClientIp(json.ip);
-        }
-      } catch (err) {
-        // Silent catch, fallback remains "unknown"
-      }
-    };
-    fetchIp();
+    // SEC-T7: pengiriman IP klien dihapus — backend yang menentukan rate-limit.
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -58,7 +42,6 @@ export default function Login() {
       const result = await api.login({ 
         username, 
         password,
-        ip: clientIp,
         userAgent: userAgentStr
       }) as { token: string; user: SessionUser };
       // Store token in cookie (24 hours to match backend token TTL)

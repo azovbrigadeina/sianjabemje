@@ -1971,12 +1971,14 @@ function writeSecurityLog_(username, status, reason, ip, userAgent) {
 }
 
 function loginUser_(data) {
+  // SEC-T7: GAS tidak punya socket — IP dari klien TIDAK dipercaya untuk rate-limit.
+  // Kunci rate-limit = username saja; IP hanya dicatat untuk log.
   var ip = data ? (data.ip || 'unknown') : 'unknown';
   var userAgent = data ? (data.userAgent || 'unknown') : 'unknown';
   var attemptedUser = (data && data.username) ? String(data.username).trim() : 'unknown';
 
-  // C6: Rate-limiting login (maks 5 kali gagal / 15 menit per ip + username)
-  var attemptKey = 'login_fail_' + ip.replace(/[^a-zA-Z0-9_.-]/g, '_') + '_' + attemptedUser;
+  // C6: Rate-limiting login (maks 5 kali gagal / 15 menit per username)
+  var attemptKey = 'login_fail_' + attemptedUser.replace(/[^a-zA-Z0-9_.-]/g, '_');
   var attemptCountStr = scriptCache_.get(attemptKey);
   var attemptCount = attemptCountStr ? parseInt(attemptCountStr, 10) : 0;
   if (attemptCount >= 5) {

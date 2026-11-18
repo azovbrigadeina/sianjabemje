@@ -29,7 +29,8 @@ const {
   getAuthenticatedUser,
   CORS_ALLOWED_ORIGINS,
   BIND_HOST,
-  SELF_UPDATE_ALLOWED_FIELDS
+  SELF_UPDATE_ALLOWED_FIELDS,
+  hashPasswordHmac
 } = require('./server.js');
 
 test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox', async (t) => {
@@ -42,7 +43,7 @@ test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox',
         nama: 'Administrator',
         role: 'admin',
         salt: 's1',
-        passwordHash: 'secret123'
+        passwordHash: hashPasswordHmac('secret123', 'admin')
       },
       u_op1: {
         id: 'u_op1',
@@ -51,7 +52,7 @@ test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox',
         role: 'operator',
         unitKerjaId: 'unit_dinkes',
         salt: 's2',
-        passwordHash: 'oppass'
+        passwordHash: hashPasswordHmac('oppass', 'op_dinkes')
       }
     },
     settings: {
@@ -269,6 +270,42 @@ test('SEC-K1: getAuthenticatedUser menolak username tanpa record user (bypass ad
 
 test('SEC-K2: server bind ke 127.0.0.1 secara default (bukan 0.0.0.0)', () => {
   assert.equal(BIND_HOST, '127.0.0.1');
+});
+
+test('SEC-T7: login menolak plaintext, menerima hanya HMAC, rate-limit aktif', async () => {
+  // Re-seed DB login khusus test ini
+  setDbNode('users/u_plain', {
+    id: 'u_plain', username: 'plainuser', nama: 'Plain', role: 'operator', isActive: true,
+    password: 'plain123' // hash palsu — harus DITOLAK walau plaintext cocok
+  });
+  setDbNode('users/u_hmac', {
+    id: 'u_hmac', username: 'hmacuser', nama: 'Hmac', role: 'operator', isActive: true,
+    password: hashPasswordHmac('rahasia', 'hmacuser')
+  });
+  rebuildAllIndexes();
+
+  // (a) Plaintext dipakai sebagai password → ditolak
+  const bad = await handleSianjabAction('login', {}, { username: 'plainuser', password: 'plain123' }, '127.0.0.1').catch(() => null);
+  assert.ok(!bad || !bad.token, 'login plaintext harus gagal');
+
+  // (b) HMAC sah → sukses
+  const good = await handleSianjabAction('login', {}, { username: 'hmacuser', password: 'rahasia' }, '127.0.0.1');
+  assert.ok(good.token);
+
+  // (c) 5 login gagal berurutan → percobaan berikutnya 429 (rate-limit)
+  const limiter = await handleSianjabAction('login', {}, { username: 'hmacuser', password: 'salah' }, '10.0.0.9').catch((e) => ({ err: e.message }));
+  const ipKey = '10.0.0.9';
+  for (let i = 0; i < 4; i++) {
+    await handleSianjabAction('login', {}, { username: 'hmacuser', password: 'salah' }, ipKey).catch(() => {});
+  }
+  // Setelah 5+ kegagalan, login berikutnya (walau password benar) ditolak
+  let blocked = false;
+  try {
+    await handleSianjabAction('login', {}, { username: 'hmacuser', password: 'rahasia' }, ipKey);
+  } catch (e) {
+    blocked = e && e.statusCode === 429;
+  }
+  assert.ok(blocked, 'login ke-6 harus diblokir rate-limit');
 });
 
 test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
