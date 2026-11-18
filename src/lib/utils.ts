@@ -217,7 +217,7 @@ export function calculateFormasiPembulatan(totalKebutuhan: number): number {
  */
 export function getJenisJabatanKategori(jenisJabatan: string): 'struktural' | 'fungsional' | 'pelaksana' | 'lainnya' {
   const j = String(jenisJabatan || "").toLowerCase();
-  if (j.indexOf("pimpinan tinggi") !== -1 || j.indexOf("administrator") !== -1 || j.indexOf("pengawas") !== -1) return "struktural";
+  if (j.indexOf("pimpinan tinggi") !== -1 || j.indexOf("administrator") !== -1 || j.indexOf("pengawas") !== -1 || j.indexOf("struktural") !== -1) return "struktural";
   if (j.indexOf("fungsional") !== -1) return "fungsional";
   if (j.indexOf("pelaksana") !== -1) return "pelaksana";
   return "lainnya";

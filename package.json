@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "node gas/tests/simulate-ai-pintar.js",
     "test:unit": "node --no-warnings --test src/lib/utils.wke.test.ts",
-    "test:gas": "node gas/tests/simulate-ai-pintar.js && node gas/tests/simulate-auth.js"
+    "test:gas": "node gas/tests/simulate-ai-pintar.js && node gas/tests/simulate-auth.js && node gas/tests/parity-gas-homeserver.js"
   },
   "dependencies": {
     "docx": "^9.7.1",

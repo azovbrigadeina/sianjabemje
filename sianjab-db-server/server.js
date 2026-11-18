@@ -1251,6 +1251,10 @@ function getBulkAnjabByUnit(unitKerjaId, year = '2026') {
   return readMultipleEntities(allReqEntities, year, unitKerjaId);
 }
 
+// ARC-F2: konstanta SSOT — wajib sama dengan WKE_FIX_JAM_ di gas/Code.gs
+// dan WKE_DEFAULT_JAM di src/lib/utils.ts. Dijaga oleh parity test.
+const WKE_FIX_JAM = 1250;
+
 // Perhitungan Formasi ABK (Paritas SSOT dengan gas/Code.gs)
 function calculateFormasiPembulatanServer(totalKebutuhan) {
   const val = Number(totalKebutuhan) || 0;
@@ -1675,7 +1679,6 @@ async function handleSianjabAction(action, params, body, clientIp) {
       abkPayload.jabatanId = parentId;
       abkPayload.updatedAt = new Date().toISOString();
 
-      const WKE_FIX_JAM = 1250;
       const rows = Array.isArray(abkPayload.rows) ? abkPayload.rows : [];
       let totalWaktuEfektif = 0;
       // BE-T1: satuan tunggal JAM — tanpa konversi menit otomatis; > 8 jam ditolak.
@@ -2736,6 +2739,9 @@ module.exports = {
   pullAllFromRtdb,
   flushOutboxToRtdb,
   httpStatusForError,
+  WKE_FIX_JAM,
+  calculateFormasiPembulatanServer,
+  applyFormasiBatasServer,
   runBackupNow,
   pruneBackupFiles
 };
