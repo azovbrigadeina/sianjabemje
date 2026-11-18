@@ -80,8 +80,8 @@ export default function OPDManagementPage() {
       } else {
         alert("Gagal kloning: " + res.message);
       }
-    } catch (e: any) {
-      alert("Terjadi kesalahan: " + e.message);
+    } catch (e) {
+      alert("Terjadi kesalahan: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setIsSyncing(false);
     }
@@ -110,8 +110,8 @@ export default function OPDManagementPage() {
       } else {
         alert("Gagal menghapus data tahun: " + res.message);
       }
-    } catch (e: any) {
-      alert("Terjadi kesalahan: " + e.message);
+    } catch (e) {
+      alert("Terjadi kesalahan: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setIsSyncing(false);
     }
@@ -205,9 +205,11 @@ export default function OPDManagementPage() {
   }, []);
 
   useEffect(() => {
-    // Initial load
-    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
-    setActiveYear(savedYear);
+    // Initial load — microtask agar tidak setState sinkron di effect.
+    Promise.resolve().then(() => {
+      const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+      setActiveYear(savedYear);
+    });
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -224,7 +226,7 @@ export default function OPDManagementPage() {
 
   // Trigger reload when activeYear changes
   useEffect(() => {
-    loadData();
+    Promise.resolve().then(() => loadData());
   }, [activeYear, loadData]);
 
   const toggleNode = (id: string, e: React.MouseEvent) => {

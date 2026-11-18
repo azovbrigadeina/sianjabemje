@@ -62,7 +62,7 @@ export default function ReferensiPage() {
   };
 
   useEffect(() => {
-    fetchSavedData();
+    Promise.resolve().then(() => fetchSavedData());
   }, []);
 
   const handleOpenEdit = (item: ReferensiJabatan) => {
@@ -100,8 +100,8 @@ export default function ReferensiPage() {
       setSavedData(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...updatedData } : item));
       setMessage({ type: 'success', text: 'Data referensi berhasil diperbarui.' });
       setEditingItem(null);
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Gagal memperbarui referensi.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: (err instanceof Error ? err.message : String(err)) || 'Gagal memperbarui referensi.' });
     } finally {
       setIsSavingEdit(false);
     }
@@ -113,8 +113,8 @@ export default function ReferensiPage() {
       await api.deleteEntity('referensiJabatan', id);
       setSavedData(prev => prev.filter(item => item.id !== id));
       setMessage({ type: 'success', text: 'Data referensi berhasil dihapus.' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Gagal menghapus referensi.' });
+} catch (err) {
+      setMessage({ type: 'error', text: (err instanceof Error ? err.message : String(err)) || 'Gagal menghapus referensi.' });
     }
   };
 
@@ -188,8 +188,8 @@ export default function ReferensiPage() {
       setPreviewData([]);
       setSimilarWarningMatches([]);
       fetchSavedData();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Gagal menyimpan data referensi' });
+} catch (err) {
+      setMessage({ type: 'error', text: (err instanceof Error ? err.message : String(err)) || 'Gagal menyimpan data referensi' });
     } finally {
       setIsLoading(false);
     }

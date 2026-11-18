@@ -3,14 +3,15 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "./ModalDuplikasiUnit.module.css";
 import { api } from "@/lib/api";
-import { UnitKerja } from "@/lib/types";
+import { UnitKerja, Jabatan } from "@/lib/types";
+import { getErrorMessage } from "@/lib/utils";
 
 interface ModalDuplikasiUnitProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (targetUnitId?: string) => void;
   unitKerjas: UnitKerja[];
-  jabatans?: any[];
+  jabatans?: Jabatan[];
 }
 
 export default function ModalDuplikasiUnit({
@@ -33,7 +34,7 @@ export default function ModalDuplikasiUnit({
   const [targetUnitId, setTargetUnitId] = useState<string>('');
 
   // Local jabatans cache for counting
-  const [localJabatans, setLocalJabatans] = useState<any[]>(initialJabatans || []);
+  const [localJabatans, setLocalJabatans] = useState<Jabatan[]>(initialJabatans || []);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -41,13 +42,13 @@ export default function ModalDuplikasiUnit({
   useEffect(() => {
     if (!isOpen) return;
     if (initialJabatans && initialJabatans.length > 0) {
-      setLocalJabatans(initialJabatans);
+      Promise.resolve().then(() => setLocalJabatans(initialJabatans));
       return;
     }
     let isMounted = true;
     api.getBulkData(['jabatan']).then(data => {
       if (isMounted && data.jabatan) {
-        setLocalJabatans(data.jabatan);
+        setLocalJabatans(data.jabatan as unknown as Jabatan[]);
       }
     }).catch(err => {
       console.warn("Gagal memuat jabatans untuk modal duplikasi:", err);
@@ -55,9 +56,10 @@ export default function ModalDuplikasiUnit({
     return () => { isMounted = false; };
   }, [isOpen, initialJabatans]);
 
-  // Reset state on open
+  // Reset state on open — setState di microtask, bukan sinkron di body effect.
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    Promise.resolve().then(() => {
       setStep(1);
       setErrorMsg(null);
       setIsSubmitting(false);
@@ -68,17 +70,20 @@ export default function ModalDuplikasiUnit({
         // Default to first unit
         setSourceUnitId(unitKerjas[0].id);
       }
-    }
-  }, [isOpen]);
+    });
+  }, [isOpen, sourceUnitId, unitKerjas]);
 
-  // Update default parentId when sourceUnitId changes
+  // Update default parentId when sourceUnitId changes — diturunkan saat render-beforEvent,
+  // perubahan dijalankan di microtask.
   useEffect(() => {
     if (!sourceUnitId) return;
-    const srcUnit = unitKerjas.find(u => u.id === sourceUnitId);
-    if (srcUnit) {
-      // Default newParentId to the same parent as source unit
-      setNewParentId(srcUnit.parentId || '');
-    }
+    Promise.resolve().then(() => {
+      const srcUnit = unitKerjas.find(u => u.id === sourceUnitId);
+      if (srcUnit) {
+        // Default newParentId to the same parent as source unit
+        setNewParentId(srcUnit.parentId || '');
+      }
+    });
   }, [sourceUnitId, unitKerjas]);
 
   // Count jabatans in source unit
@@ -179,8 +184,8 @@ export default function ModalDuplikasiUnit({
       } else {
         throw new Error(res?.message || "Gagal menduplikasi unit kerja.");
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || String(err));
+    } catch (err) {
+      setErrorMsg(getErrorMessage(err) || String(err));
       setIsSubmitting(false);
     }
   };

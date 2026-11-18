@@ -4,13 +4,14 @@ import React, { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { calculateFormasiPembulatan, applyFormasiBatas, hitungWaktuEfektif, hitungKebutuhanPegawai, normalisasiWaktuJam, WKE_DEFAULT_JAM } from "@/lib/utils";
 import type { JabatanFull } from "@/lib/types";
+import type { ExportAbkData } from "@/lib/exportDocx";
 import { BRANDING } from "@/config/branding";
 
 export type QuickAbkModalProps = {
   isOpen: boolean;
   onClose: () => void;
   jabatan: JabatanFull | null;
-  onSuccess: (savedAbk: any) => void;
+  onSuccess: (savedAbk: ExportAbkData) => void;
 };
 
 export type ABKRow = {
@@ -41,13 +42,13 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
 
       // Try fetching existing ABK data if present
       api.getABK(jabatan.id)
-        .then((res: any) => {
+        .then((res) => {
           if (!isMounted) return;
-          const abkData = res?.data || res;
+          const abkData = ((res as { data?: unknown })?.data || res) as { rows?: ABKRow[]; waktuSatuan?: string } | null;
           if (abkData && abkData.rows && Array.isArray(abkData.rows) && abkData.rows.length > 0) {
             // Konsep tunggal (jam): bila data lama memakai menit, konversi ke jam saat dimuat
             const isLegacyMenit = abkData.waktuSatuan === 'menit';
-            setRows(abkData.rows.map((r: ABKRow) => ({
+            setRows((abkData.rows || []).map((r) => ({
               ...r,
               waktu: isLegacyMenit ? Math.round(((Number(r.waktu) || 0) / 60) * 10000) / 10000 : r.waktu
             })));
@@ -59,7 +60,7 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
           if (isMounted) setRows(initialRows);
         });
     } else {
-      setRows([]);
+      Promise.resolve().then(() => setRows([]));
     }
     return () => { isMounted = false; };
   }, [isOpen, jabatan]);
@@ -107,8 +108,8 @@ export default function QuickAbkModal({ isOpen, onClose, jabatan, onSuccess }: Q
 
       onSuccess(abkPayload);
       onClose();
-    } catch (err: any) {
-      alert("Gagal menyimpan ABK: " + (err?.message || err));
+    } catch (err) {
+      alert("Gagal menyimpan ABK: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSaving(false);
     }

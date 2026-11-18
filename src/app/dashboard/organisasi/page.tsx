@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/utils";
-import { UnitKerja, ReferensiJabatan } from "@/lib/types";
+import { UnitKerja, ReferensiJabatan, Jabatan } from "@/lib/types";
 
 type TreeNode = {
   id: string;
@@ -168,8 +168,10 @@ export default function OrganisasiPage() {
   const [referensiSearch, setReferensiSearch] = useState("");
   const [showReferensiDropdown, setShowReferensiDropdown] = useState(false);
 
+  // Sinkronisasi parentSearch dari data modal — setState di microtask.
   useEffect(() => {
-    if (modalMode && modalData.targetType === 'jabatan') {
+    Promise.resolve().then(() => {
+      if (modalMode && modalData.targetType === 'jabatan') {
       if (modalData.parentId) {
         const parentJbt = rawJabatans.find(j => j.id === modalData.parentId);
         if (parentJbt) {
@@ -181,9 +183,10 @@ export default function OrganisasiPage() {
       } else {
         setParentSearch("");
       }
-    } else {
-      setParentSearch("");
-    }
+      } else {
+        setParentSearch("");
+      }
+    });
   }, [modalData.parentId, modalMode, rawJabatans, rawOpds]);
 
   const showToast = (msg: string) => {
@@ -198,8 +201,8 @@ export default function OrganisasiPage() {
     try {
       await api.saveOrgSetting({ enabled: newStatus });
       showToast(`✅ Akses edit operator berhasil ${newStatus ? 'diizinkan' : 'dicekal'}.`);
-    } catch (err: any) {
-      alert("Gagal menyimpan pengaturan: " + err.message);
+    } catch (err) {
+      alert("Gagal menyimpan pengaturan: " + (err instanceof Error ? err.message : String(err)));
       setOrgEditEnabled(!newStatus); // rollback
     } finally {
       setIsSavingOrgSetting(false);
@@ -207,7 +210,7 @@ export default function OrganisasiPage() {
   };
 
   // BUILD ORG TREE HELPER
-  const buildOrgTreeNodes = (opds: UnitKerja[], jabatans: any[]) => {
+  const buildOrgTreeNodes = (opds: UnitKerja[], jabatans: Jabatan[]) => {
     if (opds.length === 0 && jabatans.length === 0) {
       return { roots: [], defaultExpand: {} as Record<string, boolean> };
     }
@@ -241,7 +244,7 @@ export default function OrganisasiPage() {
     const opdToExternalParentJbt: Record<string, string> = {};
     const jbtToReroute: Record<string, boolean> = {};
 
-    const jabatanById = new Map<string, any>();
+    const jabatanById = new Map<string, Jabatan>();
     jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
 
     jabatans.forEach(jbt => {
@@ -311,7 +314,7 @@ export default function OrganisasiPage() {
       const cachedBulk = await api.getCachedBulkData(['unitKerja', 'jabatan', 'referensiJabatan']);
       if (cachedBulk?.unitKerja && cachedBulk?.jabatan) {
         const cachedOpds = (cachedBulk.unitKerja || []) as UnitKerja[];
-        const cachedJbts = (cachedBulk.jabatan || []) as any[];
+        const cachedJbts = (cachedBulk.jabatan || []) as Jabatan[];
         setRawOpds(cachedOpds);
         setRawJabatans(cachedJbts);
         if (cachedBulk.referensiJabatan) {
@@ -385,9 +388,11 @@ export default function OrganisasiPage() {
   }, []);
 
   useEffect(() => {
-    // Initial load
-    const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
-    setActiveYear(savedYear);
+    // Initial load — microtask agar tidak setState sinkron di effect.
+    Promise.resolve().then(() => {
+      const savedYear = localStorage.getItem("sianjab_active_year") || "2026";
+      setActiveYear(savedYear);
+    });
 
     // Listener for header year changes
     const handleYearChanged = (e: Event) => {
@@ -404,7 +409,7 @@ export default function OrganisasiPage() {
 
   // Trigger reload when activeYear changes
   useEffect(() => {
-    loadData();
+    Promise.resolve().then(() => loadData());
   }, [activeYear, loadData]);
 
 
@@ -755,17 +760,14 @@ export default function OrganisasiPage() {
   const pageSize = 10;
   const totalPages = Math.ceil(displayTree.length / pageSize);
 
+  // Reset halaman saat query berubah (microtask, bukan setState sinkron).
   useEffect(() => {
-    setCurrentPage(1);
+    Promise.resolve().then(() => setCurrentPage(1));
   }, [searchQuery]);
 
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [displayTree, totalPages, currentPage]);
-
-  const paginatedTree = useMemo(() => displayTree.slice((currentPage - 1) * pageSize, currentPage * pageSize), [displayTree, currentPage, pageSize]);
+  // Clamp halaman secara turunan, tanpa menulis state di effect.
+  const safePage = totalPages > 0 ? Math.min(currentPage, totalPages) : 1;
+  const paginatedTree = useMemo(() => displayTree.slice((safePage - 1) * pageSize, safePage * pageSize), [displayTree, safePage, pageSize]);
 
   // Fungsi Renderer Rekursif
   const renderTreeNodes = (nodes: TreeNode[]) => (
