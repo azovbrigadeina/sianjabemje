@@ -565,7 +565,7 @@ function handleRequest_(e) {
         result = autoRegisterOperator_(data);
         break;
       case 'updateUser':
-        result = updateUser_(id, data);
+        result = updateUser_(currentUser, id, data);
         break;
       case 'exportForSitpp':
         result = exportForSitpp_();
@@ -2136,9 +2136,17 @@ function createUser_(data) {
   return safeUser;
 }
 
-function updateUser_(id, data) {
+function updateUser_(currentUser, id, data) {
   var existingUser = fbGet_('users/' + id);
   if (!existingUser) throw new Error("User tidak ditemukan");
+
+  // SEC-T5: self-update non-admin hanya boleh mengubah field aman.
+  if (!currentUser || currentUser.role !== 'admin') {
+    var allowed = ['nama', 'email', 'password'];
+    Object.keys(data || {}).forEach(function (k) {
+      if (allowed.indexOf(k) === -1) delete data[k];
+    });
+  }
 
   if (data.password) {
     data.password = hashPassword_(data.password, existingUser.username);

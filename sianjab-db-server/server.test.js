@@ -28,7 +28,8 @@ const {
   validateAuthToken,
   getAuthenticatedUser,
   CORS_ALLOWED_ORIGINS,
-  BIND_HOST
+  BIND_HOST,
+  SELF_UPDATE_ALLOWED_FIELDS
 } = require('./server.js');
 
 test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox', async (t) => {
@@ -268,6 +269,22 @@ test('SEC-K1: getAuthenticatedUser menolak username tanpa record user (bypass ad
 
 test('SEC-K2: server bind ke 127.0.0.1 secara default (bukan 0.0.0.0)', () => {
   assert.equal(BIND_HOST, '127.0.0.1');
+});
+
+test('SEC-T5: self-update operator tidak bisa mengubah role/unitKerjaId/isActive', () => {
+  setDbNode('users/u_op2', {
+    id: 'u_op2', username: 'operator2', nama: 'Operator Dua', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true
+  });
+  rebuildAllIndexes();
+
+  // Simulasi jalur updateUser: operator self-update dengan payload berbahaya
+  // (diuji lewat handleSianjabAction — token operator2, id diri sendiri)
+  const opToken = generateAuthToken('operator2');
+  const res = handleSianjabAction('updateUser', { token: opToken, id: 'u_op2' }, { entity: 'users', data: { role: 'admin', isActive: true, nama: 'Nama Baru Aman' } }, '127.0.0.1');
+  const updated = getDbNode('users/u_op2');
+  assert.equal(updated.role, 'operator');
+  assert.equal(updated.nama, 'Nama Baru Aman'); // field di whitelist tetap boleh
+  assert.equal(Array.isArray(SELF_UPDATE_ALLOWED_FIELDS) && SELF_UPDATE_ALLOWED_FIELDS.includes('role'), false);
 });
 
 test('SEC-K2: endpoint /db wajib autentikasi, root write ditolak, CORS tanpa wildcard', async () => {

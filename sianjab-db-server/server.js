@@ -78,7 +78,8 @@ const CHILD_ENTITIES = [
 ];
 
 const SINGLE_CHILD_ENTITIES = ['kualifikasi', 'syaratJabatan', 'hasilKerja', 'prestasiKerja'];
-const MULTI_CHILD_ENTITIES = [
+// SEC-T5: field yang boleh diubah user saat self-update (non-admin).
+const SELF_UPDATE_ALLOWED_FIELDS = ['nama', 'email', 'password'];const MULTI_CHILD_ENTITIES = [
   'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
   'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'
 ];
@@ -1726,6 +1727,12 @@ async function handleSianjabAction(action, params, body, clientIp) {
       const existing = getDbNode(`users/${id}`);
       if (!existing) throw new Error('User tidak ditemukan');
       const uData = { ...((body && body.data && body.entity) ? body.data : (body || {})) };
+      // SEC-T5: self-update non-admin hanya boleh mengubah field aman.
+      if (currentUser.role !== 'admin') {
+        for (const k of Object.keys(uData)) {
+          if (!SELF_UPDATE_ALLOWED_FIELDS.includes(k)) delete uData[k];
+        }
+      }
       if (uData.password) {
         uData.password = hashPasswordHmac(uData.password, existing.username);
       }
@@ -2554,5 +2561,6 @@ module.exports = {
   getAuthenticatedUser,
   CORS_ALLOWED_ORIGINS,
   BIND_HOST,
-  shouldPullOnStart
+  shouldPullOnStart,
+  SELF_UPDATE_ALLOWED_FIELDS
 };

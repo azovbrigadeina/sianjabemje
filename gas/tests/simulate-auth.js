@@ -63,6 +63,9 @@ sandbox.fbGet_ = (p) => {
   if (p === 'users') {
     return { u_admin: { username: 'admin', role: 'admin', isActive: true } };
   }
+  if (p === 'users/u_op') {
+    return { id: 'u_op', username: 'operator1', nama: 'Operator', role: 'operator', unitKerjaId: 'unit_dinkes', isActive: true };
+  }
   return null;
 };
 
@@ -92,6 +95,15 @@ check('SEC-K4: getUserFromToken_ token palsu → null', fakeUser === null, fakeU
 // ------------------------------------------------------------
 const okUser = sandbox.getUserFromToken_(goodToken);
 check('SEC-K4: getUserFromToken_ token sah → role admin', !!okUser && okUser.role === 'admin', okUser);
+
+// ------------------------------------------------------------
+// 5. SEC-T5: self-update operator tidak boleh mengubah role
+// ------------------------------------------------------------
+let patched = null;
+sandbox.fbPatch_ = (_p, data) => { patched = data; };
+sandbox.updateUser_({ id: 'u_op', role: 'operator' }, 'u_op', { role: 'admin', isActive: false, nama: 'Nama Aman' });
+check('SEC-T5: updateUser_ membuang role/isActive dari self-update', !!patched && patched.role === undefined && patched.isActive === undefined, patched);
+check('SEC-T5: updateUser_ tetap mengizinkan field aman (nama)', !!patched && patched.nama === 'Nama Aman', patched);
 
 // ------------------------------------------------------------
 // Ringkasan
