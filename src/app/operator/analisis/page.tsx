@@ -6,7 +6,18 @@ import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
 import { filterTreeNodes, getErrorMessage } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
-import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan } from "@/lib/types";
+import type { JabatanFull, TugasPokok, Kualifikasi, SyaratJabatan, UnitKerja, Jabatan, HasilKerja, PrestasiKerja } from "@/lib/types";
+import type { ParsedAnjabData } from "@/lib/importXlsx";
+import type { ExportAbkRow } from "@/lib/exportDocx";
+
+/** Record ABK tersimpan (bentuk fleksibel, cukup untuk map & ekspor). */
+interface MapAbkRecord {
+  id?: string;
+  jabatanId?: string;
+  rows?: ExportAbkRow[];
+  formasiPembulatan?: number;
+  [key: string]: unknown;
+}
 
 import TabIdentitas from "../../dashboard/analisis/components/TabIdentitas";
 import TabTugasPokok from "../../dashboard/analisis/components/TabTugasPokok";
@@ -64,7 +75,7 @@ export default function OperatorAnalisisPage() {
   const [formasiBadge, setFormasiBadge] = useState<{ formasiIdeal: number; jumlahPegawaiEksisting: number | null; kebutuhanPegawaiIdeal: number } | null>(null);
   const [downloadingWord, setDownloadingWord] = useState(false);
   const [downloadingSiasn, setDownloadingSiasn] = useState(false);
-  const [abkMap, setAbkMap] = useState<Record<string, any>>({});
+  const [abkMap, setAbkMap] = useState<Record<string, MapAbkRecord>>({});
   const [isAbkModalOpen, setIsAbkModalOpen] = useState(false);
   const [selectedJabatanForAbk, setSelectedJabatanForAbk] = useState<JabatanFull | null>(null);
 
@@ -152,7 +163,7 @@ export default function OperatorAnalisisPage() {
     const opdToExternalParentJbt: Record<string, string> = {};
     const jbtToReroute: Record<string, boolean> = {};
 
-    const jabatanById = new Map<string, any>();
+    const jabatanById = new Map<string, Jabatan>();
     jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
 
     jabatans.forEach(jbt => {
@@ -231,9 +242,9 @@ export default function OperatorAnalisisPage() {
         const cJabatans = cachedBulk.jabatan as Jabatan[];
         const cAnjabSet = new Set(cachedSummary?.anjabFilled || []);
 
-        const aMap: Record<string, any> = {};
+        const aMap: Record<string, MapAbkRecord> = {};
         if (cachedBulk.abk && Array.isArray(cachedBulk.abk)) {
-          cachedBulk.abk.forEach((a: any) => {
+          cachedBulk.abk.forEach((a: MapAbkRecord) => {
             if (a.id) aMap[a.id] = a;
             if (a.jabatanId) aMap[a.jabatanId] = a;
           });
@@ -262,9 +273,9 @@ export default function OperatorAnalisisPage() {
       const opdsRaw = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatansRaw = (bulkData.jabatan || []) as Jabatan[];
 
-      const aMap: Record<string, any> = {};
+      const aMap: Record<string, MapAbkRecord> = {};
       if (bulkData.abk && Array.isArray(bulkData.abk)) {
-        bulkData.abk.forEach((a: any) => {
+        bulkData.abk.forEach((a: MapAbkRecord) => {
           if (a.id) aMap[a.id] = a;
           if (a.jabatanId) aMap[a.jabatanId] = a;
         });
@@ -474,8 +485,8 @@ export default function OperatorAnalisisPage() {
       setVersionKey(prev => prev + 1);
 
       showToast("🧹 Seluruh isian berhasil di-reset!");
-    } catch (e: any) {
-      alert("Gagal me-reset isian: " + e.message);
+    } catch (e) {
+      alert("Gagal me-reset isian: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setLoadingEditor(false);
     }
@@ -579,12 +590,13 @@ export default function OperatorAnalisisPage() {
       // Step 4: Identitas, Kualifikasi, Syarat
       updateStep(3, 'loading', [`${getTimestamp()} PROCESS: Mengirim data draf AI secara bulk ke database...`]);
 
-      const mappedTasks = (aiDraft.tugasPokok || []).map((tp: any, index: number) => ({
+      const draftTps = ((aiDraft.tugasPokok || []) as Record<string, unknown>[]);
+      const mappedTasks = draftTps.map((tp, index: number) => ({
         nomorUrut: index + 1,
-        uraianTugas: tp.uraianTugas || "",
-        hasilKerja: tp.hasilKerja || "Dokumen",
+        uraianTugas: String(tp.uraianTugas || ""),
+        hasilKerja: String(tp.hasilKerja || "Dokumen"),
         jumlahHasil: Number(tp.jumlahHasil) || 1,
-        waktuPenyelesaian: tp.waktuPenyelesaian || 60
+        waktuPenyelesaian: Number(tp.waktuPenyelesaian) || 60
       }));
 
       const hasilKerjaData = aiDraft.hasilKerja
@@ -604,13 +616,13 @@ export default function OperatorAnalisisPage() {
         tugasPokok: mappedTasks,
         hasilKerja: hasilKerjaData,
         prestasiKerja: aiDraft.prestasiKerja || {},
-        bahanKerja: (aiDraft.bahanKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        perangkatKerja: (aiDraft.perangkatKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        tanggungJawab: (aiDraft.tanggungJawab || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        wewenang: (aiDraft.wewenang || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        korelasiJabatan: (aiDraft.korelasiJabatan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        kondisiLingkungan: (aiDraft.kondisiLingkungan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        risikoBahaya: (aiDraft.risikoBahaya || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 }))
+        bahanKerja: ((aiDraft.bahanKerja || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        perangkatKerja: ((aiDraft.perangkatKerja || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        tanggungJawab: ((aiDraft.tanggungJawab || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        wewenang: ((aiDraft.wewenang || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        korelasiJabatan: ((aiDraft.korelasiJabatan || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        kondisiLingkungan: ((aiDraft.kondisiLingkungan || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        risikoBahaya: ((aiDraft.risikoBahaya || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 }))
       };
 
       await api.saveBulkAnjabData(jabatanData.id, bulkPayload);
@@ -653,7 +665,7 @@ export default function OperatorAnalisisPage() {
 
       showToast("✨ Draf Anjab berhasil dipasang oleh Engine AI!");
 
-    } catch (e: any) {
+    } catch (e) {
       setProgressStatus(prev => {
         const nextSteps = [...prev.steps];
         if (nextSteps[prev.currentStepIndex]) {
@@ -662,10 +674,10 @@ export default function OperatorAnalisisPage() {
         return {
           ...prev,
           steps: nextSteps,
-          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${e.message}`, `${getTimestamp()} FAILED: Proses dihentikan.`]
+          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${(e instanceof Error ? e.message : String(e))}`, `${getTimestamp()} FAILED: Proses dihentikan.`]
         };
       });
-      alert("Terjadi kesalahan: " + e.message);
+      alert("Terjadi kesalahan: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setAiLoading(false);
     }
@@ -725,7 +737,7 @@ export default function OperatorAnalisisPage() {
     }
     const snapshot = jabatanData;
     const targetId = jabatanData.id;
-    setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as any } : null);
+    setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as TugasPokok[] } : null);
     markJabatanFilledInTree(targetId);
     showToast("⏳ Menyimpan tugas...");
 
@@ -749,7 +761,7 @@ export default function OperatorAnalisisPage() {
     const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
-      kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } as any : { jabatanId: prev.id, ...data } as any
+      kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } : { jabatanId: prev.id, ...data } as Kualifikasi
     } : null);
     markJabatanFilledInTree(targetId);
     try {
@@ -772,7 +784,7 @@ export default function OperatorAnalisisPage() {
     const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
-      hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as any
+      hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as HasilKerja
     } : null);
     markJabatanFilledInTree(targetId);
     try {
@@ -785,7 +797,7 @@ export default function OperatorAnalisisPage() {
     }
   };
 
-  const handleSaveMultiRows = async (entity: string, rows: any[]) => {
+  const handleSaveMultiRows = async (entity: string, rows: Record<string, unknown>[]) => {
     if (!jabatanData) return;
     if (isReadOnly) {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
@@ -817,7 +829,7 @@ export default function OperatorAnalisisPage() {
     const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
-      syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } as any : { jabatanId: prev.id, ...data } as any
+      syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } : { jabatanId: prev.id, ...data } as SyaratJabatan
     } : null);
     markJabatanFilledInTree(targetId);
     try {
@@ -840,7 +852,7 @@ export default function OperatorAnalisisPage() {
     const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
-      prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as any
+      prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as PrestasiKerja
     } : null);
     markJabatanFilledInTree(targetId);
     try {
@@ -853,7 +865,7 @@ export default function OperatorAnalisisPage() {
     }
   };
 
-  const processImportedData = async (parsedData: any, logs: string[], importType: string) => {
+  const processImportedData = async (parsedData: ParsedAnjabData, logs: string[], importType: string) => {
     if (!jabatanData) return;
     
     const steps = [
@@ -902,7 +914,7 @@ export default function OperatorAnalisisPage() {
       // Step 3-5: Save entire Anjab draft in 1 bulk request
       updateStep(2, 'loading', [`${getTimestamp()} PROCESS: Menyimpan seluruh data draf AI secara bulk ke database...`]);
 
-      const mappedTasks = (parsedData.tugasPokok || []).map((tp: any, index: number) => ({
+      const mappedTasks = ((parsedData.tugasPokok || []) as Record<string, unknown>[]).map((tp, index: number) => ({
         nomorUrut: index + 1,
         uraianTugas: tp.uraianTugas || "",
         hasilKerja: tp.hasilKerja || "Dokumen",
@@ -917,13 +929,13 @@ export default function OperatorAnalisisPage() {
         tugasPokok: mappedTasks,
         hasilKerja: parsedData.hasilKerja || null,
         prestasiKerja: parsedData.prestasiKerja || {},
-        bahanKerja: (parsedData.bahanKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        perangkatKerja: (parsedData.perangkatKerja || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        tanggungJawab: (parsedData.tanggungJawab || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        wewenang: (parsedData.wewenang || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        korelasiJabatan: (parsedData.korelasiJabatan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        kondisiLingkungan: (parsedData.kondisiLingkungan || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 })),
-        risikoBahaya: (parsedData.risikoBahaya || []).map((r: any, i: number) => ({ ...r, nomorUrut: i + 1 }))
+        bahanKerja: ((parsedData.bahanKerja || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        perangkatKerja: ((parsedData.perangkatKerja || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        tanggungJawab: ((parsedData.tanggungJawab || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        wewenang: ((parsedData.wewenang || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        korelasiJabatan: ((parsedData.korelasiJabatan || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        kondisiLingkungan: ((parsedData.kondisiLingkungan || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 })),
+        risikoBahaya: ((parsedData.risikoBahaya || []) as Record<string, unknown>[]).map((r, i: number) => ({ ...r, nomorUrut: i + 1 }))
       };
 
       await api.saveBulkAnjabData(jabatanData.id, bulkPayload);
@@ -966,7 +978,7 @@ export default function OperatorAnalisisPage() {
         alert("Laporan Hasil Impor:\n\n" + logs.join("\n"));
       }
 
-    } catch (e: any) {
+    } catch (e) {
       setProgressStatus(prev => {
         const nextSteps = [...prev.steps];
         if (nextSteps[prev.currentStepIndex]) {
@@ -975,10 +987,10 @@ export default function OperatorAnalisisPage() {
         return {
           ...prev,
           steps: nextSteps,
-          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${e.message}`, `${getTimestamp()} FAILED: Proses impor dibatalkan.`]
+          terminalLogs: [...prev.terminalLogs, `${getTimestamp()} ERROR: ${(e instanceof Error ? e.message : String(e))}`, `${getTimestamp()} FAILED: Proses impor dibatalkan.`]
         };
       });
-      alert("Gagal memproses data impor: " + e.message);
+      alert("Gagal memproses data impor: " + (e instanceof Error ? e.message : String(e)));
     }
   };
 
@@ -1212,8 +1224,8 @@ export default function OperatorAnalisisPage() {
                     const { exportJabatanToDocx } = await import("@/lib/exportDocx");
                     await exportJabatanToDocx(jabatanData, existingAbk);
                     showToast("✨ Berhasil mengunduh Word");
-                  } catch (err: any) {
-                    alert("Gagal mengunduh Word: " + err.message);
+                  } catch (err) {
+                    alert("Gagal mengunduh Word: " + (err instanceof Error ? err.message : String(err)));
                   } finally {
                     setDownloadingWord(false);
                   }
@@ -1225,8 +1237,8 @@ export default function OperatorAnalisisPage() {
                     const { exportJabatanToSiasn } = await import("@/lib/exportSiasn");
                     exportJabatanToSiasn(jabatanData);
                     showToast("✨ Berhasil mengekspor SIASN");
-                  } catch (err: any) {
-                    alert("Gagal mengekspor SIASN: " + err.message);
+                  } catch (err) {
+                    alert("Gagal mengekspor SIASN: " + (err instanceof Error ? err.message : String(err)));
                   } finally {
                     setDownloadingSiasn(false);
                   }
@@ -1484,13 +1496,13 @@ export default function OperatorAnalisisPage() {
         jabatan={selectedJabatanForAbk}
         onSuccess={async (newAbk) => {
           if (selectedJabatanForAbk) {
-            setAbkMap(prev => ({ ...prev, [selectedJabatanForAbk.id]: newAbk }));
+            setAbkMap(prev => ({ ...prev, [selectedJabatanForAbk.id]: newAbk as MapAbkRecord }));
             try {
               const { exportJabatanToDocx } = await import("@/lib/exportDocx");
               await exportJabatanToDocx(selectedJabatanForAbk, newAbk);
               showToast("✨ ABK berhasil disimpan & dokumen Word diunduh");
-            } catch (e: any) {
-              alert("ABK tersimpan, namun gagal mengunduh Word: " + e.message);
+            } catch (e) {
+              alert("ABK tersimpan, namun gagal mengunduh Word: " + (e instanceof Error ? e.message : String(e)));
             }
           }
         }}
