@@ -112,7 +112,18 @@ Head branch: `e659c0c`.
 - **ARC-F8 selesai** (commit 71e6f11 … 8ea0fc8, ba26354, 593e0c1, 66564ec, d1b97b9): `any` di seluruh halaman/komponen diganti tipe konkret (`TemplateMappings`, `ExportAbkData`, `ExportAbkRow`, `ParsedAnjabData`, `SheetInfo`, `SheetAnalysis`, `RekapAbkRow`, `MapAbkRecord`, `BulkItem`, `AbkRecord`, dll). Sisa 26 `any` hanya di `src/lib/api.ts` (permukaan API publik — menunggu tipedata domain).
 - **ARC-F9 selesai** (commit d1b97b9): `react-hooks/set-state-in-effect` 0 error di seluruh `src` — setState dipindah ke microtask (`Promise.resolve().then(...)`) atau callback promise; pagination di-clamp turunan; state diturunkan saat render.
 - Gate akhir: unit 23/23, gas 122/122 + 6/6 + parity 114/114, server 25/25, resilience 1/1, build OK, `tsc --noEmit` 0 error, eslint 0 error.
-- Head branch: `d1b97b9`.
+- Head branch: `1d0f3b0`.
+
+## Sesi Lanjutan (fallback RTDB saat bebaa offline)
+
+Insiden "login langsung logout + data 0": funnel `:8443` ke homeserver 502, frontend gagal baca, tidak fallback — data tampil kosong. Fix di `src/lib/api.ts` + `src/lib/homeserver-failure.ts`.
+
+- **Runbook fallback RTDB**: `docs/runbooks/2026-11-18-fallback-rtdb-saat-bebaa-offline.md` — perilaku saat bebaa offline, verifikasi cepat, dan langkah wajib setelah pulih (flush outbox → tarik RTDB → homeserver).
+- **Helper `isHomeserverNetworkFailure(status, message)`** (`src/lib/homeserver-failure.ts`, diuji): status `0`, HTTP 5xx (termasuk 502/503/504 Funnel), atau kegagalan klasik (`Failed to fetch`, `NetworkError`, `Load failed`, `Request Timeout`, `Homeserver sedang OFF`) → fallback; 400/401/403/429 tetap dilempar ke UI.
+- **`executeActualRequest`**: respons non-JSON dari Funnel kini diubah jadi error ber-`httpStatus` dan diklasifikasi `isHomeserverNetworkFailure()` — HTML error proxy tidak lagi dianggap error bisnis.
+- **`DEFAULT_HOMESERVER_URL` → `:8443`** (funnel resmi; placeholder `:10000` lama diperbaiki).
+- Test: unit 27/27 (termasuk 4 baru), gas 122/122 + 6/6 + parity 121/121, env 4/4, server 28/28, build OK, `tsc --noEmit` 0 error.
+- Head branch: `4a5d691`.
 
 ## Sesi Lanjutan (ARC-F3 + ARC-F11 selesai)
 
