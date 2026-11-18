@@ -67,3 +67,34 @@
 - [ ] **Step 1:** Test — create unitKerja dengan kode yang sudah ada → error jelas.
 - [ ] **Step 2:** Implement: cek unik di `createRecord_` / `updateRecord_`.
 - [ ] **Step 3:** Verify test PASS + build.
+
+---
+
+## Hasil Eksekusi (selesai 18 Nov 2026)
+
+| Task | Status | Catatan |
+|---|---|---|
+| SEC-T6 IDOR | ✅ | readAll/getJabatanByUnit/getBulkAnjabByUnit di-scope per OPD (server.js + Code.gs) |
+| SEC-T8 token header + cache logout | ✅ | `Authorization: Bearer` di /api homeserver; `clearClientCache()` saat login/logout |
+| SEC-T9 baris anak | ✅ | jabatanId record lama dicek saat update/delete |
+| SEC-T10 kode unitKerja | ✅ | kode duplikat ditolak |
+| SEC-S1 fail-closed | ✅ | assert*Access tolak user null |
+| SEC-S2 secret query | ✅ | hanya header/body |
+| SEC-R1 constant-time | ✅ | `constantTimeEqual_` GAS |
+| SEC-S3 CSP + rules | ✅ | firebase.json headers + database.rules.json |
+| SEC-R3 pesan login | ✅ | GAS seragam "Username atau password salah" |
+| BE-T1 | ✅ | tanpa konversi menit; >8 jam ditolak keras (keputusan user) |
+| BE-T2 | ✅ | pull ditolak saat dirtyPaths>0 (opsi force); flush pakai PATCH (merge) |
+| BE-T3 | ✅ | saveSingle/MultiEntity baca RTDB segar dalam lock; id & createdAt stabil |
+| FE-T11/T12/T13 | ✅ | request-id openEditor; rollback save gagal; modal impor selalu bisa ditutup |
+| FE-T15 | ✅ | getJabatanByUnit sertakan sub-unit |
+| ARC-F7 | ✅ | `httpStatusForError` — 401/403/400/429/500 |
+
+**ARC-F12 (CI):** workflow `.github/workflows/ci.yml` sudah dibuat tetapi BELUM bisa di-push
+(PAT tanpa scope `workflow`). Commit di-stash unpushed — user perlu PAT dengan scope
+`workflow` atau push manual.
+
+**Ditunda (butuh refactor besar, tidak masuk fase ini):** ARC-F2, ARC-F8/F9, ARC-F14.
+
+Gate akhir: server.test.js 24/24, resilience 1/1, gas 122/122 + auth 6/6, unit 23/23, build OK.
+Head branch: `e659c0c`.
