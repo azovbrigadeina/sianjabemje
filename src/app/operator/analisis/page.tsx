@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import styles from "../../dashboard/analisis/page.module.css";
 import treeStyles from "../../dashboard/organisasi/page.module.css";
 import { api } from "@/lib/api";
@@ -53,6 +53,8 @@ export default function OperatorAnalisisPage() {
   const [activeTab, setActiveTab] = useState("identitas");
   const [jabatanData, setJabatanData] = useState<JabatanFull | null>(null);
   const [loadingEditor, setLoadingEditor] = useState(false);
+  // FE-T11: penghitung request openEditor (deteksi respons basi).
+  const openEditorRequestSeq = useRef(0);
   const [versionKey, setVersionKey] = useState(0);
 
   // Read-Only lock state
@@ -337,6 +339,8 @@ export default function OperatorAnalisisPage() {
   // EDITOR LOGIC
   const openEditor = async (node: TreeNode, e: React.MouseEvent) => {
     e.stopPropagation();
+    // FE-T11: request-id — respons lama tidak boleh menimpa editor yang baru dibuka.
+    const requestId = ++openEditorRequestSeq.current;
     setActiveJob(node.id);
     setMode('editor');
     setActiveTab('identitas');
@@ -351,11 +355,13 @@ export default function OperatorAnalisisPage() {
     
     try {
       const data = await api.getJabatanFull(node.id) as JabatanFull;
+      if (openEditorRequestSeq.current !== requestId) return;
       setJabatanData(data);
     } catch (err) {
+      if (openEditorRequestSeq.current !== requestId) return;
       showToast("❌ Gagal memuat data jabatan");
     }
-    setLoadingEditor(false);
+    if (openEditorRequestSeq.current === requestId) setLoadingEditor(false);
   };
 
   const closeEditor = () => {
@@ -665,12 +671,12 @@ export default function OperatorAnalisisPage() {
     }
   };
 
-  const markJabatanFilledInTree = (jId: string) => {
+  const markJabatanFilledInTree = (jId: string, filled: boolean = true) => {
     setTreeData(prevTree => {
       const updateNode = (nodes: TreeNode[]): TreeNode[] => {
         return nodes.map(n => {
           if (n.id === jId) {
-            return { ...n, anjabTerisi: true };
+            return { ...n, anjabTerisi: filled };
           }
           if (n.children && n.children.length > 0) {
             return { ...n, children: updateNode(n.children) };
@@ -689,13 +695,15 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? { ...prev, ...data } : null);
     if (data.ikhtisarJabatan && data.ikhtisarJabatan.trim().length > 5) {
-      markJabatanFilledInTree(jabatanData.id);
+      markJabatanFilledInTree(targetId);
     }
     showToast("⏳ Menyimpan identitas di latar belakang...");
-    
-    api.updateJabatan(jabatanData.id, {
+
+    api.updateJabatan(targetId, {
       ikhtisarJabatan: data.ikhtisarJabatan,
       jenisJabatan: data.jenisJabatan,
       kelasJabatan: data.kelasJabatan,
@@ -704,6 +712,8 @@ export default function OperatorAnalisisPage() {
       showToast("✅ Identitas berhasil disimpan permanen");
     }).catch(err => {
       showToast("❌ Gagal menyimpan identitas: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     });
   };
 
@@ -713,15 +723,19 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? { ...prev, tugasPokok: tugas as any } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     showToast("⏳ Menyimpan tugas...");
-    
+
     try {
-      await api.saveMultiEntity('tugasPokok', jabatanData.id, tugas);
+      await api.saveMultiEntity('tugasPokok', targetId, tugas);
       showToast("✅ Tugas pokok berhasil disimpan");
     } catch (err) {
       showToast("❌ Gagal menyimpan tugas: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -731,16 +745,20 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
       kualifikasi: prev.kualifikasi ? { ...prev.kualifikasi, ...data } as any : { jabatanId: prev.id, ...data } as any
     } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     try {
-      await api.saveSingleEntity('kualifikasi', jabatanData.id, data);
+      await api.saveSingleEntity('kualifikasi', targetId, data);
       showToast("✅ Kualifikasi berhasil disimpan");
     } catch (err) {
       showToast("❌ Gagal menyimpan kualifikasi: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -750,16 +768,20 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
       hasilKerja: prev.hasilKerja ? { ...prev.hasilKerja, uraian } : { jabatanId: prev.id, uraian } as any
     } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     try {
-      await api.saveSingleEntity('hasilKerja', jabatanData.id, { uraian });
+      await api.saveSingleEntity('hasilKerja', targetId, { uraian });
       showToast("✅ Hasil kerja berhasil disimpan");
     } catch (err) {
       showToast("❌ Gagal menyimpan hasil kerja: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -769,15 +791,19 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? { ...prev, [entity]: rows } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     showToast(`⏳ Menyimpan ${entity}...`);
-    
+
     try {
-      await api.saveMultiEntity(entity, jabatanData.id, rows);
+      await api.saveMultiEntity(entity, targetId, rows);
       showToast(`✅ ${entity} berhasil disimpan`);
     } catch (err) {
       showToast(`❌ Gagal menyimpan ${entity}: ${getErrorMessage(err)}`);
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -787,16 +813,20 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
       syaratJabatan: prev.syaratJabatan ? { ...prev.syaratJabatan, ...data } as any : { jabatanId: prev.id, ...data } as any
     } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     try {
-      await api.saveSingleEntity('syaratJabatan', jabatanData.id, data);
+      await api.saveSingleEntity('syaratJabatan', targetId, data);
       showToast("✅ Syarat jabatan berhasil disimpan");
     } catch (err) {
       showToast("❌ Gagal menyimpan syarat: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -806,16 +836,20 @@ export default function OperatorAnalisisPage() {
       showToast("❌ Tidak dapat menyimpan: Mode Lihat-Saja aktif.");
       return;
     }
+    const snapshot = jabatanData;
+    const targetId = jabatanData.id;
     setJabatanData(prev => prev ? {
       ...prev,
       prestasiKerja: prev.prestasiKerja ? { ...prev.prestasiKerja, uraian } : { jabatanId: prev.id, uraian } as any
     } : null);
-    markJabatanFilledInTree(jabatanData.id);
+    markJabatanFilledInTree(targetId);
     try {
-      await api.saveSingleEntity('prestasiKerja', jabatanData.id, { uraian });
+      await api.saveSingleEntity('prestasiKerja', targetId, { uraian });
       showToast("✅ Prestasi kerja berhasil disimpan");
     } catch (err) {
       showToast("❌ Gagal menyimpan prestasi: " + getErrorMessage(err));
+      setJabatanData(prev => (prev && prev.id === targetId ? snapshot : prev));
+      markJabatanFilledInTree(targetId, false);
     }
   };
 
@@ -1406,9 +1440,9 @@ export default function OperatorAnalisisPage() {
               alignItems: 'center',
               justifyContent: 'flex-end',
             }}>
-              {progressStatus.currentStepIndex >= progressStatus.steps.length - 1 && 
-               progressStatus.steps.every(s => s.status === 'success' || s.status === 'error') ? (
-                <button 
+              {/* FE-T13: tombol tutup selalu tersedia saat tidak ada proses berjalan. */}
+              {!progressStatus.steps.some(s => s.status === 'loading') ? (
+                <button
                   onClick={() => setProgressStatus(prev => ({ ...prev, show: false }))}
                   style={{
                     background: '#a855f7',
@@ -1422,7 +1456,7 @@ export default function OperatorAnalisisPage() {
                     boxShadow: '0 0 10px rgba(168, 85, 247, 0.4)'
                   }}
                 >
-                  Selesai
+                  {progressStatus.steps.some(s => s.status === 'error') ? 'Tutup' : 'Selesai'}
                 </button>
               ) : (
                 <span style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
