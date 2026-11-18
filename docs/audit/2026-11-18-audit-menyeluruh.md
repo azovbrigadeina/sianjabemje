@@ -3,7 +3,7 @@
 **Versi:** Next.js 16.2.9 / React 19.2.4 / GAS / Homeserver DB (`sianjab-db-server`)
 **Metode:** 4 audit paralel independent (keamanan, frontend, backend GAS + logika data, arsitektur & kualitas kode) — semuanya read-only. Klaim-klaim kritis diverifikasi ulang langsung di kode sebelum dimasukkan ke laporan ini.
 
-> **Status perbaikan (update 18 Nov 2026):** SEC-K1, SEC-K2, SEC-K3, SEC-K4, SEC-T5, SEC-T6, SEC-T7, SEC-T8, SEC-T9, SEC-T10, SEC-S1, SEC-S2, SEC-S3, SEC-R1 sudah diperbaiki di branch `security-phase1` (commits `671ec79`..`5805640`). Sisa: SEC-R3 (pesan login sudah generik di Homeserver; GAS masih membedakan "Akun tidak ditemukan"/"Password salah" — perlu disamakan), plus temuan BE/FE/ARC. Secrets lebih lanjut: rotasi `FIREBASE_SECRET` / `API_SECRET` perlu dilakukan user di Firebase Console & GAS Script Properties setelah merge.
+> **Status perbaikan (update 18 Nov 2026):** seluruh temuan SEC (K1-K4, T5-T10, S1-S3, R1, R3) sudah diperbaiki di branch `security-phase1`. Non-security yang juga selesai: BE-T1 (satuan tunggal jam, tolak >8), BE-T2 (pull tolak saat outbox kotor + flush PATCH), BE-T3 (baca RTDB segar, id baris stabil), FE-T11/T12/T13 (request-id editor, rollback save, modal impor bisa ditutup), FE-T15 (laporan OPD termasuk sub-unit), ARC-F7 (status HTTP bermakna), ARC-F12 (CI GitHub Actions). Sisa (ditunda, butuh refactor besar): ARC-F2 (dedup GAS↔Homeserver), ARC-F8/F9 (any & set-state-in-effect), ARC-F14 (backup otomatis + alerting). Rotasi `FIREBASE_SECRET` / `API_SECRET` / `HOMESERVER_SECRET` / `SITPP_SECRET` tetap tanggung jawab user di Firebase Console & GAS Script Properties setelah merge.
 
 Dokumen pendukung:
 - Audit performa: `docs/audit/2026-11-18-audit-performa-dan-alur-perbaikan.md`
