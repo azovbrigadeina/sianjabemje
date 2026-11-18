@@ -3,7 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
-import type { UnitKerja, Jabatan } from "@/lib/types";
+import type { UnitKerja, Jabatan, TugasPokok, BahanKerja, SyaratJabatan, Kualifikasi } from "@/lib/types";
+
+/** Record ABK tersimpan (bentuk bebas, cukup penanda terisi). */
+interface AbkRow { id: string; [key: string]: unknown }
 
 interface JobWithStatus extends Jabatan {
   anjabTerisi: boolean;
@@ -34,8 +37,11 @@ interface OpdNode {
 export default function VerifikasiPage() {
   const [opds, setOpds] = useState<UnitKerja[]>([]);
   const [jabatans, setJabatans] = useState<Jabatan[]>([]);
-  const [tugasPokoks, setTugasPokoks] = useState<any[]>([]);
-  const [abks, setAbks] = useState<any[]>([]);
+  const [tugasPokoks, setTugasPokoks] = useState<TugasPokok[]>([]);
+  const [abks, setAbks] = useState<AbkRow[]>([]);
+  const [syaratList, setSyaratList] = useState<SyaratJabatan[]>([]);
+  const [kualifikasiList, setKualifikasiList] = useState<Kualifikasi[]>([]);
+  const [bahanList, setBahanList] = useState<BahanKerja[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"semua" | "anjab-belum" | "abk-belum" | "lengkap">("semua");
@@ -49,31 +55,28 @@ export default function VerifikasiPage() {
   const [modalSearch, setModalSearch] = useState("");
   const [modalFilter, setModalFilter] = useState<"semua" | "anjab-terisi" | "anjab-belum" | "abk-terisi" | "abk-belum">("semua");
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const bulkData = await api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'abk']);
-
-      setOpds((bulkData.unitKerja || []) as UnitKerja[]);
-      setJabatans((bulkData.jabatan || []) as Jabatan[]);
-      setTugasPokoks((bulkData.tugasPokok || []) as any[]);
-      setSyaratList((bulkData.syaratJabatan || []) as any[]);
-      setKualifikasiList((bulkData.kualifikasi || []) as any[]);
-      setBahanList((bulkData.bahanKerja || []) as any[]);
-      setAbks((bulkData.abk || []) as any[]);
-    } catch (err) {
-      console.error("Gagal memuat data verifikasi", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const [syaratList, setSyaratList] = useState<any[]>([]);
-  const [kualifikasiList, setKualifikasiList] = useState<any[]>([]);
-  const [bahanList, setBahanList] = useState<any[]>([]);
-
+  // Data loading dari API on mount — setState terjadi di callback promise,
+  // bukan sinkron di body effect.
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
+    api.getBulkData(['unitKerja', 'jabatan', 'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'abk'])
+      .then((bulkData) => {
+        if (cancelled) return;
+        setOpds((bulkData.unitKerja || []) as UnitKerja[]);
+        setJabatans((bulkData.jabatan || []) as Jabatan[]);
+        setTugasPokoks((bulkData.tugasPokok || []) as TugasPokok[]);
+        setSyaratList((bulkData.syaratJabatan || []) as SyaratJabatan[]);
+        setKualifikasiList((bulkData.kualifikasi || []) as Kualifikasi[]);
+        setBahanList((bulkData.bahanKerja || []) as BahanKerja[]);
+        setAbks((bulkData.abk || []) as AbkRow[]);
+      })
+      .catch((err) => {
+        console.error("Gagal memuat data verifikasi", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // Map to check if a job has ANJAB data filled
@@ -278,18 +281,10 @@ export default function VerifikasiPage() {
       .filter((n): n is OpdNode => n !== null);
   }, [processedData, searchQuery, filterStatus]);
 
-  // Auto-expand nodes when searching
-  useEffect(() => {
-    if (searchQuery.trim().length > 1) {
-      const autoExpanded: Record<string, boolean> = {};
-      filteredData.forEach((node) => {
-        if (node.subUnits.length > 0) {
-          autoExpanded[node.opd.id] = true;
-        }
-      });
-      setExpandedOpds(autoExpanded);
-    }
-  }, [searchQuery, filteredData]);
+  // Auto-expand nodes when searching: derived — node diperlakukan terbuka saat
+  // query aktif, tanpa menulis state di effect (set-state-in-effect).
+  const isNodeExpanded = (id: string) =>
+    (searchQuery.trim().length > 1) ? true : !!expandedOpds[id];
 
   const toggleExpand = (id: string) => {
     setExpandedOpds((prev) => ({
@@ -440,7 +435,7 @@ export default function VerifikasiPage() {
         <select
           className={styles.filterSelect}
           value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as any)}
+          onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
         >
           <option value="semua">Semua Status Progres</option>
           <option value="lengkap">Selesai 100% (Anjab & ABK)</option>
@@ -478,7 +473,7 @@ export default function VerifikasiPage() {
             ) : (
               filteredData.map((node) => {
                 const hasSubs = node.subUnits.length > 0;
-                const isExpanded = !!expandedOpds[node.opd.id];
+                const nodeExpanded = isNodeExpanded(node.opd.id);
 
                 return (
                   <>
@@ -487,9 +482,9 @@ export default function VerifikasiPage() {
                       <td style={{ fontWeight: 600 }}>
                         {hasSubs && (
                           <button
-                            className={`${styles.expandBtn} ${isExpanded ? styles.expanded : ""}`}
+                            className={`${styles.expandBtn} ${nodeExpanded ? styles.expanded : ""}`}
                             onClick={() => toggleExpand(node.opd.id)}
-                            title={isExpanded ? "Collapse" : "Expand Sub-unit"}
+                            title={nodeExpanded ? "Collapse" : "Expand Sub-unit"}
                           >
                             ▶
                           </button>
@@ -557,7 +552,7 @@ export default function VerifikasiPage() {
 
                     {/* Sub Units Rows (Collapsible) */}
                     {hasSubs &&
-                      isExpanded && [
+                      nodeExpanded && [
                         // Direct parent positions if any
                         node.direct.total > 0 && (
                           <tr key={`${node.opd.id}-direct`} className={styles.rowSubUnit}>
@@ -743,7 +738,7 @@ export default function VerifikasiPage() {
               <select
                 className={styles.filterSelect}
                 value={modalFilter}
-                onChange={(e) => setModalFilter(e.target.value as any)}
+                onChange={(e) => setModalFilter(e.target.value as typeof modalFilter)}
               >
                 <option value="semua">Semua Jabatan</option>
                 <option value="anjab-terisi">Anjab Terisi</option>
