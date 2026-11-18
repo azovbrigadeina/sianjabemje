@@ -1542,10 +1542,21 @@ async function handleSianjabAction(action, params, body, clientIp) {
       if (currentUser.role !== 'admin') assertJabatanAccess(currentUser, id, year);
       return getJabatanFull(id, year);
 
-    case 'getJabatanByUnit':
+    case 'getJabatanByUnit': {
       // SEC-T6: operator hanya boleh membaca jabatan pada OPD-nya.
       if (currentUser.role !== 'admin') assertUnitAccess(currentUser, unitId, year);
-      return readAllRecords('jabatan', unitId, year);
+      // FE-T15: sertakan seluruh sub-unit (turunan) OPD.
+      const allowedUnits = getAllowedUnitKerjaIds(unitId, year);
+      const seen = new Set();
+      const out = [];
+      for (const uId of allowedUnits) {
+        for (const j of readAllRecords('jabatan', uId, year)) {
+          if (!seen.has(j.id)) { seen.add(j.id); out.push(j); }
+        }
+      }
+      out.sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0));
+      return out;
+    }
 
     case 'getUnitKerja':
       return readAllRecords('unitKerja', '', year);
@@ -2285,6 +2296,15 @@ function setCorsHeaders(res, req) {
   res.setHeader('Access-Control-Expose-Headers', 'ETag');
 }
 
+function httpStatusForError(err) {
+  if (err && err.statusCode) return err.statusCode;
+  const msg = (err && err.message) || String(err);
+  if (/token tidak valid|kadaluarsa|login ulang|unauthorized/i.test(msg)) return 401;
+  if (/akses ditolak|forbidden|hanya (administrator|admin)|tidak memiliki (akses|wewenang)/i.test(msg)) return 403;
+  if (/wajib|tidak valid|harus|tidak ditemukan|sudah dipakai|maksimal/i.test(msg)) return 400;
+  return 500;
+}
+
 function sendJson(req, res, statusCode, obj, enableEtag = false) {
   setCorsHeaders(res, req);
   const jsonStr = JSON.stringify(obj);
@@ -2554,7 +2574,8 @@ function createAppServer() {
 
       return sendJson(req, res, 404, { success: false, error: 'Endpoint tidak ditemukan: ' + pathname });
     } catch (err) {
-      return sendJson(req, res, err.statusCode || 200, { success: false, error: err.message || String(err) });
+      // ARC-F7: HTTP status bermakna — bukan selalu 200 (healthcheck/alerting).
+      return sendJson(req, res, httpStatusForError(err), { success: false, error: err.message || String(err) });
     }
   });
 }
@@ -2641,5 +2662,6 @@ module.exports = {
   loginFailures,
   hashPasswordHmac,
   pullAllFromRtdb,
-  flushOutboxToRtdb
+  flushOutboxToRtdb,
+  httpStatusForError
 };

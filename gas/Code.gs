@@ -1851,6 +1851,8 @@ function saveBulkAnjabData_(parentId, payload) {
 function getJabatanByUnit_(unitId) {
   var allJabatan = cachedFbGet_(getFirebasePath_('jabatan'), 300);
   if (!allJabatan) return [];
+  // FE-T15: laporan per OPD harus mencakup sub-unit (seluruh turunan OPD).
+  var allowedUnits = getAllowedUnitKerjaIds_(unitId);
 
   return Object.keys(allJabatan)
     .map(function (key) {
@@ -1859,7 +1861,7 @@ function getJabatanByUnit_(unitId) {
       return j;
     })
     .filter(function (j) {
-      return j.unitKerjaId === unitId;
+      return allowedUnits[j.unitKerjaId] === true;
     })
     .sort(function (a, b) {
       return (a.level || 0) - (b.level || 0);

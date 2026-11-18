@@ -401,6 +401,29 @@ test('BE-T2: pull ditolak saat masih ada perubahan lokal belum flush', async () 
   dirtyPaths.delete('2027/tugasPokok/tp_belum_flush');
 });
 
+test('ARC-F7: error API status code bermakna (bukan selalu 200)', () => {
+  const { httpStatusForError } = require('./server.js');
+  assert.equal(httpStatusForError(new Error('Token tidak valid atau sudah kadaluarsa. Silakan login ulang.')), 401);
+  assert.equal(httpStatusForError(new Error('Akses ditolak: Anda hanya dapat mengakses data pada OPD Anda sendiri.')), 403);
+  assert.equal(httpStatusForError(new Error('Waktu per hasil kerja maksimal 8 jam (1 hari kerja).')), 400);
+  assert.equal(httpStatusForError(new Error('Kesalahan internal tak terduga')), 500);
+  const e = new Error('rate limited'); e.statusCode = 429;
+  assert.equal(httpStatusForError(e), 429);
+});
+
+test('FE-T15: getJabatanByUnit menyertakan jabatan sub-unit', async () => {
+  setDbNode('2027/unitKerja/unit_dinkes', { id: 'unit_dinkes', nama: 'Dinas Kesehatan' });
+  setDbNode('2027/unitKerja/unit_puskesmas', { id: 'unit_puskesmas', nama: 'Puskesmas', parentId: 'unit_dinkes' });
+  setDbNode('2027/jabatan/jab_induk', { id: 'jab_induk', unitKerjaId: 'unit_dinkes', namaJabatan: 'Kepala Dinas', level: 1 });
+  setDbNode('2027/jabatan/jab_anak', { id: 'jab_anak', unitKerjaId: 'unit_puskesmas', namaJabatan: 'Kepala Puskesmas', level: 2 });
+  rebuildAllIndexes();
+  const adminTok = generateAuthToken('admin');
+  const list = await handleSianjabAction('getJabatanByUnit', { token: adminTok, unitId: 'unit_dinkes', tahun: '2027' }, {}, '127.0.0.1');
+  const ids = list.map((j) => j.id);
+  assert.ok(ids.includes('jab_induk'), 'jabatan OPD induk ikut');
+  assert.ok(ids.includes('jab_anak'), 'jabatan sub-unit ikut');
+});
+
 test('SEC-S2: verifyAdminSecret menolak secret dari query string', () => {
   const req = { headers: {}, url: '/_homeserver/status?secret=test-hs-secret' };
   assert.equal(verifyAdminSecret(req, {}), false);
