@@ -113,3 +113,16 @@ Head branch: `e659c0c`.
 - **ARC-F9 selesai** (commit d1b97b9): `react-hooks/set-state-in-effect` 0 error di seluruh `src` — setState dipindah ke microtask (`Promise.resolve().then(...)`) atau callback promise; pagination di-clamp turunan; state diturunkan saat render.
 - Gate akhir: unit 23/23, gas 122/122 + 6/6 + parity 114/114, server 25/25, resilience 1/1, build OK, `tsc --noEmit` 0 error, eslint 0 error.
 - Head branch: `d1b97b9`.
+
+## Sesi Lanjutan (ARC-F3 + ARC-F11 selesai)
+
+- **ARC-F11 selesai** (commit e1d1a6f): `sianjab-db-server/.env.example` lengkap (semua env server, termasuk `PASSWORD_PEPPER` wajib + opsional `PORT`/`BIND_HOST`/`DATA_DIR`/`CORS_ALLOWED_ORIGINS`/`BACKUP_INTERVAL_MS`/`BACKUP_RETENTION`), `.env.local.example` frontend baru, keduanya dijaga test `sianjab-db-server/env-example.test.js` (`npm run test:env`); `.gitignore` `!.env.local.example`; eslint `globalIgnores` `sianjab-db-server/**` + `gas/**` (Node CJS, bukan bundel Next.js).
+- **ARC-F3 selesai** (commit f7cb1d7 homeserver + 1d0f3b0 GAS + paritas):
+  - Format hash v2: `v2$<salt32hex>$<hmac64hex>`; key HMAC = `salt:username:PASSWORD_PEPPER`; salt acak per user (`crypto.randomBytes(16)` / `Utilities.getUuid()`); HMAC-SHA256 satu putaran tanpa iterasi (keputusan user: kecepatan login).
+  - `PASSWORD_PEPPER` wajib fail-closed: homeserver menolak start (`requireEnv`); GAS login gagal "PASSWORD_PEPPER belum dikonfigurasi di Script Properties."
+  - Verifikasi berurutan v2 → v1 (`HMAC(password, username:API_SECRET)`) → legacy (`sha256(password)`), perbandingan constant-time (`safeEqualHex` / `constantTimeEqual_`).
+  - Migrasi login-first (tanpa bulk script): login sukses dengan hash lama → tulis `password` v2, hapus `passwordHash` (homeserver) / `passwordHash: null` (GAS patch).
+  - Parity test 7 assertion baru: hash v2 & v1 GAS = Homeserver, format, verifikasi rehash, password salah ditolak — total parity 121 PASS, masuk `npm run test:gas`.
+  - **Urutan deploy aman:** deploy v2 dengan `API_SECRET` lama → semua user login (auto-migrasi ke v2) → setelah semua termigrasi, baru rotasi `API_SECRET`. `PASSWORD_PEPPER` diisi (nilai sama di homeserver `.env` + GAS Script Properties) SEBELUM user pertama login, dan TIDAK dirotasi bersama `API_SECRET` (rotasi pepper = semua password direset).
+- Gate akhir: unit 23/23, gas 122/122 + 6/6 + parity 121/121, env 3/3, server 27/27 (+1 migrasi, 28 total dengan resilience), resilience 1/1, build OK, `tsc --noEmit` 0 error.
+- Head branch: `1d0f3b0`.

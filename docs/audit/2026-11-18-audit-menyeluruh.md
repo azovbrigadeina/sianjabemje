@@ -3,7 +3,7 @@
 **Versi:** Next.js 16.2.9 / React 19.2.4 / GAS / Homeserver DB (`sianjab-db-server`)
 **Metode:** 4 audit paralel independent (keamanan, frontend, backend GAS + logika data, arsitektur & kualitas kode) — semuanya read-only. Klaim-klaim kritis diverifikasi ulang langsung di kode sebelum dimasukkan ke laporan ini.
 
-> **Status perbaikan (update 18 Nov 2026):** seluruh temuan SEC (K1-K4, T5-T10, S1-S3, R1, R3) sudah diperbaiki di branch `security-phase1`. Non-security yang juga selesai: BE-T1 (satuan tunggal jam, tolak >8), BE-T2 (pull tolak saat outbox kotor + flush PATCH), BE-T3 (baca RTDB segar, id baris stabil), FE-T11/T12/T13 (request-id editor, rollback save, modal impor bisa ditutup), FE-T15 (laporan OPD termasuk sub-unit), ARC-F7 (status HTTP bermakna), ARC-F14 (backup otomatis harian + retensi + alerting storage/backup + endpoint `/_homeserver/backup`), ARC-F2 selesai (parity test GAS↔Homeserver mandiri `gas/tests/parity-gas-homeserver.js` — 114 assertion PASS, masuk `test:gas`; konstanta bersama `WKE_FIX_JAM` diekspor server; refactor kontrak API tunggal ditunda), ARC-F8 & ARC-F9 selesai (sisa `any` hanya 26 di `src/lib/api.ts` — permukaan API publik yang menunggu tipedata domain; `set-state-in-effect` 0 error, setState di pindah ke microtask/callback promise). Sisa: ARC-F12 (workflow CI sudah dibuat tapi belum bisa di-push: PAT tanpa scope `workflow`). Rotasi `FIREBASE_SECRET` / `API_SECRET` / `HOMESERVER_SECRET` / `SITPP_SECRET` tetap tanggung jawab user di Firebase Console & GAS Script Properties setelah merge.
+> **Status perbaikan (update 18 Nov 2026):** seluruh temuan SEC (K1-K4, T5-T10, S1-S3, R1, R3) sudah diperbaiki di branch `security-phase1`. Non-security yang juga selesai: BE-T1 (satuan tunggal jam, tolak >8), BE-T2 (pull tolak saat outbox kotor + flush PATCH), BE-T3 (baca RTDB segar, id baris stabil), FE-T11/T12/T13 (request-id editor, rollback save, modal impor bisa ditutup), FE-T15 (laporan OPD termasuk sub-unit), ARC-F7 (status HTTP bermakna), ARC-F14 (backup otomatis harian + retensi + alerting storage/backup + endpoint `/_homeserver/backup`), ARC-F2 selesai (parity test GAS↔Homeserver mandiri `gas/tests/parity-gas-homeserver.js` — 114 assertion PASS, masuk `test:gas`; konstanta bersama `WKE_FIX_JAM` diekspor server; refactor kontrak API tunggal ditunda), ARC-F8 & ARC-F9 selesai (sisa `any` hanya 26 di `src/lib/api.ts` — permukaan API publik yang menunggu tipedata domain; `set-state-in-effect` 0 error, setState di pindah ke microtask/callback promise). ARC-F3 & ARC-F11 selesai (hash password v2 bersalt acak + migrasi otomatis saat login di GAS & Homeserver, `PASSWORD_PEPPER` fail-closed; contoh env server & frontend lengkap + dijaga `npm run test:env`). Sisa: ARC-F12 (workflow CI sudah dibuat tapi belum bisa di-push: PAT tanpa scope `workflow`). Rotasi `FIREBASE_SECRET` / `API_SECRET` / `HOMESERVER_SECRET` / `SITPP_SECRET` tetap tanggung jawab user di Firebase Console & GAS Script Properties setelah merge.
 
 Dokumen pendukung:
 - Audit performa: `docs/audit/2026-11-18-audit-performa-dan-alur-perbaikan.md`
@@ -61,7 +61,7 @@ Terdapat **22 temuan**, terbagi dalam: 6 Kritis, 11 Tinggi, 11 Sedang, 6 Rendah 
 | FE-T14 | Konversi waktu `>8 = menit` mengubah data sah | `src/lib/utils.ts:163-167` |
 | FE-T15 | Laporan per OPD mengabaikan sub-unit | `Code.gs:1782-1798`, `dashboard/laporan/page.tsx:225` |
 | ARC-F2 | Duplikasi penuh logika bisnis GAS ↔ Homeserver | `Code.gs` vs `server.js` (5.030 vs 2.466 baris) |
-| ARC-F3 | Password plaintext diterima + hash tanpa iterasi | `server.js:641-648, 1238` |
+| ARC-F3 | **SELESAI** — hash v2 bersalt acak + verifikasi berurutan + migrasi login (lihat catatan status atas) | `server.js`, `Code.gs` |
 | ARC-F7 | Error API dikembalikan dengan HTTP 200 | `server.js:2474` |
 
 ### 🟡 SEDANG
@@ -81,10 +81,10 @@ Terdapat **22 temuan**, terbagi dalam: 6 Kritis, 11 Tinggi, 11 Sedang, 6 Rendah 
 | BE-S3 | `verifyFormasiIdeal_` menelan error & merekayasa volume TPP | `Code.gs:3956-3958, 3879-3901` |
 | BE-S5 | Kode verifikasi bisa terbit tanpa terdaftar | `src/lib/verification.ts:138-145` |
 | BE-S7 | Jalur batch melewati validasi hierarki (cycle) | `Code.gs:956-990, 2699-2752` |
-| BE-S8 | Hash password & token tidak sepakat antar-backend | `server.js:641-656` vs `Code.gs:1907-1910` |
+| BE-S8 | **SELESAI** — hash password & token kini sepakat antar-backend (parity 121 PASS) | `server.js` vs `Code.gs` |
 | ARC-F8 | 305 `any` + 89 unused vars dalam kode | Berbagai berkas |
 | ARC-F9 | 42 pelanggaran `set-state-in-effect` | Halaman-halaman |
-| ARC-F11 | Konfigurasi env tidak konsisten antara kode & contoh | `.env.local.example` |
+| ARC-F11 | **SELESAI** — contoh env server & frontend lengkap, dijaga `npm run test:env` | `.env.local.example`, `sianjab-db-server/.env.example` |
 | ARC-F12 | Kode kritis tidak diuji (api.ts, Code.gs handler) | `src/lib/api.ts`, dll. |
 | ARC-F14 | Homeserver = single point of failure data (RAM) | `server.js:78` |
 
@@ -314,6 +314,8 @@ Tiga jalur berbeda:
 **Rekomendasi:** Request-id per openEditor; snapshot + rollback save; jaminan tombol Tutup/Menutup di modal (muncul bila tidak ada proses aktif), dan `currentStepIndex` di-set pada `catch`.
 
 ---
+
+ARC-F11 (konfigurasi env tidak konsisten) **selesai** (commit e1d1a6f): `sianjab-db-server/.env.example` lengkap (semua env yang dibaca server.js, termasuk `PASSWORD_PEPPER`) dijaga test `npm run test:env`; `.env.local.example` frontend baru (3 `NEXT_PUBLIC_*`). ARC-F3 (password) **selesai** (commit f7cb1d7 + 1d0f3b0): hash v2 `v2$<salt32hex>$<hmac64hex>` dengan salt acak per user, HMAC-SHA256 satu putaran, key `salt:username:PASSWORD_PEPPER`; verifikasi berurutan v2 → v1 → legacy dengan perbandingan constant-time; migrasi otomatis ke v2 saat login sukses (homeserver `server.js` dan GAS `Code.gs`); `PASSWORD_PEPPER` wajib (fail-closed) di kedua backend; parity test GAS↔Homeserver 7 assertion baru (total 121 PASS).
 
 ### 🟠 [ARC-F2] Duplikasi Full Logika Bisnis GAS ↔ Homeserver
 `gas/Code.gs` (5030 baris) vs `sianjab-db-server/server.js` (2466 baris) — token HMAC, RBAC, `getDashboardStats`, `saveBulkAnjabData`, validasi tahun, logika WKE — semuanya disalin manual.

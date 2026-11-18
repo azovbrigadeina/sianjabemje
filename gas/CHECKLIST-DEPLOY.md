@@ -7,6 +7,11 @@ bagian uji pasca-deploy — deploy sukses (push ok) ≠ aplikasi bekerja.
 > timestamp : nonce : hmac)**. Semua token lama otomatis mati setelah push →
 > semua user harus login ulang. Komunikasikan dulu ke pengguna.
 
+> ⚠️ ARC-F3: isi `PASSWORD_PEPPER` (nilai **sama** dengan `PASSWORD_PEPPER` di
+> `sianjab-db-server/.env`) SEBELUM user pertama login. Rotasi `API_SECRET`
+> hanya boleh setelah semua user termigrasi ke hash v2 (login sekali per user).
+> Jangan merotasi `PASSWORD_PEPPER` — akibatnya semua password harus direset.
+
 ## 0. Pra-push (lokal)
 
 - [ ] `npm test` — harus **PASS 109 / FAIL 0, exit 0** (simulasi A1–A10, B, C)
@@ -41,6 +46,7 @@ bagian uji pasca-deploy — deploy sukses (push ok) ≠ aplikasi bekerja.
 | `FIREBASE_SECRET` | ✅ | Auth REST ke RTDB | Semua request gagal |
 | `SITPP_FIREBASE_URL`, `SITPP_SECRET` | Jika pakai SiTPP | `exportForSitpp` | Publish SiTPP gagal |
 | `API_SECRET` | Opsional | Dasar HMAC token login | Dibuat otomatis saat login pertama |
+| `PASSWORD_PEPPER` | ✅ | Pepper hash password v2 (ARC-F3) | Login gagal "PASSWORD_PEPPER belum dikonfigurasi di Script Properties." |
 | `INTEGRATION_TOKEN` | ✅ (jika pakai auto-register) | `autoRegisterOperator` | Fitur gagal keras "INTEGRATION_TOKEN belum dikonfigurasi" |
 | `SPT_DIGITAL_URL`, `SPT_DIGITAL_TOKEN` | ✅ (jika pakai cek SPT) | `checkSptOpd` | Fitur gagal keras "belum dikonfigurasi" (A9 — tidak ada fallback) |
 | `BASE_YEAR` | Opsional | Tahun baseline | Default `2026` |
