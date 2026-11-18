@@ -2482,6 +2482,17 @@ function createAppServer() {
 // ============================================================================
 loadFromDisk();
 
+// Task 5 (ketahanan bebaa): keputusan pull otomatis saat startup.
+// Pull hanya aman bila tidak ada tulisan lokal yang belum ter-flush —
+// pull menimpa seluruh `db` dan membuang dirtyPaths (lihat BE-T2).
+// dirtyCount/outboxCount = override untuk test; default dari state runtime.
+function shouldPullOnStart({ dirtyCount, outboxCount, autoPullEnv } = {}) {
+  if (String(autoPullEnv) === 'false') return false;
+  const dirty = dirtyCount !== undefined ? dirtyCount : (dirtyPaths ? dirtyPaths.size : 0);
+  const outbox = outboxCount !== undefined ? outboxCount : 0;
+  return dirty === 0 && outbox === 0;
+}
+
 if (require.main === module) {
   const server = createAppServer();
   server.listen(PORT, BIND_HOST, async () => {
@@ -2490,7 +2501,7 @@ if (require.main === module) {
     console.log(`📂 Data Directory : ${DATA_DIR}`);
     console.log(`🔄 Write-Behind   : setiap ${WRITE_BEHIND_INTERVAL_MS / 1000} detik`);
     console.log('============================================================');
-    if (Object.keys(db).length === 0 && FIREBASE_DB_URL) {
+    if (Object.keys(db).length === 0 && shouldPullOnStart({ autoPullEnv: process.env.AUTO_PULL_ON_START })) {
       console.log('[SIANJAB-DB] Database lokal masih kosong. Menarik snapshot awal otomatis dari Firebase RTDB...');
       try {
         await pullAllFromRtdb();
@@ -2500,6 +2511,31 @@ if (require.main === module) {
       }
     }
   });
+
+  // Task 5: flush outbox sebelum keluar (docker stop / ctrl-c) supaya
+  // tulisan 0-3 menit terakhir tidak hanya hidup di disk lokal.
+  let shuttingDown = false;
+  async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[SIANJAB-DB] ${signal} diterima, flush outbox sebelum keluar...`);
+    const timeout = setTimeout(() => {
+      console.error('[SIANJAB-DB] Flush timeout saat shutdown, keluar paksa');
+      process.exit(1);
+    }, 10000);
+    try {
+      saveDbNow();
+      if (dirtyPaths.size > 0) {
+        await flushOutboxToRtdb();
+      }
+    } catch (e) {
+      console.error('[SIANJAB-DB] Gagal flush saat shutdown:', e.message);
+    }
+    clearTimeout(timeout);
+    process.exit(0);
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 module.exports = {
@@ -2517,5 +2553,6 @@ module.exports = {
   validateAuthToken,
   getAuthenticatedUser,
   CORS_ALLOWED_ORIGINS,
-  BIND_HOST
+  BIND_HOST,
+  shouldPullOnStart
 };

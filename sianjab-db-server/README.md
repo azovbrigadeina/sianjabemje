@@ -58,3 +58,12 @@ URL Funnel yang dihasilkan:
    Setiap perubahan dari OPD otomatis dicatat di `outbox.json` dan di-*flush* ke Firebase RTDB setiap 3 menit di latar belakang. Anda juga dapat menekan **"2. Flush Outbox ke RTDB Sekarang"** kapan saja.
 4. **Kembali ke Mode RTDB (Safe Switch)**:
    Klik **"Kembali ke Mode Firebase RTDB"**. Sistem otomatis mem-*flush* seluruh antrean Outbox ke RTDB dan meng-invalidasi cache GAS sebelum mengalihkan trafik kembali ke Cloud.
+
+## Ketahanan saat server mati (bebaa)
+
+- Saat `docker stop` / SIGTERM, server mem-flush outbox ke RTDB (maks 10 detik) sebelum keluar.
+- Saat startup, auto-pull dari RTDB hanya dijalankan bila **tidak ada** tulisan lokal yang belum ter-flush. Set `AUTO_PULL_ON_START=false` untuk mematikan.
+- Backup disk harian (disarankan, jalankan di bebaa):
+  ```bash
+  rsync -a /path/ke/sianjab-db-server/data/ user@falconxtra:/path/backup/sianjab-data/
+  ```
