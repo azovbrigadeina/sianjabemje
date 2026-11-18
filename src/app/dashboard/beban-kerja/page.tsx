@@ -292,7 +292,7 @@ export default function BebanKerjaPage() {
     setMode('editor');
 
     // Optimistic hydration jika data jabatan full sudah ada di cache
-    const cachedFull = api.getCachedJabatanFull(node.id) as { tugasPokok?: { uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[] } | null;
+    const cachedFull = (await api.getCachedJabatanFull(node.id)) as { tugasPokok?: { uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[] } | null;
     if (cachedFull?.tugasPokok && cachedFull.tugasPokok.length > 0) {
       setAnjabTasks(cachedFull.tugasPokok);
       setAnjabStatus('done');

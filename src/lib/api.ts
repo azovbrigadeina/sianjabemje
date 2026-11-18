@@ -7,6 +7,61 @@ import { DuplicateUnitKerjaParams } from './types';
 import { getActiveYear } from '@/lib/constants';
 
 const API_BASE = process.env.NEXT_PUBLIC_GAS_DEPLOYMENT_URL || '';
+const DEFAULT_HOMESERVER_URL = process.env.NEXT_PUBLIC_HOMESERVER_URL || 'https://bebaa-server-1.tail56d53d.ts.net:10000';
+
+export interface HomeserverConfig {
+  url: string;
+  mode: 'HOMESERVER' | 'RTDB';
+  secret?: string;
+  updatedAt?: string;
+}
+
+const HS_URL_KEY = 'sianjab_homeserver_url';
+const HS_MODE_KEY = 'sianjab_db_mode';
+const HS_SECRET_KEY = 'sianjab_homeserver_secret';
+
+// Circuit breaker: jika Homeserver gagal dihubungi, fallback ke GAS + RTDB selama 20 detik
+let homeserverCircuitOpenUntil = 0;
+let homeserverConfigHydrated = false;
+
+export function getLocalHomeserverConfig(): HomeserverConfig {
+  if (typeof window === 'undefined') {
+    return { url: DEFAULT_HOMESERVER_URL, mode: 'RTDB' };
+  }
+  const url = (localStorage.getItem(HS_URL_KEY) || DEFAULT_HOMESERVER_URL).replace(/\/+$/, '');
+  const rawMode = localStorage.getItem(HS_MODE_KEY);
+  const mode: 'HOMESERVER' | 'RTDB' = rawMode === 'HOMESERVER' ? 'HOMESERVER' : 'RTDB';
+  const secret = localStorage.getItem(HS_SECRET_KEY) || 'sianjab-homeserver-2026';
+  return { url, mode, secret };
+}
+
+export function setLocalHomeserverConfig(cfg: Partial<HomeserverConfig>): HomeserverConfig {
+  if (typeof window !== 'undefined') {
+    if (cfg.url !== undefined) {
+      localStorage.setItem(HS_URL_KEY, cfg.url.trim().replace(/\/+$/, ''));
+    }
+    if (cfg.mode !== undefined) {
+      localStorage.setItem(HS_MODE_KEY, cfg.mode);
+    }
+    if (cfg.secret !== undefined) {
+      localStorage.setItem(HS_SECRET_KEY, cfg.secret);
+    }
+  }
+  homeserverCircuitOpenUntil = 0;
+  return getLocalHomeserverConfig();
+}
+
+function shouldUseHomeserver(action: string): boolean {
+  if (typeof window === 'undefined') return false;
+  // Login, AI generation, dan SiTPP publish tetap melalui GAS (Otoritas Kredensial & AI resmi)
+  if (action === 'login' || action === 'generateAnjabWithAI' || action === 'generateAnjabAi') {
+    return false;
+  }
+  const cfg = getLocalHomeserverConfig();
+  if (cfg.mode !== 'HOMESERVER' || !cfg.url) return false;
+  if (Date.now() < homeserverCircuitOpenUntil) return false;
+  return true;
+}
 
 interface ApiResponse<T = unknown> {
   success: boolean;
@@ -29,7 +84,7 @@ interface CacheEntry {
 
 // In-memory cache (fast primary)
 const API_CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 90 * 1000; // 90 detik (dikecilkan 2x dari 3 menit agar data lebih segar)
+const CACHE_TTL_MS = 300 * 1000; // 5 menit (dioptimalkan untuk pengisian serentak 42 OPD; otomatis di-invalidasi setiap write)
 
 const DB_NAME = 'sianjab_cache_db';
 const STORE_NAME = 'api_cache';
@@ -428,7 +483,7 @@ async function apiCall<T = unknown>(
     'migrateRootTo2026', 'restoreBatchJabatans', 'restoreBatchEntities',
     'exportForSitpp', 'generateAnjabWithAI', 'saveTemplate', 'saveTagMappings',
     'saveDeadline', 'registerVerificationCode', 'restoreFullDatabase',
-    'duplicateUnitKerja', 'createBatchJabatans'
+    'duplicateUnitKerja', 'createBatchJabatans', 'createBatchReferensi', 'invalidateAllCaches'
   ];
   const isWriteOperation = writeActions.includes(action) || !!opts.data;
   const activeYear = getActiveYear();
@@ -443,7 +498,34 @@ async function apiCall<T = unknown>(
     searchParams.set('token', authToken);
   }
 
-  const url = `${API_BASE}?${searchParams.toString()}`;
+  const gasUrl = `${API_BASE}?${searchParams.toString()}`;
+  const useHs = shouldUseHomeserver(action);
+  const hsCfg = getLocalHomeserverConfig();
+  const hsUrl = `${hsCfg.url}/api?${searchParams.toString()}`;
+  const cacheKeyUrl = gasUrl; // Gunakan kunci cache kanonik agar konsisten
+
+  const executeWithSmartRouting = async (): Promise<T> => {
+    if (useHs) {
+      try {
+        return await executeActualRequest<T>(hsUrl, isWriteOperation, opts, { action, entity, opts });
+      } catch (hsErr: any) {
+        const msg = String(hsErr?.message || '');
+        // Jika error bisnis/validasi/auth dari server Homeserver (bukan error jaringan), lempar langsung
+        const isNetworkFailure =
+          msg.includes('Failed to fetch') ||
+          msg.includes('NetworkError') ||
+          msg.includes('Load failed') ||
+          msg.includes('Request Timeout') ||
+          msg.includes('Homeserver sedang OFF');
+        if (!isNetworkFailure) {
+          throw hsErr;
+        }
+        console.warn('[SmartRouter] Homeserver tidak terjangkau, fallback otomatis ke GAS + RTDB:', msg);
+        homeserverCircuitOpenUntil = Date.now() + 20000;
+      }
+    }
+    return executeActualRequest<T>(gasUrl, isWriteOperation, opts, { action, entity, opts });
+  };
 
   // Cek cache untuk GET request (non-write) — memory + IndexedDB
   if (!isWriteOperation) {
@@ -456,13 +538,13 @@ async function apiCall<T = unknown>(
       if (cached !== null) return cached;
     }
 
-    const cached = await getFromCache<T>(url);
+    const cached = await getFromCache<T>(cacheKeyUrl);
     if (cached !== null) {
       return cached;
     }
 
     // Dedup: jika request yang sama sedang in-flight, tunggu hasilnya
-    const inFlight = inFlightRequests.get(url);
+    const inFlight = inFlightRequests.get(cacheKeyUrl);
     if (inFlight) {
       return inFlight as Promise<T>;
     }
@@ -473,18 +555,18 @@ async function apiCall<T = unknown>(
     await invalidateTargetedCache(action, entity, opts);
 
     // WRITE: serialisasikan (antri satu per satu) untuk mencegah race condition (H4)
-    const run = () => executeActualRequest<T>(url, true, opts, { action, entity, opts });
+    const run = () => executeWithSmartRouting();
     const result = new Promise<T>((resolve, reject) => {
       writeQueuePromise = writeQueuePromise.then(run).then(resolve, reject);
     });
     return result;
   } else {
     // READ: jalankan langsung (paralel), dengan in-flight deduplication
-    const requestPromise = executeActualRequest<T>(url, false, opts, { action, entity, opts })
+    const requestPromise = executeWithSmartRouting()
       .finally(() => {
-        inFlightRequests.delete(url);
+        inFlightRequests.delete(cacheKeyUrl);
       });
-    inFlightRequests.set(url, requestPromise);
+    inFlightRequests.set(cacheKeyUrl, requestPromise);
     return requestPromise;
   }
 }
@@ -524,6 +606,13 @@ export const api = {
       { data: { items } }
     ),
 
+  createBatchReferensi: (items: any[]) =>
+    apiCall<{ success: boolean; createdCount: number; count: number; items: any[] }>(
+      'createBatchReferensi',
+      'referensiJabatan',
+      { data: { items } }
+    ),
+
   updateJabatan: (id: string, data: unknown) =>
     apiCall('update', 'jabatan', { data, params: { id } }),
 
@@ -541,10 +630,16 @@ export const api = {
     apiCall('readAll', entity, { params: { parentId: jabatanId }, signal }),
 
   // -- Bulk Data (read-only) --
-  // Fetch beberapa entity sekaligus dalam 1 request ke GAS.
-  // Mengurangi jumlah round-trip secara drastis.
-  getBulkData: <T = Record<string, any[]>>(entities: string[], signal?: AbortSignal) =>
-    apiCall<T>('getBulkData', '', { params: { entities: entities.join(',') }, signal }),
+  // Fetch beberapa entity sekaligus dalam 1 request ke GAS/Homeserver.
+  // Mengurangi jumlah round-trip secara drastis. Mendukung unitKerjaId opsional untuk scoping OPD.
+  getBulkData: <T = Record<string, any[]>>(entities: string[], signal?: AbortSignal, unitKerjaId?: string) =>
+    apiCall<T>('getBulkData', '', {
+      params: {
+        entities: entities.join(','),
+        ...(unitKerjaId ? { unitKerjaId } : {}),
+      },
+      signal,
+    }),
 
   // -- Ringkasan Status Anjab/ABK (Payload Ringan untuk Render Instan Pohon) --
   getAnjabStatusSummary: (signal?: AbortSignal) =>
@@ -766,10 +861,127 @@ export const api = {
     if (now - lastWarmUpAt < CACHE_TTL_MS) return; // baru saja di-warm-up, jangan gandakan request
     lastWarmUpAt = now;
     const activeYear = getActiveYear();
+    const hsCfg = getLocalHomeserverConfig();
+    if (hsCfg.mode === 'HOMESERVER' && hsCfg.url) {
+      fetch(`${hsCfg.url}/_homeserver/ping`, { method: 'GET' }).catch(() => {});
+      return;
+    }
     const url = `${API_BASE}?action=ping&tahun=${activeYear}`;
     fetch(url, { method: 'GET', redirect: 'follow' })
       .then(res => res.json())
       .catch(() => {});
+  },
+
+  // -- Homeserver Docker Database Control & Write-Behind Sync --
+  homeserver: {
+    getLocalConfig: () => getLocalHomeserverConfig(),
+
+    saveConfig: async (cfg: Partial<HomeserverConfig>) => {
+      const updated = setLocalHomeserverConfig(cfg);
+      try {
+        await apiCall('update', 'settings', {
+          data: { url: updated.url, mode: updated.mode, updatedAt: new Date().toISOString() },
+          params: { id: 'homeserverConfig' },
+        });
+      } catch {
+        // Non-blocking jika dijalankan oleh sesi lokal
+      }
+      await invalidateAllCache();
+      return updated;
+    },
+
+    syncGlobalConfig: async (): Promise<HomeserverConfig> => {
+      try {
+        const remote = await apiCall<HomeserverConfig | null>('read', 'settings', {
+          params: { id: 'homeserverConfig' },
+        });
+        if (remote && remote.url) {
+          return setLocalHomeserverConfig({ url: remote.url, mode: remote.mode || 'RTDB' });
+        }
+      } catch {}
+      return getLocalHomeserverConfig();
+    },
+
+    getStatus: async (customUrl?: string) => {
+      const cfg = getLocalHomeserverConfig();
+      const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
+      const t0 = performance.now();
+      const res = await fetch(`${baseUrl}/_homeserver/status`, { method: 'GET' });
+      const latencyMs = Math.round(performance.now() - t0);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return { ...json, latencyMs, baseUrl };
+    },
+
+    pullFromRtdb: async (customUrl?: string, customSecret?: string) => {
+      const cfg = getLocalHomeserverConfig();
+      const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
+      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const token = getAuthToken();
+      const res = await fetch(`${baseUrl}/_homeserver/pull-from-rtdb`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Homeserver-Secret': secret,
+        },
+        body: JSON.stringify({ secret, token }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+      await invalidateAllCache();
+      return json;
+    },
+
+    flushToRtdb: async (customUrl?: string, customSecret?: string) => {
+      const cfg = getLocalHomeserverConfig();
+      const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
+      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const token = getAuthToken();
+      const res = await fetch(`${baseUrl}/_homeserver/flush-to-rtdb`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Homeserver-Secret': secret,
+        },
+        body: JSON.stringify({ secret, token }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+      return json;
+    },
+
+    switchMode: async (nextMode: 'HOMESERVER' | 'RTDB', customUrl?: string, customSecret?: string) => {
+      const cfg = getLocalHomeserverConfig();
+      const baseUrl = (customUrl || cfg.url).replace(/\/+$/, '');
+      const secret = customSecret || cfg.secret || 'sianjab-homeserver-2026';
+      const token = getAuthToken();
+
+      // Beritahu container Homeserver untuk berganti mode (dan otomatis flush Outbox jika kembali ke RTDB)
+      const res = await fetch(`${baseUrl}/_homeserver/mode`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Homeserver-Secret': secret,
+        },
+        body: JSON.stringify({ mode: nextMode, secret, token, flushFirst: true }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`);
+
+      // Jika kembali ke RTDB, invalidasi juga cache di GAS agar GAS membaca data terbaru hasil flush
+      if (nextMode === 'RTDB' && API_BASE && token) {
+        try {
+          const activeYear = getActiveYear();
+          await fetch(`${API_BASE}?action=invalidateAllCaches&tahun=${activeYear}&token=${encodeURIComponent(token)}`, {
+            method: 'POST',
+            redirect: 'follow',
+          });
+        } catch {}
+      }
+
+      await api.homeserver.saveConfig({ url: baseUrl, mode: nextMode, secret });
+      return json;
+    },
   }
 };
 

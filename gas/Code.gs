@@ -183,7 +183,7 @@ function invalidateJabatanCache_(jabatanId) {
 
 function invalidateAllCaches_() {
   var entities = [
-    'unitKerja', 'jabatan', 'users', 'settings', 'abk', 'referensiJabatan', 
+    'unitKerja', 'jabatan', 'users', 'settings', 'template_docx', 'abk', 'referensiJabatan', 
     'tugasPokok', 'syaratJabatan', 'kualifikasi', 'bahanKerja', 'anomaliExclusion',
     'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan',
     'kondisiLingkungan', 'risikoBahaya', 'prestasiKerja', 'hasilKerja'
@@ -211,7 +211,7 @@ var ADMIN_ONLY_ACTIONS_ = [
   'cloneYearData', 'deleteYearData', 'cleanupOrphanedRecords', 'migrateRootTo2026',
   'saveTemplate', 'saveTagMappings', 'saveDeadline',
   'exportFullDatabase', 'restoreFullDatabase',
-  'duplicateUnitKerja',
+  'duplicateUnitKerja', 'createBatchReferensi', 'invalidateAllCaches',
   'restoreBatchEntities', 'restoreBatchJabatans',
   'exportForSitpp', 'testAiConnection'
 ];
@@ -280,12 +280,20 @@ function validateToken_(token) {
   }
 }
 
-// A8 (audit 2026-10-07): daftar pencabutan token per nonce (jti), non-tahunan.
+// A8 (audit 2026-10-07) + PRF-02: daftar pencabutan token per nonce (jti), non-tahunan.
+// Di-cache negatif selama 180 detik di scriptCache_ agar tidak memukul RTDB pada setiap request.
 // Fail-closed: bila pembacaan gagal, token dianggap dicabut.
 function isTokenRevoked_(nonce) {
   if (!nonce) return true;
   try {
-    return fbGet_(getFirebasePath_('revokedTokens', nonce)) != null;
+    var cacheKey = 'rev_chk_' + nonce;
+    var cached = scriptCache_.get(cacheKey);
+    if (cached === 'OK') return false;
+    if (cached === 'REVOKED') return true;
+
+    var isRevoked = fbGet_(getFirebasePath_('revokedTokens', nonce)) != null;
+    scriptCache_.put(cacheKey, isRevoked ? 'REVOKED' : 'OK', isRevoked ? 3600 : 180);
+    return isRevoked;
   } catch (err) {
     try { console.error('Gagal membaca daftar pencabutan token: ' + err.message); } catch (e2) {}
     return true;
@@ -324,6 +332,7 @@ function revokeToken_(token) {
     expiresAt: new Date(timestamp + oneDayMs).toISOString()
   };
   fbPatch_(getFirebasePath_('revokedTokens'), payload);
+  try { scriptCache_.put('rev_chk_' + nonce, 'REVOKED', 21600); } catch (eC) {}
   return { success: true, reason: 'revoked', username: username };
 }
 
@@ -395,12 +404,12 @@ function getUserFromToken_(token) {
 var CURRENT_TAHUN = '2026';
 
 function isYearlyEntity_(entity) {
-  var nonYearly = ['users', 'settings', 'sianjab_export', 'referensiJabatan', 'security_logs', 'revokedTokens'];
+  var nonYearly = ['users', 'settings', 'template_docx', 'sianjab_export', 'referensiJabatan', 'security_logs', 'revokedTokens'];
   return nonYearly.indexOf(entity) === -1;
 }
 
 var ALLOWED_ENTITIES_ = [
-  'unitKerja','jabatan','users','settings','abk','referensiJabatan',
+  'unitKerja','jabatan','users','settings','template_docx','abk','referensiJabatan',
   'security_logs','tugasPokok','bahanKerja','perangkatKerja','tanggungJawab',
   'wewenang','korelasiJabatan','kondisiLingkungan','risikoBahaya','syaratJabatan',
   'kualifikasi','hasilKerja','prestasiKerja','verification_logs','sianjab_export','anomaliExclusion','revokedTokens'
@@ -570,6 +579,13 @@ function handleRequest_(e) {
       case 'createBatchJabatans':
         result = createBatchJabatans_(data && data.items ? data.items : data, currentUser);
         break;
+      case 'createBatchReferensi':
+        result = createBatchReferensi_(data && data.items ? data.items : data);
+        break;
+      case 'invalidateAllCaches':
+        invalidateAllCaches_();
+        result = { invalidated: true };
+        break;
       case 'cleanupOrphanedRecords':
         result = cleanupOrphanedRecords_();
         break;
@@ -598,11 +614,14 @@ function handleRequest_(e) {
         result = getABK_(parentId);
         break;
       case 'saveTemplate':
-        result = fbPut_('settings/templateDocx', data);
+        result = fbPut_('template_docx', data);
+        // Bersihkan legacy settings/templateDocx agar node settings turun dari 3.77 MB ke < 5 KB
+        try { fbDelete_('settings/templateDocx'); } catch (eTpl) {}
+        invalidateCache_('template_docx');
         invalidateCache_('settings');
         break;
       case 'getTemplate':
-        result = fbGet_('settings/templateDocx');
+        result = fbGet_('template_docx') || fbGet_('settings/templateDocx');
         break;
       case 'saveTagMappings':
         result = fbPut_('settings/tagMappings', data);
@@ -649,7 +668,7 @@ function handleRequest_(e) {
         for (var sIdx = 0; sIdx < bulkEntities.length; sIdx++) {
           assertSensitiveReadPermission_(currentUser, bulkEntities[sIdx]);
         }
-        result = readMultipleEntities_(bulkEntities);
+        result = readMultipleEntities_(bulkEntities, params.unitKerjaId || params.unitId || '');
         break;
 
       case 'getAnjabStatusSummary':
@@ -710,13 +729,17 @@ function assertFirebaseOk_(res, label) {
 
 function fbGet_(path) {
   var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
-  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var res = UrlFetchApp.fetch(url, {
+    headers: { 'Accept-Encoding': 'gzip' },
+    muteHttpExceptions: true
+  });
   assertFirebaseOk_(res, 'GET ' + path);
-  return JSON.parse(res.getContentText());
+  var text = res.getContentText();
+  return text ? JSON.parse(text) : null;
 }
 
 function fbPut_(path, data) {
-  var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
+  var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET + '&print=silent';
   var res = UrlFetchApp.fetch(url, {
     method: 'put',
     contentType: 'application/json',
@@ -724,7 +747,7 @@ function fbPut_(path, data) {
     muteHttpExceptions: true
   });
   assertFirebaseOk_(res, 'PUT ' + path);
-  return JSON.parse(res.getContentText());
+  return data;
 }
 
 function fbPost_(path, data) {
@@ -732,6 +755,7 @@ function fbPost_(path, data) {
   var res = UrlFetchApp.fetch(url, {
     method: 'post',
     contentType: 'application/json',
+    headers: { 'Accept-Encoding': 'gzip' },
     payload: JSON.stringify(data),
     muteHttpExceptions: true
   });
@@ -740,7 +764,7 @@ function fbPost_(path, data) {
 }
 
 function fbPatch_(path, data) {
-  var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
+  var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET + '&print=silent';
   var res = UrlFetchApp.fetch(url, {
     method: 'patch',
     contentType: 'application/json',
@@ -748,7 +772,7 @@ function fbPatch_(path, data) {
     muteHttpExceptions: true
   });
   assertFirebaseOk_(res, 'PATCH ' + path);
-  return JSON.parse(res.getContentText());
+  return data;
 }
 
 function fbDelete_(path) {
@@ -779,24 +803,45 @@ function stripSensitiveSettings_(item, currentUser) {
   return safe;
 }
 
+// PRF-14 & Quota Audit: Gunakan cachedFbGet_ (TTL 600s) + Adjacency Map BFS O(U)
 function getAllowedUnitKerjaIds_(userUnitId) {
   if (!userUnitId) return {};
-  var allUnits = fbGet_(getFirebasePath_('unitKerja')) || {};
+  var allUnits = cachedFbGet_(getFirebasePath_('unitKerja'), 600) || {};
+  var childrenMap = {};
+  for (var k in allUnits) {
+    var u = allUnits[k];
+    if (u && u.parentId) {
+      if (!childrenMap[u.parentId]) childrenMap[u.parentId] = [];
+      childrenMap[u.parentId].push(k);
+    }
+  }
   var allowed = {};
   allowed[userUnitId] = true;
-  
-  var added = true;
-  while (added) {
-    added = false;
-    for (var k in allUnits) {
-      var u = allUnits[k];
-      if (u && u.parentId && allowed[u.parentId] && !allowed[k]) {
-        allowed[k] = true;
-        added = true;
+  var queue = [userUnitId];
+  while (queue.length > 0) {
+    var curr = queue.shift();
+    var children = childrenMap[curr] || [];
+    for (var i = 0; i < children.length; i++) {
+      var childId = children[i];
+      if (!allowed[childId]) {
+        allowed[childId] = true;
+        queue.push(childId);
       }
     }
   }
   return allowed;
+}
+
+// Lookup jabatan O(1) dari cache master jabatan sebelum fallback ke readRecord_
+function getCachedJabatanById_(jabatanId) {
+  if (!jabatanId) return null;
+  var allJab = cachedFbGet_(getFirebasePath_('jabatan'), 300);
+  if (allJab && allJab[jabatanId]) {
+    var found = allJab[jabatanId];
+    found.id = jabatanId;
+    return found;
+  }
+  return readRecord_('jabatan', jabatanId);
 }
 
 // A3 (audit 2026-10-07): daftar entitas berisi PII/security yang HANYA boleh
@@ -831,7 +876,7 @@ function assertJabatanAccess_(currentUser, jabatanId) {
   if (!userUnitId) {
     throw new Error('Akses ditolak: Akun Anda tidak terikat pada Unit Kerja OPD mana pun.');
   }
-  var targetJbt = readRecord_('jabatan', jabatanId);
+  var targetJbt = getCachedJabatanById_(jabatanId);
   if (!targetJbt) {
     throw new Error('Akses ditolak: Jabatan tidak ditemukan.');
   }
@@ -884,7 +929,7 @@ function assertWritePermission_(currentUser, entity, id, data) {
       throw new Error('Akses ditolak: Anda tidak dapat menetapkan jabatan ke Unit Kerja di luar lingkup OPD Anda.');
     }
     if (id) {
-      var targetJbt = readRecord_('jabatan', id);
+      var targetJbt = getCachedJabatanById_(id);
       if (targetJbt && targetJbt.unitKerjaId && !allowedUnits[targetJbt.unitKerjaId]) {
         throw new Error('Akses ditolak: Jabatan ini milik OPD lain.');
       }
@@ -939,6 +984,42 @@ function createBatchJabatans_(items, currentUser) {
 
   return {
     success: true,
+    count: createdItems.length,
+    items: createdItems
+  };
+}
+
+// PRF-03: Batch import referensiJabatan dalam 1 kali fbPatch_ (menggantikan N sequential POST)
+function createBatchReferensi_(items) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new Error("Daftar referensi jabatan tidak boleh kosong.");
+  }
+
+  var patchPayload = {};
+  var createdItems = [];
+  var now = new Date().toISOString();
+
+  items.forEach(function(data) {
+    if (!data || typeof data !== 'object') return;
+    var newId = data.id || Utilities.getUuid();
+    var record = JSON.parse(JSON.stringify(data));
+    record.createdAt = now;
+    record.updatedAt = now;
+    patchPayload[newId] = record;
+
+    var returnItem = JSON.parse(JSON.stringify(record));
+    returnItem.id = newId;
+    createdItems.push(returnItem);
+  });
+
+  if (Object.keys(patchPayload).length > 0) {
+    fbPatch_(getFirebasePath_('referensiJabatan'), patchPayload);
+    invalidateCache_('referensiJabatan');
+  }
+
+  return {
+    success: true,
+    createdCount: createdItems.length,
     count: createdItems.length,
     items: createdItems
   };
@@ -1197,6 +1278,7 @@ function deleteRecord_(entity, id) {
       return {
         url: baseUrl + getFirebasePath_(ent) + authQuery,
         method: 'get',
+        headers: { 'Accept-Encoding': 'gzip' },
         muteHttpExceptions: true
       };
     });
@@ -1225,7 +1307,7 @@ function deleteRecord_(entity, id) {
 
         if (count > 0) {
           writeRequests.push({
-            url: baseUrl + getFirebasePath_(ent) + authQuery,
+            url: baseUrl + getFirebasePath_(ent) + authQuery + '&print=silent',
             method: 'patch',
             contentType: 'application/json',
             payload: JSON.stringify(patchPayload),
@@ -1310,13 +1392,18 @@ function saveSingleEntity_(entity, jabatanId, data) {
   }
 
   try {
-    var allData = fbGet_(getFirebasePath_(entity));
+    var path = getFirebasePath_(entity);
+    var cacheKey = 'fb_' + path.replace(/\//g, '_');
+    var allData = getLargeCache_(cacheKey);
+    if (allData === null || allData === undefined) {
+      allData = fbGet_(path);
+    }
     var existingId = null;
 
     if (allData) {
       var keys = Object.keys(allData);
       for (var i = 0; i < keys.length; i++) {
-        if (allData[keys[i]].jabatanId === jabatanId) {
+        if (allData[keys[i]] && allData[keys[i]].jabatanId === jabatanId) {
           existingId = keys[i];
           break;
         }
@@ -1326,11 +1413,31 @@ function saveSingleEntity_(entity, jabatanId, data) {
     data.jabatanId = jabatanId;
     invalidateJabatanCache_(jabatanId);
 
+    var result;
     if (existingId) {
-      return updateRecord_(entity, existingId, data);
+      data.updatedAt = new Date().toISOString();
+      fbPatch_(getFirebasePath_(entity, existingId), data);
+      data.id = existingId;
+      result = data;
+      if (allData && typeof allData === 'object') {
+        allData[existingId] = Object.assign({}, allData[existingId] || {}, data);
+        putLargeCache_(cacheKey, allData, 300);
+      } else {
+        invalidateCache_(entity);
+      }
     } else {
-      return createRecord_(entity, data);
+      data.createdAt = new Date().toISOString();
+      data.updatedAt = new Date().toISOString();
+      var postRes = fbPost_(path, data);
+      result = { id: postRes.name, data: data };
+      if (allData && typeof allData === 'object' && postRes && postRes.name) {
+        allData[postRes.name] = Object.assign({}, data, { id: postRes.name });
+        putLargeCache_(cacheKey, allData, 300);
+      } else {
+        invalidateCache_(entity);
+      }
     }
+    return result;
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}
   }
@@ -1346,15 +1453,21 @@ function saveMultiEntity_(entity, parentId, rows) {
   }
 
   try {
-    var allData = fbGet_(getFirebasePath_(entity));
+    var path = getFirebasePath_(entity);
+    var cacheKey = 'fb_' + path.replace(/\//g, '_');
+    var allData = getLargeCache_(cacheKey);
+    if (allData === null || allData === undefined) {
+      allData = fbGet_(path);
+    }
     var patchPayload = {};
 
     // 1. Mark existing records with matching jabatanId for deletion
     if (allData) {
       var keys = Object.keys(allData);
       for (var i = 0; i < keys.length; i++) {
-        if (allData[keys[i]].jabatanId === parentId) {
+        if (allData[keys[i]] && allData[keys[i]].jabatanId === parentId) {
           patchPayload[keys[i]] = null;
+          delete allData[keys[i]];
         }
       }
     }
@@ -1368,12 +1481,19 @@ function saveMultiEntity_(entity, parentId, rows) {
         row.createdAt = new Date().toISOString();
         row.updatedAt = new Date().toISOString();
         patchPayload[newId] = row;
+        if (allData && typeof allData === 'object') {
+          allData[newId] = Object.assign({}, row, { id: newId });
+        }
       });
     }
 
-    // 3. Perform atomic patch update
-    fbPatch_(getFirebasePath_(entity), patchPayload);
-    invalidateCache_(entity);
+    // 3. Perform atomic patch update + Write-Through Cache
+    fbPatch_(path, patchPayload);
+    if (allData && typeof allData === 'object') {
+      putLargeCache_(cacheKey, allData, 300);
+    } else {
+      invalidateCache_(entity);
+    }
     invalidateJabatanCache_(parentId);
     return { success: true, count: rows ? rows.length : 0 };
   } finally {
@@ -1407,13 +1527,17 @@ function updateUrutanBatch_(currentUser, entity, updates) {
           if (!rec) {
             throw new Error('Urutan gagal: baris "' + item.id + '" tidak ditemukan pada ' + entity + '.');
           }
-          var ownerJabatanId = (entity === 'jabatan') ? item.id : rec.jabatanId;
-          if (!ownerJabatanId) {
-            throw new Error('Akses ditolak: baris "' + item.id + '" tidak terikat pada jabatan mana pun.');
-          }
-          if (!assertedJabatanIds[ownerJabatanId]) {
-            assertJabatanAccess_(currentUser, ownerJabatanId);
-            assertedJabatanIds[ownerJabatanId] = true;
+          if (entity === 'unitKerja') {
+            assertWritePermission_(currentUser, 'unitKerja', item.id, null);
+          } else {
+            var ownerJabatanId = (entity === 'jabatan') ? item.id : rec.jabatanId;
+            if (!ownerJabatanId) {
+              throw new Error('Akses ditolak: baris "' + item.id + '" tidak terikat pada jabatan mana pun.');
+            }
+            if (!assertedJabatanIds[ownerJabatanId]) {
+              assertJabatanAccess_(currentUser, ownerJabatanId);
+              assertedJabatanIds[ownerJabatanId] = true;
+            }
           }
           patchPayload[item.id + '/urutan'] = item.urutan;
           patchPayload[item.id + '/updatedAt'] = now;
@@ -1451,24 +1575,35 @@ function saveBulkAnjabData_(parentId, payload) {
     var baseUrl = FIREBASE_URL + '/';
     var authQuery = '.json?auth=' + FIREBASE_SECRET;
 
-    // 1. Fetch current data for all tables in parallel to find existing records/keys
+    // 1. Cek GAS CacheService terlebih dahulu; hanya fetch ke RTDB untuk tabel yang cache-miss!
+    var currentData = {};
+    var missEntities = [];
     var readRequests = [];
     allEntities.forEach(function(ent) {
-      readRequests.push({
-        url: baseUrl + getFirebasePath_(ent) + authQuery,
-        method: 'get',
-        muteHttpExceptions: true
-      });
+      var p = getFirebasePath_(ent);
+      var cKey = 'fb_' + p.replace(/\//g, '_');
+      var cached = getLargeCache_(cKey);
+      if (cached !== null && cached !== undefined) {
+        currentData[ent] = cached;
+      } else {
+        missEntities.push(ent);
+        readRequests.push({
+          url: baseUrl + p + authQuery,
+          method: 'get',
+          headers: { 'Accept-Encoding': 'gzip' },
+          muteHttpExceptions: true
+        });
+      }
     });
 
-    var readResponses = UrlFetchApp.fetchAll(readRequests);
-    var currentData = {};
-    // A1 (audit 2026-10-07): fail-closed — HTTP gagal menghentikan seluruh saveBulk
-    // agar tidak ada half-saved draft: sebagian tabel baru, sebagian lama.
-    allEntities.forEach(function(ent, index) {
-      assertFirebaseOk_(readResponses[index], 'BULK-READ ' + ent);
-      currentData[ent] = JSON.parse(readResponses[index].getContentText()) || {};
-    });
+    if (readRequests.length > 0) {
+      var readResponses = UrlFetchApp.fetchAll(readRequests);
+      // A1 (audit 2026-10-07): fail-closed — HTTP gagal menghentikan seluruh saveBulk
+      missEntities.forEach(function(ent, index) {
+        assertFirebaseOk_(readResponses[index], 'BULK-READ ' + ent);
+        currentData[ent] = JSON.parse(readResponses[index].getContentText()) || {};
+      });
+    }
 
     // 2. Prepare parallel write requests
     var writeRequests = [];
@@ -1477,7 +1612,7 @@ function saveBulkAnjabData_(parentId, payload) {
     if (payload.jabatan) {
       payload.jabatan.updatedAt = new Date().toISOString();
       writeRequests.push({
-        url: baseUrl + getFirebasePath_('jabatan', parentId) + authQuery,
+        url: baseUrl + getFirebasePath_('jabatan', parentId) + authQuery + '&print=silent',
         method: 'patch',
         contentType: 'application/json',
         payload: JSON.stringify(payload.jabatan),
@@ -1500,14 +1635,15 @@ function saveBulkAnjabData_(parentId, payload) {
           if (emptyTable) {
             var emptyKeys = Object.keys(emptyTable);
             for (var ed = 0; ed < emptyKeys.length; ed++) {
-              if (emptyTable[emptyKeys[ed]].jabatanId === parentId) { emptyDelId = emptyKeys[ed]; break; }
+              if (emptyTable[emptyKeys[ed]] && emptyTable[emptyKeys[ed]].jabatanId === parentId) { emptyDelId = emptyKeys[ed]; break; }
             }
           }
           if (emptyDelId) {
             var emptyPatch = {};
             emptyPatch[emptyDelId] = null;
+            if (currentData[ent]) delete currentData[ent][emptyDelId];
             writeRequests.push({
-              url: baseUrl + getFirebasePath_(ent) + authQuery,
+              url: baseUrl + getFirebasePath_(ent) + authQuery + '&print=silent',
               method: 'patch',
               contentType: 'application/json',
               payload: JSON.stringify(emptyPatch),
@@ -1522,7 +1658,7 @@ function saveBulkAnjabData_(parentId, payload) {
         if (tableData) {
           var keys = Object.keys(tableData);
           for (var i = 0; i < keys.length; i++) {
-            if (tableData[keys[i]].jabatanId === parentId) {
+            if (tableData[keys[i]] && tableData[keys[i]].jabatanId === parentId) {
               existingId = keys[i];
               break;
             }
@@ -1531,21 +1667,29 @@ function saveBulkAnjabData_(parentId, payload) {
 
         if (existingId) {
           itemData.updatedAt = new Date().toISOString();
+          if (currentData[ent]) {
+            currentData[ent][existingId] = Object.assign({}, currentData[ent][existingId] || {}, itemData);
+          }
           writeRequests.push({
-            url: baseUrl + getFirebasePath_(ent, existingId) + authQuery,
+            url: baseUrl + getFirebasePath_(ent, existingId) + authQuery + '&print=silent',
             method: 'patch',
             contentType: 'application/json',
             payload: JSON.stringify(itemData),
             muteHttpExceptions: true
           });
         } else {
+          var newSingleId = 'row_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
           itemData.createdAt = new Date().toISOString();
           itemData.updatedAt = new Date().toISOString();
+          var singlePatch = {};
+          singlePatch[newSingleId] = itemData;
+          if (!currentData[ent]) currentData[ent] = {};
+          currentData[ent][newSingleId] = Object.assign({}, itemData, { id: newSingleId });
           writeRequests.push({
-            url: baseUrl + getFirebasePath_(ent) + authQuery,
-            method: 'post',
+            url: baseUrl + getFirebasePath_(ent) + authQuery + '&print=silent',
+            method: 'patch',
             contentType: 'application/json',
-            payload: JSON.stringify(itemData),
+            payload: JSON.stringify(singlePatch),
             muteHttpExceptions: true
           });
         }
@@ -1563,8 +1707,9 @@ function saveBulkAnjabData_(parentId, payload) {
         if (tableData) {
           var keys = Object.keys(tableData);
           for (var i = 0; i < keys.length; i++) {
-            if (tableData[keys[i]].jabatanId === parentId) {
+            if (tableData[keys[i]] && tableData[keys[i]].jabatanId === parentId) {
               patchPayload[keys[i]] = null;
+              delete tableData[keys[i]];
             }
           }
         }
@@ -1578,11 +1723,13 @@ function saveBulkAnjabData_(parentId, payload) {
             row.createdAt = new Date().toISOString();
             row.updatedAt = new Date().toISOString();
             patchPayload[newId] = row;
+            if (!currentData[ent]) currentData[ent] = {};
+            currentData[ent][newId] = Object.assign({}, row, { id: newId });
           });
         }
 
         writeRequests.push({
-          url: baseUrl + getFirebasePath_(ent) + authQuery,
+          url: baseUrl + getFirebasePath_(ent) + authQuery + '&print=silent',
           method: 'patch',
           contentType: 'application/json',
           payload: JSON.stringify(patchPayload),
@@ -1599,10 +1746,24 @@ function saveBulkAnjabData_(parentId, payload) {
       });
     }
 
-    // 4. Invalidate all cache
-    var cacheEntities = ['jabatan'].concat(allEntities);
-    cacheEntities.forEach(function(ent) {
-      invalidateCache_(ent);
+    // 4. Write-Through Cache: perbarui cache secara in-place agar tidak menyebabkan cache stampede
+    if (payload.jabatan) {
+      var jabPath = getFirebasePath_('jabatan');
+      var jabCacheKey = 'fb_' + jabPath.replace(/\//g, '_');
+      var cachedJabs = getLargeCache_(jabCacheKey);
+      if (cachedJabs && cachedJabs[parentId]) {
+        cachedJabs[parentId] = Object.assign({}, cachedJabs[parentId], payload.jabatan);
+        putLargeCache_(jabCacheKey, cachedJabs, 300);
+      } else {
+        invalidateCache_('jabatan');
+      }
+    }
+    allEntities.forEach(function(ent) {
+      if (payload[ent] !== undefined && currentData[ent]) {
+        var p = getFirebasePath_(ent);
+        var cKey = 'fb_' + p.replace(/\//g, '_');
+        putLargeCache_(cKey, currentData[ent], 300);
+      }
     });
     invalidateJabatanCache_(parentId);
 
@@ -1757,9 +1918,23 @@ var SECURITY_LOGS_PRUNE_TO_ = 400;
 
 function rotateSecurityLogs_() {
   try {
+    // Jika dipanggil dalam frekuensi tinggi di produksi, throttle pengecekan penuh
+    // menggunakan penanda di scriptCache_ selama 60 detik kecuali belum ada di cache
+    var countHintStr = scriptCache_.get('sec_logs_count_hint');
+    if (countHintStr) {
+      var countHint = parseInt(countHintStr, 10);
+      if (!isNaN(countHint) && countHint < SECURITY_LOGS_MAX_KEEP_) {
+        scriptCache_.put('sec_logs_count_hint', String(countHint + 1), 60);
+        return;
+      }
+    }
+
     var all = fbGet_('security_logs') || {};
     var keys = Object.keys(all);
-    if (keys.length <= SECURITY_LOGS_MAX_KEEP_) return;
+    if (keys.length <= SECURITY_LOGS_MAX_KEEP_) {
+      scriptCache_.put('sec_logs_count_hint', String(keys.length), 60);
+      return;
+    }
     keys.sort(function (a, b) {
       var ta = (all[a] && all[a].timestamp) ? String(all[a].timestamp) : '';
       var tb = (all[b] && all[b].timestamp) ? String(all[b].timestamp) : '';
@@ -1769,6 +1944,7 @@ function rotateSecurityLogs_() {
     var del = {};
     for (var i = 0; i < overflow; i++) del[keys[i]] = null;
     if (overflow > 0) fbPatch_('security_logs', del);
+    scriptCache_.put('sec_logs_count_hint', String(SECURITY_LOGS_PRUNE_TO_), 60);
   } catch (err) {
     try { console.error('Gagal rotasi security_logs: ' + err.message); } catch (e2) {}
   }
@@ -1989,11 +2165,33 @@ function exportForSitpp_() {
   
   // Daftar tahun untuk discan dan diekspor (yearly data)
   var years = ['2025', '2026', '2027', '2028', '2029', '2030'];
-  
+  var baseUrl = FIREBASE_URL + '/';
+  var authQuery = '.json?auth=' + FIREBASE_SECRET;
+
+  // PRF-05: Baca seluruh 18 path (6 tahun x 3 entitas) secara paralel dengan UrlFetchApp.fetchAll()
+  var readRequests = [];
   years.forEach(function(yr) {
-    var yearlyUnit = fbGet_(yr + '/unitKerja') || {};
-    var yearlyJab = fbGet_(yr + '/jabatan') || {};
-    var yearlyABK = fbGet_(yr + '/abk') || {};
+    ['unitKerja', 'jabatan', 'abk'].forEach(function(ent) {
+      readRequests.push({
+        url: baseUrl + yr + '/' + ent + authQuery,
+        method: 'get',
+        headers: { 'Accept-Encoding': 'gzip' },
+        muteHttpExceptions: true
+      });
+    });
+  });
+
+  var readResponses = UrlFetchApp.fetchAll(readRequests);
+
+  years.forEach(function(yr, yrIdx) {
+    var baseIdx = yrIdx * 3;
+    var resUnit = readResponses[baseIdx];
+    var resJab = readResponses[baseIdx + 1];
+    var resAbk = readResponses[baseIdx + 2];
+
+    var yearlyUnit = (resUnit && resUnit.getResponseCode() === 200) ? (JSON.parse(resUnit.getContentText() || '{}') || {}) : {};
+    var yearlyJab = (resJab && resJab.getResponseCode() === 200) ? (JSON.parse(resJab.getContentText() || '{}') || {}) : {};
+    var yearlyABK = (resAbk && resAbk.getResponseCode() === 200) ? (JSON.parse(resAbk.getContentText() || '{}') || {}) : {};
 
     var unitKeys = Object.keys(yearlyUnit);
     var jabKeys = Object.keys(yearlyJab);
@@ -2057,30 +2255,97 @@ function exportForSitpp_() {
   });
 
   var timestamp = new Date().toISOString();
-  fbPatch_('sianjab_export', { timestamp: timestamp });
 
-  // Tulis per-tahun ke path sianjab_export di Firebase Sianjab agar tahun lain TIDAK terhapus
+  // PRF-13: Tulis paralel ke Sianjab Firebase & SiTPP Firebase menggunakan UrlFetchApp.fetchAll()
+  var sianjabWriteReqs = [{
+    url: baseUrl + 'sianjab_export' + authQuery + '&print=silent',
+    method: 'patch',
+    contentType: 'application/json',
+    payload: JSON.stringify({ timestamp: timestamp }),
+    muteHttpExceptions: true
+  }];
   Object.keys(opdListByTahun).forEach(function(tahun) {
-    fbPut_('sianjab_export/opd_list/' + tahun, opdListByTahun[tahun]);
-    fbPut_('sianjab_export/org_master/' + tahun, orgMasterByTahun[tahun]);
-    Logger.log('[EXPORT] Written Sianjab Firebase per-year OK: ' + tahun);
+    sianjabWriteReqs.push({
+      url: baseUrl + 'sianjab_export/opd_list/' + tahun + authQuery + '&print=silent',
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify(opdListByTahun[tahun]),
+      muteHttpExceptions: true
+    });
+    sianjabWriteReqs.push({
+      url: baseUrl + 'sianjab_export/org_master/' + tahun + authQuery + '&print=silent',
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify(orgMasterByTahun[tahun]),
+      muteHttpExceptions: true
+    });
+  });
+  var sianjabWriteRes = UrlFetchApp.fetchAll(sianjabWriteReqs);
+  sianjabWriteRes.forEach(function(r, idx) {
+    assertFirebaseOk_(r, 'EXPORT-SIANJAB #' + (idx + 1));
   });
 
-  // Tulis ke path sianjab_export di Firebase SiTPP (LIVE)
+  // Tulis ke path sianjab_export di Firebase SiTPP (LIVE) secara paralel
   var sitppUrl = SITPP_FIREBASE_URL || '';
   var sitppSecret = SITPP_SECRET || '';
   var isValidSitpp = sitppUrl && sitppUrl.indexOf('YOUR_') === -1 && sitppUrl.indexOf('http') === 0
                   && sitppSecret && sitppSecret.indexOf('YOUR_') === -1;
   if (isValidSitpp) {
-    Logger.log('[SITPP] Publishing to SITPP Firebase per-year: ' + sitppUrl);
+    Logger.log('[SITPP] Publishing to SITPP Firebase per-year in parallel: ' + sitppUrl);
+    var sitppAuthQuery = '.json?auth=' + sitppSecret + '&print=silent';
+    var sitppWriteReqs = [];
     Object.keys(opdListByTahun).forEach(function(tahun) {
-      fbPutSitpp_('sianjab_export/opd_list/' + tahun, opdListByTahun[tahun]);
-      fbPutSitpp_('sianjab_export/org_master/' + tahun, orgMasterByTahun[tahun]);
+      sitppWriteReqs.push({
+        url: sitppUrl + '/sianjab_export/opd_list/' + tahun + sitppAuthQuery,
+        method: 'put',
+        contentType: 'application/json',
+        payload: JSON.stringify(opdListByTahun[tahun]),
+        muteHttpExceptions: true
+      });
+      sitppWriteReqs.push({
+        url: sitppUrl + '/sianjab_export/org_master/' + tahun + sitppAuthQuery,
+        method: 'put',
+        contentType: 'application/json',
+        payload: JSON.stringify(orgMasterByTahun[tahun]),
+        muteHttpExceptions: true
+      });
     });
-    fbPatchSitpp_('sianjab_export', { timestamp: timestamp });
+    sitppWriteReqs.push({
+      url: sitppUrl + '/sianjab_export' + sitppAuthQuery,
+      method: 'patch',
+      contentType: 'application/json',
+      payload: JSON.stringify({ timestamp: timestamp }),
+      muteHttpExceptions: true
+    });
+    var sitppWriteRes = UrlFetchApp.fetchAll(sitppWriteReqs);
+    sitppWriteRes.forEach(function(r, idx) {
+      assertFirebaseOk_(r, 'EXPORT-SITPP #' + (idx + 1));
+    });
     Logger.log('[SITPP] Publish result OK');
   } else {
     Logger.log('[SITPP] SKIPPED — SITPP_FIREBASE_URL or SITPP_SECRET not configured or still placeholder. URL="' + sitppUrl + '"');
+  }
+
+  // Cadangkan langsung ke SiTPP Homeserver Failover jika tersedia (Safe Mirror)
+  var foUrl = PropertiesService.getScriptProperties().getProperty('SITPP_FAILOVER_URL') || 'https://falconxtra.tail56d53d.ts.net';
+  var foSec = PropertiesService.getScriptProperties().getProperty('SITPP_FAILOVER_SECRET') || 'sitpp_failover_secret_2026';
+  if (foUrl && foUrl.indexOf('http') === 0) {
+    try {
+      var foEndpoint = foUrl.replace(/\/+$/, '') + '/sianjab/sianjab_export.json?auth=' + encodeURIComponent(foSec);
+      UrlFetchApp.fetch(foEndpoint, {
+        method: 'put',
+        contentType: 'application/json',
+        payload: JSON.stringify({
+          timestamp: timestamp,
+          opd_list: opdListByTahun,
+          org_master: orgMasterByTahun
+        }),
+        muteHttpExceptions: true
+      });
+      Logger.log('[SITPP Failover] Mirror export ke Homeserver berhasil: ' + foUrl);
+    } catch (foErr) {
+      Logger.log('[SITPP Failover] Homeserver unreachable (diabaikan agar publish Sianjab tetap lancar): ' + foErr);
+    }
   }
 
   var exportData = {
@@ -3403,7 +3668,8 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
   var ctx = { promptBlock: '', sumber: { jabatanSejawat: 0, referensi: 0, abkTervalidasi: 0, wkeReferensi: 0 } };
 
   try {
-    var units = fbGet_(getFirebasePath_('unitKerja')) || {};
+    // PRF-12: Ambil seluruh entitas konteks dari cache / paralel readMultipleEntities_
+    var units = cachedFbGet_(getFirebasePath_('unitKerja'), 600) || {};
     var unitTarget = unitKerjaId ? units[unitKerjaId] : null;
     var unitNama = (unitTarget && unitTarget.nama) || unitKerjaLabel || 'Unit Kerja';
 
@@ -3434,9 +3700,9 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
       }
     }
 
-    var jabatans = fbGet_(getFirebasePath_('jabatan')) || {};
-    var abkMap = fbGet_(getFirebasePath_('abk')) || {};
-    var tugasMap = fbGet_(getFirebasePath_('tugasPokok')) || {};
+    var jabatans = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+    var abkMap = cachedFbGet_(getFirebasePath_('abk'), 300) || {};
+    var tugasMap = cachedFbGet_(getFirebasePath_('tugasPokok'), 300) || {};
 
     var sejawat = [];
     var bidangNames = {};
@@ -3493,7 +3759,7 @@ function buildAiContext_(unitKerjaId, jabatanId, namaOPD, unitKerjaLabel) {
     // Master nomenklatur referensi (maks 15)
     var refLines = [];
     try {
-      var refs = fbGet_('referensiJabatan') || {};
+      var refs = cachedFbGet_('referensiJabatan', 1800) || {};
       var refKeys = Object.keys(refs).slice(0, 15);
       for (var rIdx = 0; rIdx < refKeys.length; rIdx++) {
         var r = refs[refKeys[rIdx]];
@@ -4084,7 +4350,7 @@ function getMockAiAnjab_(namaJabatan, unitKerja, namaOPD) {
   }
 }
 
-function readMultipleEntities_(entities) {
+function readMultipleEntities_(entities, scopedUnitKerjaId) {
   var result = {};
   var misses = [];
   var requests = [];
@@ -4145,7 +4411,12 @@ function readMultipleEntities_(entities) {
     } else {
       misses.push({ entity: e, path: path, cacheKey: cacheKey, isCacheable: isCacheable });
       var url = FIREBASE_URL + '/' + path + '.json?auth=' + FIREBASE_SECRET;
-      requests.push({ url: url, method: 'get', muteHttpExceptions: true });
+      requests.push({
+        url: url,
+        method: 'get',
+        headers: { 'Accept-Encoding': 'gzip' },
+        muteHttpExceptions: true
+      });
     }
   });
 
@@ -4183,6 +4454,42 @@ function readMultipleEntities_(entities) {
       
       result[miss.entity] = records;
     }
+  }
+
+  // Optional scoping per unitKerjaId untuk mengecilkan ukuran payload response operator OPD
+  if (scopedUnitKerjaId) {
+    var allowedUnits = getAllowedUnitKerjaIds_(scopedUnitKerjaId);
+    var allowedJabatanSet = {};
+    if (result.jabatan) {
+      result.jabatan = result.jabatan.filter(function(j) {
+        if (j && j.unitKerjaId && allowedUnits[j.unitKerjaId]) {
+          allowedJabatanSet[j.id] = true;
+          return true;
+        }
+        return false;
+      });
+    } else {
+      var cachedJabs = cachedFbGet_(getFirebasePath_('jabatan'), 300) || {};
+      Object.keys(cachedJabs).forEach(function(jId) {
+        var j = cachedJabs[jId];
+        if (j && j.unitKerjaId && allowedUnits[j.unitKerjaId]) {
+          allowedJabatanSet[jId] = true;
+        }
+      });
+    }
+    var childFilterEntities = [
+      'abk', 'tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab',
+      'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya',
+      'syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'
+    ];
+    childFilterEntities.forEach(function(cEnt) {
+      if (result[cEnt]) {
+        result[cEnt] = result[cEnt].filter(function(r) {
+          var jId = r ? (r.jabatanId || r.id) : '';
+          return !!allowedJabatanSet[jId];
+        });
+      }
+    });
   }
   
   return result;
@@ -4252,6 +4559,7 @@ function getAnjabStatusSummary_() {
       requests.push({
         url: FIREBASE_URL + '/' + p + '.json?auth=' + FIREBASE_SECRET,
         method: 'get',
+        headers: { 'Accept-Encoding': 'gzip' },
         muteHttpExceptions: true
       });
     }
@@ -4528,6 +4836,14 @@ function migrateOldAbkWke_(dryRun) {
       continue;
     }
 
+    // PRF-06: Baca seluruh jabatan tahun ini 1 kali di luar loop (menggantikan N panggilan fbGet_ per item)
+    var allJabatanTahun = {};
+    try {
+      allJabatanTahun = fbGet_(tahun + '/jabatan') || {};
+    } catch (eJAll) {
+      allJabatanTahun = {};
+    }
+
     var updatePayload = {}; // PATCH multipath dalam satu request
     var count = 0;
     var detail = {
@@ -4561,11 +4877,8 @@ function migrateOldAbkWke_(dryRun) {
       }
       var kebutuhan = wkeStandar > 0 ? totalWaktuEfektif / wkeStandar : 0;
 
-      var jenis = '';
-      try {
-        var jbt = fbGet_(tahun + '/jabatan/' + id);
-        if (jbt && jbt.jenisJabatan) jenis = jbt.jenisJabatan;
-      } catch (eJ) { /* jenis tidak tersedia -> tanpa batas khusus */ }
+      var jbt = allJabatanTahun[id] || null;
+      var jenis = (jbt && jbt.jenisJabatan) ? jbt.jenisJabatan : '';
 
       var kategori = getKategoriServer_(jenis); // 'struktural' | 'fungsional' | 'pelaksana' | 'lainnya'
       var pembulatan = kebutuhan > 0 ? (kebutuhan < 1.5 ? 1 : Math.round(kebutuhan)) : 0;

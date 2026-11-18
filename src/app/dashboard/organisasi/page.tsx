@@ -82,8 +82,9 @@ export default function OrganisasiPage() {
     setDragOverId(null);
     if (!isReorderMode || !draggedNode) return;
     if (
-      draggedNode.parentId !== targetNode.parentId ||
-      draggedNode.unitKerjaId !== targetNode.unitKerjaId ||
+      draggedNode.type !== targetNode.type ||
+      (draggedNode.parentId || '') !== (targetNode.parentId || '') ||
+      (draggedNode.unitKerjaId || '') !== (targetNode.unitKerjaId || '') ||
       draggedNode.id === targetNode.id
     )
       return;
@@ -111,42 +112,40 @@ export default function OrganisasiPage() {
 
     const updatedTree = reorderSiblings(treeData);
     setTreeData(updatedTree);
-    showToast("✅ Urutan " + draggedNode.label + " berhasil diperbarui");
 
-    const findParentNode = (nodes: TreeNode[], targetId: string): TreeNode | null => {
+    const findParentOfNode = (nodes: TreeNode[], childId: string): TreeNode | null => {
       for (const node of nodes) {
-        if (node.id === targetId) return node;
-        if (node.children && node.children.length > 0) {
-          const found = findParentNode(node.children, targetId);
-          if (found) return found;
+        if (node.children && node.children.some(c => c.id === childId)) {
+          return node;
         }
+        const found = findParentOfNode(node.children, childId);
+        if (found) return found;
       }
       return null;
     };
 
-    const parentId = targetNode.parentId || targetNode.unitKerjaId;
-    if (parentId) {
-      const parentNode = findParentNode(updatedTree, parentId);
-      if (parentNode && parentNode.children) {
-        const payload = parentNode.children.map((c, idx) => ({
-          id: c.id,
-          urutan: idx + 1
-        }));
-        try {
-          await api.updateUrutanBatch(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', payload);
-        } catch (err) {
-          console.error("Gagal menyimpan urutan:", err);
-        }
-      }
-    } else {
-      const payload = updatedTree.map((c, idx) => ({
-        id: c.id,
-        urutan: idx + 1
-      }));
+    const directParent = findParentOfNode(updatedTree, targetNode.id);
+    const siblingsList = directParent ? directParent.children : updatedTree;
+    const sameTypeSiblings = siblingsList.filter(c => c.type === targetNode.type);
+    const payload = sameTypeSiblings.map(c => ({
+      id: c.id,
+      urutan: c.urutan || 0
+    }));
+
+    if (payload.length > 0) {
+      const entity = targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan';
       try {
-        await api.updateUrutanBatch(targetNode.type === 'OPD' ? 'unitKerja' : 'jabatan', payload);
+        await api.updateUrutanBatch(entity, payload);
+        const urutMap = new Map(payload.map(p => [p.id, p.urutan]));
+        if (targetNode.type === 'JABATAN') {
+          setRawJabatans(prev => prev.map(j => urutMap.has(j.id) ? { ...j, urutan: urutMap.get(j.id)! } : j));
+        } else {
+          setRawOpds(prev => prev.map(o => urutMap.has(o.id) ? { ...o, urutan: urutMap.get(o.id)! } : o));
+        }
+        showToast("✅ Urutan " + draggedNode.label + " berhasil diperbarui");
       } catch (err) {
         console.error("Gagal menyimpan urutan:", err);
+        showToast("❌ Gagal menyimpan urutan: " + getErrorMessage(err));
       }
     }
     setDraggedNode(null);
@@ -309,12 +308,15 @@ export default function OrganisasiPage() {
   const loadData = useCallback(async (silent = false) => {
     // 1. Optimistic Hydration dari local cache (0 ms)
     try {
-      const cachedBulk = await api.getCachedBulkData(['unitKerja', 'jabatan']);
+      const cachedBulk = await api.getCachedBulkData(['unitKerja', 'jabatan', 'referensiJabatan']);
       if (cachedBulk?.unitKerja && cachedBulk?.jabatan) {
         const cachedOpds = (cachedBulk.unitKerja || []) as UnitKerja[];
         const cachedJbts = (cachedBulk.jabatan || []) as any[];
         setRawOpds(cachedOpds);
         setRawJabatans(cachedJbts);
+        if (cachedBulk.referensiJabatan) {
+          setRawReferensi(cachedBulk.referensiJabatan);
+        }
         const { roots, defaultExpand } = buildOrgTreeNodes(cachedOpds, cachedJbts);
         setTreeData(roots);
         setIsEmpty(roots.length === 0);
@@ -333,13 +335,16 @@ export default function OrganisasiPage() {
     }
     try {
       const [bulkData, orgSetting] = await Promise.all([
-        api.getBulkData(['unitKerja', 'jabatan']),
+        api.getBulkData(['unitKerja', 'jabatan', 'referensiJabatan']),
         api.getOrgSetting().catch(() => null)
       ]);
 
       const opds = (bulkData.unitKerja || []) as UnitKerja[];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const jabatans = (bulkData.jabatan || []) as any[];
+      if (bulkData.referensiJabatan) {
+        setRawReferensi(bulkData.referensiJabatan);
+      }
 
       setRawOpds(opds);
       setRawJabatans(jabatans);
@@ -483,11 +488,14 @@ export default function OrganisasiPage() {
     setModalMode('add');
   };
 
+  const opdMap = useMemo(() => new Map(rawOpds.map(o => [o.id, o])), [rawOpds]);
+
   const openEditModal = (node: TreeNode, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    ensureReferensiLoaded();
     if (node.type === 'OPD') {
-      const opd = rawOpds.find(o => o.id === node.id);
+      const opd = opdMap.get(node.id);
       setModalData({
         id: node.id, nama: opd?.nama || node.label, kode: opd?.kode || '',
         parentId: opd?.parentId || '', unitKerjaId: '', jenisJabatan: '',
@@ -537,25 +545,35 @@ export default function OrganisasiPage() {
 
   const handleModalSave = async () => {
     if (modalData.targetType === 'jabatan' && (modalData.jenisJabatan === 'Pelaksana' || modalData.jenisJabatan.startsWith('Fungsional'))) {
-      const isMatch = rawReferensi.some(ref => {
-        const refJenis = (ref.jenisJabatan || '').toLowerCase();
-        const modalJenis = modalData.jenisJabatan;
-        const baseName = (ref.namaBase || '').toLowerCase();
-        const inputName = modalData.nama.toLowerCase();
-        if (modalJenis === 'Fungsional Keahlian') {
-          return refJenis === 'fungsional' && ref.kategori === 'Keahlian' && (inputName === baseName || inputName.startsWith(baseName));
+      const existingJbt = modalMode === 'edit' && modalData.id ? rawJabatans.find(j => j.id === modalData.id) : null;
+      const isNameUnchanged = existingJbt && (existingJbt.namaJabatan || '').trim().toLowerCase() === modalData.nama.trim().toLowerCase();
+
+      if (!isNameUnchanged) {
+        if (rawReferensi.length === 0) {
+          await ensureReferensiLoaded();
         }
-        if (modalJenis === 'Fungsional Keterampilan') {
-          return refJenis === 'fungsional' && ref.kategori === 'Keterampilan' && (inputName === baseName || inputName.startsWith(baseName));
+        if (rawReferensi.length > 0) {
+          const isMatch = rawReferensi.some(ref => {
+            const refJenis = (ref.jenisJabatan || '').toLowerCase();
+            const modalJenis = modalData.jenisJabatan;
+            const baseName = (ref.namaBase || '').trim().toLowerCase();
+            const inputName = modalData.nama.trim().toLowerCase();
+            if (modalJenis === 'Fungsional Keahlian') {
+              return refJenis === 'fungsional' && ref.kategori === 'Keahlian' && (inputName === baseName || inputName.startsWith(baseName + ' ') || inputName.startsWith(baseName));
+            }
+            if (modalJenis === 'Fungsional Keterampilan') {
+              return refJenis === 'fungsional' && ref.kategori === 'Keterampilan' && (inputName === baseName || inputName.startsWith(baseName + ' ') || inputName.startsWith(baseName));
+            }
+            if (modalJenis === 'Fungsional') {
+              return refJenis === 'fungsional' && (inputName === baseName || inputName.startsWith(baseName + ' ') || inputName.startsWith(baseName));
+            }
+            return refJenis === modalJenis.toLowerCase() && inputName === baseName;
+          });
+          if (!isMatch) {
+            alert(`Nama jabatan harus dipilih dari referensi Jabatan ${modalData.jenisJabatan} yang terdaftar.`);
+            return;
+          }
         }
-        if (modalJenis === 'Fungsional') {
-          return refJenis === 'fungsional' && (inputName === baseName || inputName.startsWith(baseName));
-        }
-        return refJenis === modalJenis.toLowerCase() && inputName === baseName;
-      });
-      if (!isMatch) {
-        alert(`Nama jabatan harus dipilih dari referensi Jabatan ${modalData.jenisJabatan} yang terdaftar.`);
-        return;
       }
     }
     setModalSaving(true);
@@ -1288,13 +1306,13 @@ export default function OrganisasiPage() {
                               return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
                             })
                             .filter(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
                               return label.toLowerCase().includes(parentSearch.toLowerCase());
                             })
                             .sort((a, b) => (a.namaJabatan || '').localeCompare(b.namaJabatan || ''))
                             .map(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const isSelected = j.id === modalData.parentId;
                               return (
                                 <div
@@ -1330,7 +1348,7 @@ export default function OrganisasiPage() {
                               return jenis.includes('pimpinan tinggi') || jenis.includes('jpt') || jenis.includes('administrator') || jenis.includes('pengawas');
                             })
                             .filter(j => {
-                              const opdName = j.unitKerjaId ? rawOpds.find(o => o.id === j.unitKerjaId)?.nama || j.unitKerjaId : "";
+                              const opdName = j.unitKerjaId ? opdMap.get(j.unitKerjaId)?.nama || j.unitKerjaId : "";
                               const label = `${j.namaJabatan} ${opdName}`;
                               return label.toLowerCase().includes(parentSearch.toLowerCase());
                             }).length === 0 && (

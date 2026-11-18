@@ -444,6 +444,22 @@ rU = sandbox.updateUrutanBatch_(opPend, 'tugasPokok', [{ id: 't3', urutan: 3 }])
 check('A6 operator u_pend boleh urutkan t3 (miliknya)',
   rU.success === true && patchCalls.length === 1 && patchCalls[0].payload['t3/urutan'] === 3, patchCalls);
 
+// Admin boleh urutkan unitKerja
+patchCalls = [];
+let rUOpd = sandbox.updateUrutanBatch_(admin1, 'unitKerja', [{ id: 'u_buk', urutan: 1 }, { id: 'u_sek', urutan: 2 }]);
+check('A6 admin boleh urutkan unitKerja', rUOpd.success === true && patchCalls.length === 1 && patchCalls[0].payload['u_buk/urutan'] === 1, patchCalls);
+
+// Operator boleh urutkan sub-unit di lingkup OPD-nya (u_opd melingkupi u_buk)
+patchCalls = [];
+const opOpd = { username: 'op_opd', role: 'operator', unitKerjaId: 'u_opd' };
+rUOpd = sandbox.updateUrutanBatch_(opOpd, 'unitKerja', [{ id: 'u_buk', urutan: 2 }]);
+check('A6 operator OPD boleh urutkan sub-unit kerjanya', rUOpd.success === true && patchCalls.length === 1 && patchCalls[0].payload['u_buk/urutan'] === 2, patchCalls);
+
+// Operator ditolak urutkan unitKerja OPD lain
+patchCalls = [];
+expectThrow('A6 operator u_pend DITOLAK urutkan u_buk (OPD lain)',
+  () => sandbox.updateUrutanBatch_(opPend, 'unitKerja', [{ id: 'u_buk', urutan: 1 }]), 'Akses ditolak');
+
 // Admin boleh semuanya
 patchCalls = [];
 rU = sandbox.updateUrutanBatch_(admin1, 'tugasPokok', [{ id: 't3', urutan: 1 }]);

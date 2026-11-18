@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { ReferensiJabatan } from "@/lib/types";
@@ -42,6 +42,12 @@ export default function ReferensiPage() {
 
   // Safety similarity check state
   const [similarWarningMatches, setSimilarWarningMatches] = useState<SimilarMatch[]>([]);
+
+  // PRF-10: Pre-normalize savedData once when savedData changes
+  const normalizedSavedData = useMemo(
+    () => savedData.map(item => ({ item, norm: normalizeName(item.namaBase) })),
+    [savedData]
+  );
 
   const fetchSavedData = async () => {
     setIsLoadingData(true);
@@ -155,8 +161,9 @@ export default function ReferensiPage() {
     const matches: SimilarMatch[] = [];
     previewData.forEach(newItem => {
       const normNew = normalizeName(newItem.namaBase);
-      savedData.forEach(existingItem => {
-        const normExisting = normalizeName(existingItem.namaBase);
+      normalizedSavedData.forEach(({ item: existingItem, norm: normExisting }) => {
+        const maxLen = Math.max(normNew.length, normExisting.length, 1);
+        if (Math.abs(normNew.length - normExisting.length) / maxLen > 0.35) return;
         const sim = stringSimilarity(normNew, normExisting);
         if (sim >= 0.75) {
           matches.push({ newItem, existingItem, similarity: sim });
@@ -171,9 +178,7 @@ export default function ReferensiPage() {
     setIsLoading(true);
     setMessage(null);
     try {
-      for (const item of previewData) {
-        await api.createEntity('referensiJabatan', item);
-      }
+      await api.createBatchReferensi(previewData);
       
       setMessage({ type: 'success', text: `${previewData.length} data referensi berhasil disimpan ke database!` });
       

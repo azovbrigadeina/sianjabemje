@@ -165,17 +165,34 @@ export default function OperatorLaporanPage() {
       const multiEntities = ['tugasPokok', 'bahanKerja', 'perangkatKerja', 'tanggungJawab', 'wewenang', 'korelasiJabatan', 'kondisiLingkungan', 'risikoBahaya'];
       const singleEntities = ['syaratJabatan', 'kualifikasi', 'prestasiKerja', 'hasilKerja'];
 
+      const multiIndexed: Record<string, Map<string, any[]>> = {};
+      multiEntities.forEach(ent => {
+        const map = new Map<string, any[]>();
+        (bulkData[ent] || []).forEach((item: any) => {
+          if (!item.jabatanId) return;
+          const arr = map.get(item.jabatanId) || [];
+          arr.push(item);
+          map.set(item.jabatanId, arr);
+        });
+        map.forEach(arr => arr.sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
+        multiIndexed[ent] = map;
+      });
+      const singleIndexed: Record<string, Map<string, any>> = {};
+      singleEntities.forEach(ent => {
+        const map = new Map<string, any>();
+        (bulkData[ent] || []).forEach((item: any) => {
+          if (item.jabatanId) map.set(item.jabatanId, item);
+        });
+        singleIndexed[ent] = map;
+      });
+
       const fullJabatans: JabatanFull[] = jobsToDownload.map(j => {
         const full: any = { ...j };
         multiEntities.forEach(ent => {
-          const list = bulkData[ent] || [];
-          full[ent] = list
-            .filter((item: any) => item.jabatanId === j.id)
-            .sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0));
+          full[ent] = multiIndexed[ent].get(j.id) || [];
         });
         singleEntities.forEach(ent => {
-          const list = bulkData[ent] || [];
-          full[ent] = list.find((item: any) => item.jabatanId === j.id) || null;
+          full[ent] = singleIndexed[ent].get(j.id) || null;
         });
         return full as JabatanFull;
       });
@@ -226,17 +243,34 @@ export default function OperatorLaporanPage() {
         });
       }
 
+      const multiIndexedAbk: Record<string, Map<string, any[]>> = {};
+      multiEntities.forEach(ent => {
+        const map = new Map<string, any[]>();
+        (bulkData[ent] || []).forEach((item: any) => {
+          if (!item.jabatanId) return;
+          const arr = map.get(item.jabatanId) || [];
+          arr.push(item);
+          map.set(item.jabatanId, arr);
+        });
+        map.forEach(arr => arr.sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0)));
+        multiIndexedAbk[ent] = map;
+      });
+      const singleIndexedAbk: Record<string, Map<string, any>> = {};
+      singleEntities.forEach(ent => {
+        const map = new Map<string, any>();
+        (bulkData[ent] || []).forEach((item: any) => {
+          if (item.jabatanId) map.set(item.jabatanId, item);
+        });
+        singleIndexedAbk[ent] = map;
+      });
+
       const fullJabatans: JabatanFull[] = targetJabatans.map(j => {
         const full: any = { ...j };
         multiEntities.forEach(ent => {
-          const list = bulkData[ent] || [];
-          full[ent] = list
-            .filter((item: any) => item.jabatanId === j.id)
-            .sort((a: any, b: any) => (a.nomorUrut || 0) - (b.nomorUrut || 0));
+          full[ent] = multiIndexedAbk[ent].get(j.id) || [];
         });
         singleEntities.forEach(ent => {
-          const list = bulkData[ent] || [];
-          full[ent] = list.find((item: any) => item.jabatanId === j.id) || null;
+          full[ent] = singleIndexedAbk[ent].get(j.id) || null;
         });
         return full as JabatanFull;
       });

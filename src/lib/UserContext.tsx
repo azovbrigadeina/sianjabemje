@@ -53,8 +53,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      // Warm up GAS backend
+      // Warm up GAS / Homeserver backend & sinkronkan konfigurasi global Homeserver
       api.warmUpGas();
+      api.homeserver.syncGlobalConfig().catch(() => {});
 
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {

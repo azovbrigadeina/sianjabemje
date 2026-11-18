@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, useCallback, FormEvent } from "react";
 import { api } from "@/lib/api";
 import { useUser } from "@/lib/UserContext";
 import type { User, UnitKerja } from "@/lib/types";
@@ -54,7 +54,7 @@ export default function UsersPage() {
     });
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [usersRaw, opdsRaw, footerSetting] = await Promise.all([
@@ -76,11 +76,11 @@ export default function UsersPage() {
       console.error("Gagal memuat data", err);
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const openCreate = () => {
     setEditingUser(null);
