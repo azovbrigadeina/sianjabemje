@@ -23,7 +23,10 @@ const {
   getMonitorSummary,
   dirtyPaths,
   requireEnv,
-  verifyAdminSecret
+  verifyAdminSecret,
+  generateAuthToken,
+  validateAuthToken,
+  getAuthenticatedUser
 } = require('./server.js');
 
 test('Sianjab Homeserver DB Engine - O(1) Secondary Index, CRUD, Bulk & Outbox', async (t) => {
@@ -237,4 +240,26 @@ test('SEC-K3: verifyAdminSecret menolak FIREBASE_SECRET', () => {
   assert.equal(verifyAdminSecret(mk('test-fb-secret'), {}), false);
   assert.equal(verifyAdminSecret(mk('wrong'), {}), false);
   assert.equal(verifyAdminSecret(mk('test-hs-secret'), {}), true);
+});
+
+test('SEC-K1: validateAuthToken wajib verifikasi HMAC (4 bagian)', () => {
+  setDbNode('users/u_admin', {
+    id: 'u_admin', username: 'admin', nama: 'Administrator', role: 'admin', isActive: true
+  });
+  rebuildAllIndexes();
+
+  const good = generateAuthToken('admin');
+  assert.equal(validateAuthToken(good), 'admin');
+
+  // Token palsu: HMAC salah
+  const forged = Buffer.from(`admin:${Date.now()}:nonce-palsu:deadbeef`).toString('base64');
+  assert.equal(validateAuthToken(forged), null);
+
+  // Token legacy 3 bagian (tanpa HMAC) — dulu diterima, sekarang ditolak
+  const legacy = Buffer.from(`admin:${Date.now()}:nonce-lama`).toString('base64');
+  assert.equal(validateAuthToken(legacy), null);
+});
+
+test('SEC-K1: getAuthenticatedUser menolak username tanpa record user (bypass admin dihapus)', () => {
+  assert.throws(() => getAuthenticatedUser(generateAuthToken('tidak_ada')), (e) => e.statusCode === 401);
 });

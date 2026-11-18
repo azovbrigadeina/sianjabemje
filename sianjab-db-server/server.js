@@ -669,25 +669,31 @@ function validateAuthToken(token) {
   try {
     const decoded = Buffer.from(String(token), 'base64').toString('utf8');
     const parts = decoded.split(':');
-    if (parts.length < 3) return null;
+    // SEC-K1: wajib 4 bagian (username:timestamp:nonce:hmac) — paritas GAS.
+    if (parts.length !== 4) return null;
 
-    let username, timestamp, nonce;
-    if (parts.length >= 4) {
-      username = parts[0];
-      timestamp = parts[1];
-      nonce = parts[2];
-    } else {
-      username = parts[0];
-      timestamp = parts[1];
-      nonce = null;
-    }
+    const username = parts[0];
+    const timestamp = parts[1];
+    const nonce = parts[2];
+    const signature = parts[3];
+    if (!username || !timestamp || !nonce || !signature) return null;
+
+    // SEC-K1: verifikasi HMAC — token tanpa tanda tangan sah DITOLAK.
+    const expected = crypto
+      .createHmac('sha256', API_SECRET)
+      .update(`${username}:${timestamp}:${nonce}`, 'utf8')
+      .digest('hex');
+    const expectedBuf = Buffer.from(expected, 'hex');
+    const actualBuf = Buffer.from(String(signature), 'hex');
+    if (expectedBuf.length !== actualBuf.length) return null;
+    if (!crypto.timingSafeEqual(expectedBuf, actualBuf)) return null;
 
     const tokenAge = Date.now() - parseInt(timestamp, 10);
     if (isNaN(tokenAge) || tokenAge > 86400000 || tokenAge < -300000) {
       return null;
     }
 
-    if (nonce && db.revokedTokens && db.revokedTokens[nonce]) {
+    if (db.revokedTokens && db.revokedTokens[nonce]) {
       return null;
     }
 
@@ -695,7 +701,7 @@ function validateAuthToken(token) {
     const exists = users.some(
       (u) => u && u.isActive !== false && String(u.username || '').toLowerCase() === String(username || '').toLowerCase()
     );
-    if (!exists && username !== 'admin') return null;
+    if (!exists) return null;
     return username;
   } catch (e) {
     return null;
@@ -714,9 +720,6 @@ function getAuthenticatedUser(token) {
     (u) => u && String(u.username || '').toLowerCase() === String(username).toLowerCase()
   );
   if (!found) {
-    if (username === 'admin') {
-      return { id: 'admin', username: 'admin', role: 'admin', unitKerjaId: '' };
-    }
     const err = new Error('Token tidak valid atau sudah kadaluarsa. Silakan login ulang.');
     err.statusCode = 401;
     throw err;
@@ -2473,5 +2476,8 @@ module.exports = {
   dirtyPaths,
   saveDbNow,
   requireEnv,
-  verifyAdminSecret
+  verifyAdminSecret,
+  generateAuthToken,
+  validateAuthToken,
+  getAuthenticatedUser
 };
