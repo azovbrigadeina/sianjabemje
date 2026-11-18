@@ -84,7 +84,7 @@ export default function OperatorBebanKerjaPage() {
   const buildOperatorTreeNodes = (
     allOpds: UnitKerja[],
     allJabatans: Jabatan[],
-    abks: any[],
+    abks: { id?: string; jabatanId?: string }[],
     userUnitKerjaId: string,
     statusSummary?: { anjabFilled?: string[]; abkFilled?: string[] } | null
   ) => {
@@ -144,7 +144,7 @@ export default function OperatorBebanKerjaPage() {
     const opdToExternalParentJbt: Record<string, string> = {};
     const jbtToReroute: Record<string, boolean> = {};
 
-    const jabatanById = new Map<string, any>();
+    const jabatanById = new Map<string, Jabatan>();
     jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
 
     jabatans.forEach(jbt => {
@@ -221,7 +221,7 @@ export default function OperatorBebanKerjaPage() {
         const { roots, expandState } = buildOperatorTreeNodes(
           cachedBulk.unitKerja as UnitKerja[],
           cachedBulk.jabatan as Jabatan[],
-          (cachedBulk.abk || []) as any[],
+          (cachedBulk.abk || []) as { id?: string; jabatanId?: string }[],
           user.unitKerjaId,
           cachedSummary
         );
@@ -244,7 +244,7 @@ export default function OperatorBebanKerjaPage() {
       ]);
       const opdsRaw = (bulkData.unitKerja || []) as UnitKerja[];
       const jabatansRaw = (bulkData.jabatan || []) as Jabatan[];
-      const abks = (bulkData.abk || []) as any[];
+      const abks = (bulkData.abk || []) as { id?: string; jabatanId?: string }[];
 
       const thisOpd = opdsRaw ? opdsRaw.find(u => u.id === user.unitKerjaId) : null;
       let readOnlyActive = false;
@@ -282,7 +282,7 @@ export default function OperatorBebanKerjaPage() {
   }, [user]);
 
   useEffect(() => {
-    loadTree();
+    Promise.resolve().then(() => loadTree());
   }, [loadTree]);
 
   const expandAll = () => {
@@ -635,7 +635,7 @@ export default function OperatorBebanKerjaPage() {
                   <button className="btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem', background: 'hsla(var(--primary), 0.1)', border: '1px solid hsla(var(--primary), 0.2)', color: 'hsl(var(--primary))', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     onClick={async () => {
                       if (confirm("Tarik ulang data dari Anjab? Data ABK saat ini akan tertimpa.")) {
-                        const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: any[] };
+                        const fullData = await api.getJabatanFull(activeJob) as { tugasPokok?: { uraianTugas: string; hasilKerja: string; waktuPenyelesaian: number; jumlahHasil?: number }[] };
                         const tp = fullData?.tugasPokok || [];
                         if (tp.length === 0) {
                           showToast("⚠️ Anjab masih kosong!");
@@ -727,7 +727,7 @@ export default function OperatorBebanKerjaPage() {
                       {abkRows.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', opacity: 0.5 }}>
-                            Belum ada data tugas. Klik "+ Tambah Baris" atau isi Anjab terlebih dahulu.
+                            Belum ada data tugas. Klik &quot;+ Tambah Baris&quot; atau isi Anjab terlebih dahulu.
                           </td>
                         </tr>
                       ) : (

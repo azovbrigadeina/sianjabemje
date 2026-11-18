@@ -5,7 +5,7 @@ import styles from "./page.module.css";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/utils";
 import { useUser } from "@/lib/UserContext";
-import { UnitKerja, ReferensiJabatan } from "@/lib/types";
+import { UnitKerja, ReferensiJabatan, Jabatan } from "@/lib/types";
 
 type TreeNode = {
   id: string;
@@ -162,7 +162,7 @@ export default function OperatorOrganisasiPage() {
   // Raw data refs for modal dropdowns
   const [rawOpds, setRawOpds] = useState<UnitKerja[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [rawJabatans, setRawJabatans] = useState<any[]>([]);
+  const [rawJabatans, setRawJabatans] = useState<Jabatan[]>([]);
 
   // Autocomplete parent state
   const [parentSearch, setParentSearch] = useState("");
@@ -173,22 +173,25 @@ export default function OperatorOrganisasiPage() {
   const [referensiSearch, setReferensiSearch] = useState("");
   const [showReferensiDropdown, setShowReferensiDropdown] = useState(false);
 
+  // Sinkronisasi parentSearch dari data modal — setState di microtask.
   useEffect(() => {
-    if (modalMode && modalData.targetType === 'jabatan') {
-      if (modalData.parentId) {
-        const parentJbt = rawJabatans.find(j => j.id === modalData.parentId);
-        if (parentJbt) {
-          const opdName = parentJbt.unitKerjaId ? rawOpds.find(o => o.id === parentJbt.unitKerjaId)?.nama || parentJbt.unitKerjaId : "";
-          setParentSearch(`${parentJbt.namaJabatan}${opdName ? ` (${opdName})` : ''}`);
+    Promise.resolve().then(() => {
+      if (modalMode && modalData.targetType === 'jabatan') {
+        if (modalData.parentId) {
+          const parentJbt = rawJabatans.find(j => j.id === modalData.parentId);
+          if (parentJbt) {
+            const opdName = parentJbt.unitKerjaId ? rawOpds.find(o => o.id === parentJbt.unitKerjaId)?.nama || parentJbt.unitKerjaId : "";
+            setParentSearch(`${parentJbt.namaJabatan}${opdName ? ` (${opdName})` : ''}`);
+          } else {
+            setParentSearch("");
+          }
         } else {
           setParentSearch("");
         }
       } else {
         setParentSearch("");
       }
-    } else {
-      setParentSearch("");
-    }
+    });
   }, [modalData.parentId, modalMode, rawJabatans, rawOpds]);
 
   const showToast = (msg: string) => {
@@ -197,7 +200,7 @@ export default function OperatorOrganisasiPage() {
   };
 
   // BUILD OPERATOR ORG TREE HELPER
-  const buildOperatorOrgTreeNodes = (opds: UnitKerja[], jabatans: any[], userUnitKerjaId: string) => {
+  const buildOperatorOrgTreeNodes = (opds: UnitKerja[], jabatans: Jabatan[], userUnitKerjaId: string) => {
     if (opds.length === 0 && jabatans.length === 0) {
       return { opdTree: [] as TreeNode[], defaultExpand: {} as Record<string, boolean> };
     }
@@ -231,7 +234,7 @@ export default function OperatorOrganisasiPage() {
     const opdToExternalParentJbt: Record<string, string> = {};
     const jbtToReroute: Record<string, boolean> = {};
 
-    const jabatanById = new Map<string, any>();
+    const jabatanById = new Map<string, Jabatan>();
     jabatans.forEach(jbt => jabatanById.set(jbt.id, jbt));
 
     jabatans.forEach(jbt => {
@@ -318,7 +321,7 @@ export default function OperatorOrganisasiPage() {
       const cachedBulk = await api.getCachedBulkData(['unitKerja', 'jabatan', 'referensiJabatan']);
       if (cachedBulk?.unitKerja && cachedBulk?.jabatan) {
         const cachedOpds = (cachedBulk.unitKerja || []) as UnitKerja[];
-        const cachedJbts = (cachedBulk.jabatan || []) as any[];
+        const cachedJbts = (cachedBulk.jabatan || []) as Jabatan[];
         setRawOpds(cachedOpds);
         setRawJabatans(cachedJbts);
         if (cachedBulk.referensiJabatan) {
@@ -391,9 +394,9 @@ export default function OperatorOrganisasiPage() {
     }
   }, [user?.unitKerjaId]);
 
-  useEffect(() => { 
+  useEffect(() => {
     if (user?.unitKerjaId) {
-      loadData(); 
+      Promise.resolve().then(() => loadData());
     }
   }, [user?.unitKerjaId, loadData]);
 
@@ -639,7 +642,7 @@ export default function OperatorOrganisasiPage() {
             tahun: activeYear
           };
           await api.updateJabatan(modalData.id, editPayload);
-          const updatedJabatans = rawJabatans.map(j => (j.id === modalData.id ? { ...j, ...editPayload } : j));
+          const updatedJabatans = rawJabatans.map(j => (j.id === modalData.id ? { ...j, ...editPayload } as Jabatan : j));
           setRawJabatans(updatedJabatans);
           const { opdTree } = buildOperatorOrgTreeNodes(rawOpds, updatedJabatans, userUnitKerjaId);
           setTreeData(opdTree);
@@ -669,7 +672,7 @@ export default function OperatorOrganisasiPage() {
             if (!res || !res.items || !Array.isArray(res.items) || res.items.length === 0) {
               throw new Error("Gagal membuat Jabatan Fungsional: Server tidak mengembalikan data yang valid.");
             }
-            const updatedJabatans = [...rawJabatans, ...res.items];
+            const updatedJabatans = [...rawJabatans, ...(res.items as Jabatan[])];
             setRawJabatans(updatedJabatans);
             const { opdTree } = buildOperatorOrgTreeNodes(rawOpds, updatedJabatans, userUnitKerjaId);
             setTreeData(opdTree);
@@ -712,7 +715,7 @@ export default function OperatorOrganisasiPage() {
             const newJabatan = {
               ...jabatanPayload,
               id: res.id
-            };
+            } as Jabatan;
             const updatedJabatans = [...rawJabatans, newJabatan];
             setRawJabatans(updatedJabatans);
             const { opdTree } = buildOperatorOrgTreeNodes(rawOpds, updatedJabatans, userUnitKerjaId);
