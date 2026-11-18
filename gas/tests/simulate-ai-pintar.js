@@ -483,6 +483,8 @@ sandbox.fbPost_ = origFbPost;
 // ------------------------------------------------------------
 console.log('\n== A7: autoRegisterOperator_ (matching OPD: persis -> kode -> substring unik) ==');
 scriptProps.set('INTEGRATION_TOKEN', 'test-token');
+// ARC-F3: pepper hash password — wajib terisi sebelum user login (fail-closed).
+scriptProps.set('PASSWORD_PEPPER', 'parity-password-pepper');
 
 const origFbPatch7 = sandbox.fbPatch_;
 const origFbPost7 = sandbox.fbPost_;

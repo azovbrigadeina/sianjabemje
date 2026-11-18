@@ -1975,9 +1975,44 @@ function hashPasswordOld_(password) {
   return hexString;
 }
 
-function hashPassword_(password, username) {
+// ARC-F3: pepper hash password dipisah dari API_SECRET agar rotasi API_SECRET
+// tidak mengunci akun. Wajib terisi (fail-closed) sebelum user login.
+function getPasswordPepper_() {
+  var pepper = PropertiesService.getScriptProperties().getProperty('PASSWORD_PEPPER');
+  if (!pepper || !String(pepper).trim()) {
+    throw new Error('PASSWORD_PEPPER belum dikonfigurasi di Script Properties.');
+  }
+  return String(pepper).trim();
+}
+
+// v1: hash deterministik lama (salt = username:API_SECRET) — hanya untuk verifikasi.
+function hashPasswordV1_(password, username) {
   var salt = (username || '') + ':' + getApiSecret_();
   return computeHmacHex_(password, salt);
+}
+
+// v2: v2$<salt32hex>$<hmac64hex>, key = salt:username:PASSWORD_PEPPER.
+function hashPasswordWithSalt_(password, username, salt) {
+  var key = salt + ':' + (username || '') + ':' + getPasswordPepper_();
+  return 'v2$' + salt + '$' + computeHmacHex_(password, key);
+}
+
+function hashPassword_(password, username) {
+  var salt = Utilities.getUuid().replace(/-/g, '');
+  return hashPasswordWithSalt_(password, username, salt);
+}
+
+function verifyPassword_(password, username, stored) {
+  var value = String(stored || '');
+  if (!value) return { valid: false, needsRehash: false };
+  if (value.indexOf('v2$') === 0) {
+    var parts = value.split('$');
+    if (parts.length !== 3) return { valid: false, needsRehash: false };
+    return { valid: constantTimeEqual_(hashPasswordWithSalt_(password, username, parts[1]), value), needsRehash: false };
+  }
+  if (constantTimeEqual_(hashPasswordV1_(password, username), value)) return { valid: true, needsRehash: true };
+  if (constantTimeEqual_(hashPasswordOld_(password), value)) return { valid: true, needsRehash: true };
+  return { valid: false, needsRehash: false };
 }
 
 // A10 (audit 2026-10-07): rotasi security_logs — node dijaga tetap kecil agar
@@ -2087,18 +2122,10 @@ function loginUser_(data) {
   }
 
   var user = users[foundUserId];
-  var isPasswordValid = false;
-  var needsRehash = false;
-
-  var saltedHash = hashPassword_(data.password, user.username);
-  var legacyHash = hashPasswordOld_(data.password);
-
-  if (user.password === saltedHash) {
-    isPasswordValid = true;
-  } else if (user.password === legacyHash) {
-    isPasswordValid = true;
-    needsRehash = true;
-  }
+  var storedPass = user.password || user.passwordHash || '';
+  var check = verifyPassword_(data.password, user.username, storedPass);
+  var isPasswordValid = check.valid;
+  var needsRehash = check.needsRehash;
 
   if (!isPasswordValid) {
     recordFail_('Username atau password salah');
@@ -2116,7 +2143,7 @@ function loginUser_(data) {
   // Jika password masih memakai hashing lama tanpa salt, otomatis upgrade ke salted HMAC
   if (needsRehash) {
     try {
-      fbPatch_('users/' + foundUserId, { password: saltedHash, updatedAt: new Date().toISOString() });
+      fbPatch_('users/' + foundUserId, { password: hashPassword_(data.password, user.username), passwordHash: null, updatedAt: new Date().toISOString() });
       invalidateCache_('users');
     } catch (rehashErr) {
       Logger.log('Gagal migrasi hash password: ' + rehashErr.message);

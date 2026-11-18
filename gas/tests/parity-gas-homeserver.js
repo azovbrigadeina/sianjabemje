@@ -18,6 +18,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -30,6 +31,9 @@ function check(name, cond, detail) {
 // ------------------------------------------------------------
 const code = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
 const scriptProps = new Map();
+// ARC-F3: samakan secret GAS dengan env Homeserver agar paritas hash bermakna.
+scriptProps.set('API_SECRET', 'parity-api-secret');
+scriptProps.set('PASSWORD_PEPPER', 'parity-password-pepper');
 const sandbox = {
   console: { log: () => {}, error: () => {}, warn: () => {} },
   Logger: { log: () => {} },
@@ -46,7 +50,9 @@ const sandbox = {
   Utilities: {
     getUuid: () => 'uuid-' + Math.random().toString(36).slice(2),
     MacAlgorithm: { HMAC_SHA_256: 'HMAC_SHA_256' },
-    computeHmacSignature: (_a, data, _k) => Buffer.from(String(data), 'utf8').toString('hex'),
+    computeHmacSignature: (_a, data, k) => [...crypto.createHmac('sha256', String(k)).update(String(data), 'utf8').digest()].map((b) => (b > 127 ? b - 256 : b)),
+    computeDigest: (_alg, data) => [...crypto.createHash('sha256').update(String(data), 'utf8').digest()].map((b) => (b > 127 ? b - 256 : b)),
+    DigestAlgorithm: { SHA_256: 'SHA_256' },
     base64Encode: (s) => Buffer.from(String(s), 'utf8').toString('base64'),
     base64Decode: (s) => Buffer.from(String(s), 'base64'),
     newBlob: (b) => ({ getDataAsString: () => Buffer.from(b).toString('utf8') }),
@@ -214,6 +220,23 @@ async function main() {
   // ----------------------------------------------------------
   check('ARC-F2: AMBANG_TPP_JAM_TAHUN GAS = 1350', sandbox.AMBANG_TPP_JAM_TAHUN === 1350, sandbox.AMBANG_TPP_JAM_TAHUN);
   check('ARC-F2: AMBANG_TPP_MENIT_TAHUN = 81000', sandbox.AMBANG_TPP_MENIT_TAHUN === 81000, sandbox.AMBANG_TPP_MENIT_TAHUN);
+
+  // ----------------------------------------------------------
+  // 10. Paritas hash password v2 (ARC-F3)
+  // ----------------------------------------------------------
+  const fixedSalt = '0123456789abcdef0123456789abcdef';
+  const gasHash = sandbox.hashPasswordWithSalt_('rahasia', 'budi', fixedSalt);
+  const hsHash = server.hashPasswordWithSalt('rahasia', 'budi', fixedSalt);
+  check('ARC-F3: hash v2 GAS = Homeserver (salt sama)', gasHash === hsHash, { gas: gasHash, hs: hsHash });
+  check('ARC-F3: format hash v2', /^v2\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(hsHash), hsHash);
+
+  const gasV1 = sandbox.hashPasswordV1_('rahasia', 'budi');
+  const hsV1 = server.hashPasswordV1('rahasia', 'budi');
+  check('ARC-F3: hash v1 GAS = Homeserver', gasV1 === hsV1, { gas: gasV1, hs: hsV1 });
+  check('ARC-F3: verifikasi v1 GAS butuh rehash', sandbox.verifyPassword_('rahasia', 'budi', gasV1).needsRehash === true);
+  check('ARC-F3: verifikasi v1 Homeserver butuh rehash', server.verifyPassword('rahasia', 'budi', hsV1).needsRehash === true);
+  check('ARC-F3: password salah ditolak GAS', sandbox.verifyPassword_('salah', 'budi', gasHash).valid === false);
+  check('ARC-F3: password salah ditolak Homeserver', server.verifyPassword('salah', 'budi', hsHash).valid === false);
 
   // ----------------------------------------------------------
   // Ringkasan
