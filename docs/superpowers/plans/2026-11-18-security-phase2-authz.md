@@ -98,3 +98,10 @@
 
 Gate akhir: server.test.js 24/24, resilience 1/1, gas 122/122 + auth 6/6, unit 23/23, build OK.
 Head branch: `e659c0c`.
+
+## Sesi Lanjutan (ARC-F14 + F8 parsial)
+
+- **ARC-F14 selesai** (commit f2e4b74): `runBackupNow()` + `pruneBackupFiles()` (retensi default 14, env `BACKUP_INTERVAL_MS` / `BACKUP_RETENTION`); interval harian otomatis; backup saat shutdown; endpoint admin `POST /_homeserver/backup`; `getMonitorSummary().alerts` berisi `storageError`/`lastBackupAt`/`lastBackupError` untuk alerting.
+- **ARC-F8 parsial** (commit f60c250): tipe konkret menggantikan `any` di internal `src/lib/api.ts` (opts, catch, batch, restoreFull, dll). Sisa 26 `any` di permukaan API publik yang dikonsumsi lintas halaman — perlu tipedata domain dulu (ARC-F2 wilayah).
+- Test: server 25/25, resilience 1/1, gas 122/122+6/6, unit 23/23, build OK, `tsc --noEmit` 0 error.
+- Catatan: commit `.github/workflows/ci.yml` masih tertahan (PAT tanpa scope `workflow`) — file untracked di worktree.
