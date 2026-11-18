@@ -372,6 +372,9 @@ function logoutUser_(token) {
 
 function getUserFromToken_(token) {
   if (!token) return null;
+  // SEC-K4: JANGAN percaya isi token tanpa verifikasi HMAC. Action publik
+  // (mis. getBulkData) juga memanggil fungsi ini — token palsu harus null.
+  if (!validateToken_(token)) return null;
   try {
     var decoded = Utilities.newBlob(Utilities.base64Decode(token)).getDataAsString();
     var parts = decoded.split(':');
