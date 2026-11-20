@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      HOMESERVER_SECRET: ci-hs-secret
+      API_SECRET: ci-api-secret
+      FIREBASE_SECRET: ci-fb-secret
+      SITPP_SECRET: ci-sitpp-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run test:gas
+      - run: node --test sianjab-db-server/server.test.js
+      - run: node --test sianjab-db-server/resilience.test.js
+      - run: npm run build
